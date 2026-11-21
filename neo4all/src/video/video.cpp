@@ -145,7 +145,8 @@ int	video_init(void)
 		return 0;
 
 #ifdef DOUBLE_BUFFER
-	video_buffer = SDL_CreateRGBSurface(SDL_SWSURFACE, 320, 226, 16, 0xF800, 0x07E0, 0x001F, 0x0000);
+//	video_buffer = SDL_CreateRGBSurface(SDL_SWSURFACE, 320, 226, 16, 0xF800, 0x07E0, 0x001F, 0x0000);
+	video_buffer = SDL_CreateRGBSurface(SDL_SWSURFACE, 320, 240, 16, screen->format->Rmask, screen->format->Gmask, screen->format->Bmask, screen->format->Amask);
 #else
 	video_buffer = screen;
 #endif
@@ -203,7 +204,11 @@ int	video_set_mode(int mode)
 //	if ((screen=SDL_SetVideoMode(320, 240, 16, SDL_HWPALETTE|SDL_HWSURFACE|SDL_FULLSCREEN))==NULL) {
 //	if ((screen=SDL_SetVideoMode(512, 256, 16, SDL_HWPALETTE|SDL_HWSURFACE|SDL_DOUBLEBUF))==NULL) {
 #else
+#ifndef DINGUX
 	if ((screen=SDL_SetVideoMode(320, 240, 16, SDL_HWPALETTE|SDL_HWSURFACE|SDL_DOUBLEBUF))==NULL) {
+#else
+	if ((screen=SDL_SetVideoMode(320, 240, 16, SDL_SWSURFACE))==NULL) {
+#endif
 #endif
 
 #else

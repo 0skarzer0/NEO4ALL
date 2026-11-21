@@ -2,7 +2,7 @@
 ! Fast and Accurate Motorola 68000 Emulation Library
 ! FAME SH4 version 2.1 (03/23/2007)
 ! Oscar Orallo Pelaez
-! Assembly file generated on Apr  2 2007 19:38:38
+! Assembly file generated on Sep 26 2011 12:22:06
 ! --------------------------------------------------
 ! Generation options:
 ! - Code generation format for GNU assembler (GAS)
@@ -19,6 +19,8 @@
 ! - Emulate trace mode exception (OFF)
 ! - CPU clocks spent in IRQ processing (OFF)
 ! - Check for address exceptions in branches (OFF)
+! - Bypass TAS writeback (OFF)
+! - Declare CPU context as global variable (ON)
 ! --------------------------------------------------
 .data
 .align 5
@@ -72,6 +74,9 @@ rl_addr: .long readmemorydword
 wb_addr: .long writememorybyte
 ww_addr: .long writememoryword
 wl_addr: .long writememorydword
+wdecb_addr: .long writememorydecbyte
+wdecw_addr: .long writememorydecword
+wdecl_addr: .long writememorydecdword
 sfmhtbl:
 .rept 4096
  .long 0
@@ -104,16 +109,6 @@ mov #0,r0
 _m68k_emulate:
 mov.l execinfo_addr,r1
 mov.w @r1,r0
-tst #0x80,r0
-bt notstopped
-mov.l cycles_counter_addr,r0
-mov.l @r0,r1
-add r4,r1
-mov.l r1,@r0
-rts
-mov #0,r0
-.align 5
-notstopped:
 mov.l r8,@-r15
 mov r4,r7
 mov.l r9,@-r15
@@ -180,6 +175,10 @@ mov.l r5,@-r15
 mov.b r2,@r0
 mov.b @(r0,r5),r4
 mov #0,r5
+mov.l execinfo_addr,r2
+mov.b @r2,r0
+and #0x7f,r0
+mov.b r0,@r2
 mov.l g1_exception_addr,r0
 jsr @r0
 shll2 r4
@@ -210,6 +209,16 @@ mov.l @r15+,r3
 .intdone:
 mov #1,r0
 .noint:
+mov.l execinfo_addr,r0
+mov.b @r0,r0
+tst #0x80,r0
+bt execbase
+bsr basefunction
+pref @r13
+add r5,r6
+mov #0,r7
+bra execexit
+add #2,r6
 execbase:
 bsr basefunction
 pref @r13
@@ -1093,6 +1102,7 @@ mov.l @r15+,r4
 io_cycle_counter_addr26: .long io_cycle_counter
 .align 5
 writememorybyte:
+writememorydecbyte:
 mov.l r4,@-r15
 shll8 r4
 shlr8 r4
@@ -1140,6 +1150,7 @@ mov.l @r15+,r4
 io_cycle_counter_addr28: .long io_cycle_counter
 .align 5
 writememoryword:
+writememorydecword:
 mov.l r4,@-r15
 shll8 r4
 shlr8 r4
@@ -1243,6 +1254,21 @@ mov.l @r15+,r4
 .align 2
 io_cycle_counter_addr32: .long io_cycle_counter
 .align 5
+writememorydecdword:
+sts.l pr,@-r15
+mov.l writememoryword_addr34,r0
+jsr @r0
+add #2,r4
+mov.l writememoryword_addr34,r0
+swap.w r3,r3
+jsr @r0
+add #-2,r4
+lds.l @r15+,pr
+rts
+swap.w r3,r3
+.align 2
+writememoryword_addr34: .long writememoryword
+.align 5
 decode_extw:
 mov.w @r6+,r0
 exts.b r0,r4
@@ -1260,7 +1286,7 @@ add r0,r4
 .align 5
 group_1_exception:
 group_2_exception:
-mov.l icusthandler_addr34,r0
+mov.l icusthandler_addr35,r0
 mov.l @r0,r0
 tst r0,r0
 bt .vect_except
@@ -1282,9 +1308,9 @@ addc r9,r9
 and #3,r0
 shll2 r9
 or r0,r9
-mov.l sreg_addr34,r0
+mov.l sreg_addr35,r0
 mov.b r9,@r0
-mov.l io_cycle_counter_addr34,r0
+mov.l io_cycle_counter_addr35,r0
 mov.l r7,@r0
 mov.l r5,@(io_fetchbase-io_cycle_counter,r0)
 mov.l r6,@(io_fetchbased_pc-io_cycle_counter,r0)
@@ -1292,7 +1318,7 @@ sts.l pr,@-r15
 jsr @r1
 shlr2 r4
 lds.l @r15+,pr
-mov.l io_cycle_counter_addr34,r0
+mov.l io_cycle_counter_addr35,r0
 mov.l @r0,r7
 mov.l @(io_fetchbase-io_cycle_counter,r0),r5
 mov.l @(io_fetchbased_pc-io_cycle_counter,r0),r6
@@ -1317,7 +1343,7 @@ sub r5,r6
 .vect_except:
 sts.l	pr,@-r15
 mov.l r3,@-r15
-mov.l readmemorydword_addr34,r0
+mov.l readmemorydword_addr35,r0
 jsr @r0
 sub r5,r6
 mov r3,r2
@@ -1346,25 +1372,25 @@ mov.l @(sreg-areg,r14),r0
 mov #0x20,r1
 shll8 r1
 tst r1,r0
-bf ln35
+bf ln36
 or r1,r0
 mov.l r0,@(sreg-areg,r14)
 mov.l @(32,r14),r0
 mov.l @(60,r13),r1
 mov.l r0,@(60,r13)
 mov.l r1,@(32,r14)
-ln35:
-mov.l sreg_addr34,r1
+ln36:
+mov.l sreg_addr35,r1
 mov.b @(1,r1),r0
 mov r6,r3
 and #0x27,r0
 mov.b r0,@(1,r1)
 mov.l @(60,r13),r4
-mov.l writememorydword_addr34,r0
+mov.l writememorydword_addr35,r0
 jsr @r0
 add #-4,r4
 mov r5,r3
-mov.l writememoryword_addr34,r0
+mov.l writememoryword_addr35,r0
 jsr @r0
 add #-2,r4
 mov.l @r15+,r3
@@ -1373,27 +1399,27 @@ lds.l	@r15+,pr
 rts
 mov r2,r6
 .align 2
-readmemoryword_addr34: .long readmemoryword
-readmemorydword_addr34: .long readmemorydword
-writememoryword_addr34: .long writememoryword
-writememorydword_addr34: .long writememorydword
-icusthandler_addr34: .long icusthandler
-io_cycle_counter_addr34: .long io_cycle_counter
-execinfo_addr34: .long execinfo
-sreg_addr34: .long sreg
+readmemoryword_addr35: .long readmemoryword
+readmemorydword_addr35: .long readmemorydword
+writememoryword_addr35: .long writememoryword
+writememorydword_addr35: .long writememorydword
+icusthandler_addr35: .long icusthandler
+io_cycle_counter_addr35: .long io_cycle_counter
+execinfo_addr35: .long execinfo
+sreg_addr35: .long sreg
 .align 5
 privilege_violation:
 add #-2,r6
 bsr group_1_exception
 mov #0x20,r4
-mov.l bf_addr36,r0
+mov.l bf_addr37,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-34,r7
 .align 2
-bf_addr36: .long basefunction
+bf_addr37: .long basefunction
 .align 5
 fdl:
 mov.w @r6+,r0
@@ -1411,12 +1437,23 @@ fdl_cp:
 mov.w @r6+,r0
 cmp/pl r7
 shll2 r0
-bt/s continue37
+bt/s continue38
 mov.l @(r0,r12),r4
-bra fdl37
+bra fdl38
 mov.l @(execexit_addr-areg,r14),r4
-continue37:
-fdl37:
+continue38:
+fdl38:
+mov #0x1C,r2
+jmp @r4
+and r0,r2
+.align 5
+fdl_stop_cp:
+mov.w @r6+,r0
+cmp/pl r7
+shll2 r0
+mov.l @(execexit_addr-areg,r14),r4
+fdl39:
+mov #0,r7
 mov #0x1C,r2
 jmp @r4
 and r0,r2
@@ -1752,13 +1789,13 @@ K07C:
 mov.l @(sreg-areg,r14),r0
 shlr8 r0
 tst #0x20,r0
-bf pcheck_ok38
-mov.l priviolation_addr38,r0
+bf pcheck_ok40
+mov.l priviolation_addr40,r0
 jmp @r0
 nop
 .align 2
-priviolation_addr38: .long privilege_violation
-pcheck_ok38:
+priviolation_addr40: .long privilege_violation
+pcheck_ok40:
 mov.w @r6+,r2
 mov r8,r0
 mov r9,r1
@@ -1785,12 +1822,12 @@ mov #0x20,r1
 shll8 r1
 xor r3,r0
 tst r1,r0
-bt ln39
+bt ln41
 mov.l @(32,r14),r0
 mov.l @(60,r13),r1
 mov.l r0,@(60,r13)
 mov.l r1,@(32,r14)
-ln39:
+ln41:
 mov r3,r0
 shlr8 r0
 and #0xA7,r0
@@ -1811,11 +1848,11 @@ and r0,r3
 movt r0
 shll2 r0
 or r0,r8
-mov.l fdl_cp_addr41,r4
+mov.l fdl_cp_addr43,r4
 jmp @r4
 add #-20,r7
 .align 2
-fdl_cp_addr41: .long fdl_cp
+fdl_cp_addr43: .long fdl_cp
 ! Opcodes 0080 - 0087
 K080:
 mov.w @r6+,r0
@@ -3317,13 +3354,13 @@ K27C:
 mov.l @(sreg-areg,r14),r0
 shlr8 r0
 tst #0x20,r0
-bf pcheck_ok42
-mov.l priviolation_addr42,r0
+bf pcheck_ok44
+mov.l priviolation_addr44,r0
 jmp @r0
 nop
 .align 2
-priviolation_addr42: .long privilege_violation
-pcheck_ok42:
+priviolation_addr44: .long privilege_violation
+pcheck_ok44:
 mov.w @r6+,r2
 mov r8,r0
 mov r9,r1
@@ -3350,12 +3387,12 @@ mov #0x20,r1
 shll8 r1
 xor r3,r0
 tst r1,r0
-bt ln43
+bt ln45
 mov.l @(32,r14),r0
 mov.l @(60,r13),r1
 mov.l r0,@(60,r13)
 mov.l r1,@(32,r14)
-ln43:
+ln45:
 mov r3,r0
 shlr8 r0
 and #0xA7,r0
@@ -3376,11 +3413,11 @@ and r0,r3
 movt r0
 shll2 r0
 or r0,r8
-mov.l fdl_cp_addr45,r4
+mov.l fdl_cp_addr47,r4
 jmp @r4
 add #-20,r7
 .align 2
-fdl_cp_addr45: .long fdl_cp
+fdl_cp_addr47: .long fdl_cp
 ! Opcodes 0280 - 0287
 K280:
 mov.w @r6+,r0
@@ -10152,13 +10189,13 @@ KA7C:
 mov.l @(sreg-areg,r14),r0
 shlr8 r0
 tst #0x20,r0
-bf pcheck_ok46
-mov.l priviolation_addr46,r0
+bf pcheck_ok48
+mov.l priviolation_addr48,r0
 jmp @r0
 nop
 .align 2
-priviolation_addr46: .long privilege_violation
-pcheck_ok46:
+priviolation_addr48: .long privilege_violation
+pcheck_ok48:
 mov.w @r6+,r2
 mov r8,r0
 mov r9,r1
@@ -10185,12 +10222,12 @@ mov #0x20,r1
 shll8 r1
 xor r3,r0
 tst r1,r0
-bt ln47
+bt ln49
 mov.l @(32,r14),r0
 mov.l @(60,r13),r1
 mov.l r0,@(60,r13)
 mov.l r1,@(32,r14)
-ln47:
+ln49:
 mov r3,r0
 shlr8 r0
 and #0xA7,r0
@@ -10211,11 +10248,11 @@ and r0,r3
 movt r0
 shll2 r0
 or r0,r8
-mov.l fdl_cp_addr49,r4
+mov.l fdl_cp_addr51,r4
 jmp @r4
 add #-20,r7
 .align 2
-fdl_cp_addr49: .long fdl_cp
+fdl_cp_addr51: .long fdl_cp
 ! Opcodes 0A80 - 0A87
 KA80:
 mov.w @r6+,r0
@@ -14573,7 +14610,7 @@ add r13,r2
 mov.b @r2,r3
 mov.l @(32,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(32,r13)
@@ -14586,7 +14623,7 @@ add r14,r2
 mov.b @r2,r3
 mov.l @(32,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(32,r13)
@@ -14602,7 +14639,7 @@ jsr @r0
 nop
 mov.l @(32,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(32,r13)
@@ -14624,7 +14661,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(32,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(32,r13)
@@ -14646,7 +14683,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(32,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(32,r13)
@@ -14664,7 +14701,7 @@ jsr @r0
 nop
 mov.l @(32,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(32,r13)
@@ -14682,7 +14719,7 @@ jsr @r0
 nop
 mov.l @(32,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(32,r13)
@@ -14697,7 +14734,7 @@ jsr @r0
 nop
 mov.l @(32,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(32,r13)
@@ -14715,7 +14752,7 @@ jsr @r0
 nop
 mov.l @(32,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(32,r13)
@@ -14733,7 +14770,7 @@ jsr @r0
 nop
 mov.l @(32,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(32,r13)
@@ -14751,7 +14788,7 @@ jsr @r0
 nop
 mov.l @(32,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(32,r13)
@@ -14764,7 +14801,7 @@ mov.b @r6,r3
 add #2,r6
 mov.l @(32,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(32,r13)
@@ -15905,7 +15942,7 @@ add r13,r2
 mov.b @r2,r3
 mov.l @(36,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(36,r13)
@@ -15918,7 +15955,7 @@ add r14,r2
 mov.b @r2,r3
 mov.l @(36,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(36,r13)
@@ -15934,7 +15971,7 @@ jsr @r0
 nop
 mov.l @(36,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(36,r13)
@@ -15956,7 +15993,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(36,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(36,r13)
@@ -15978,7 +16015,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(36,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(36,r13)
@@ -15996,7 +16033,7 @@ jsr @r0
 nop
 mov.l @(36,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(36,r13)
@@ -16014,7 +16051,7 @@ jsr @r0
 nop
 mov.l @(36,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(36,r13)
@@ -16029,7 +16066,7 @@ jsr @r0
 nop
 mov.l @(36,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(36,r13)
@@ -16047,7 +16084,7 @@ jsr @r0
 nop
 mov.l @(36,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(36,r13)
@@ -16065,7 +16102,7 @@ jsr @r0
 nop
 mov.l @(36,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(36,r13)
@@ -16083,7 +16120,7 @@ jsr @r0
 nop
 mov.l @(36,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(36,r13)
@@ -16096,7 +16133,7 @@ mov.b @r6,r3
 add #2,r6
 mov.l @(36,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(36,r13)
@@ -17273,7 +17310,7 @@ add r13,r2
 mov.b @r2,r3
 mov.l @(40,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(40,r13)
@@ -17286,7 +17323,7 @@ add r14,r2
 mov.b @r2,r3
 mov.l @(40,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(40,r13)
@@ -17302,7 +17339,7 @@ jsr @r0
 nop
 mov.l @(40,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(40,r13)
@@ -17324,7 +17361,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(40,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(40,r13)
@@ -17346,7 +17383,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(40,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(40,r13)
@@ -17364,7 +17401,7 @@ jsr @r0
 nop
 mov.l @(40,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(40,r13)
@@ -17382,7 +17419,7 @@ jsr @r0
 nop
 mov.l @(40,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(40,r13)
@@ -17397,7 +17434,7 @@ jsr @r0
 nop
 mov.l @(40,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(40,r13)
@@ -17415,7 +17452,7 @@ jsr @r0
 nop
 mov.l @(40,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(40,r13)
@@ -17433,7 +17470,7 @@ jsr @r0
 nop
 mov.l @(40,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(40,r13)
@@ -17451,7 +17488,7 @@ jsr @r0
 nop
 mov.l @(40,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(40,r13)
@@ -17464,7 +17501,7 @@ mov.b @r6,r3
 add #2,r6
 mov.l @(40,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(40,r13)
@@ -18425,7 +18462,7 @@ add r13,r2
 mov.b @r2,r3
 mov.l @(44,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(44,r13)
@@ -18438,7 +18475,7 @@ add r14,r2
 mov.b @r2,r3
 mov.l @(44,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(44,r13)
@@ -18454,7 +18491,7 @@ jsr @r0
 nop
 mov.l @(44,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(44,r13)
@@ -18476,7 +18513,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(44,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(44,r13)
@@ -18498,7 +18535,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(44,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(44,r13)
@@ -18516,7 +18553,7 @@ jsr @r0
 nop
 mov.l @(44,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(44,r13)
@@ -18534,7 +18571,7 @@ jsr @r0
 nop
 mov.l @(44,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(44,r13)
@@ -18549,7 +18586,7 @@ jsr @r0
 nop
 mov.l @(44,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(44,r13)
@@ -18567,7 +18604,7 @@ jsr @r0
 nop
 mov.l @(44,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(44,r13)
@@ -18585,7 +18622,7 @@ jsr @r0
 nop
 mov.l @(44,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(44,r13)
@@ -18603,7 +18640,7 @@ jsr @r0
 nop
 mov.l @(44,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(44,r13)
@@ -18616,7 +18653,7 @@ mov.b @r6,r3
 add #2,r6
 mov.l @(44,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(44,r13)
@@ -19577,7 +19614,7 @@ add r13,r2
 mov.b @r2,r3
 mov.l @(48,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(48,r13)
@@ -19590,7 +19627,7 @@ add r14,r2
 mov.b @r2,r3
 mov.l @(48,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(48,r13)
@@ -19606,7 +19643,7 @@ jsr @r0
 nop
 mov.l @(48,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(48,r13)
@@ -19628,7 +19665,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(48,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(48,r13)
@@ -19650,7 +19687,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(48,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(48,r13)
@@ -19668,7 +19705,7 @@ jsr @r0
 nop
 mov.l @(48,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(48,r13)
@@ -19686,7 +19723,7 @@ jsr @r0
 nop
 mov.l @(48,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(48,r13)
@@ -19701,7 +19738,7 @@ jsr @r0
 nop
 mov.l @(48,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(48,r13)
@@ -19719,7 +19756,7 @@ jsr @r0
 nop
 mov.l @(48,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(48,r13)
@@ -19737,7 +19774,7 @@ jsr @r0
 nop
 mov.l @(48,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(48,r13)
@@ -19755,7 +19792,7 @@ jsr @r0
 nop
 mov.l @(48,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(48,r13)
@@ -19768,7 +19805,7 @@ mov.b @r6,r3
 add #2,r6
 mov.l @(48,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(48,r13)
@@ -20729,7 +20766,7 @@ add r13,r2
 mov.b @r2,r3
 mov.l @(52,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(52,r13)
@@ -20742,7 +20779,7 @@ add r14,r2
 mov.b @r2,r3
 mov.l @(52,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(52,r13)
@@ -20758,7 +20795,7 @@ jsr @r0
 nop
 mov.l @(52,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(52,r13)
@@ -20780,7 +20817,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(52,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(52,r13)
@@ -20802,7 +20839,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(52,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(52,r13)
@@ -20820,7 +20857,7 @@ jsr @r0
 nop
 mov.l @(52,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(52,r13)
@@ -20838,7 +20875,7 @@ jsr @r0
 nop
 mov.l @(52,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(52,r13)
@@ -20853,7 +20890,7 @@ jsr @r0
 nop
 mov.l @(52,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(52,r13)
@@ -20871,7 +20908,7 @@ jsr @r0
 nop
 mov.l @(52,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(52,r13)
@@ -20889,7 +20926,7 @@ jsr @r0
 nop
 mov.l @(52,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(52,r13)
@@ -20907,7 +20944,7 @@ jsr @r0
 nop
 mov.l @(52,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(52,r13)
@@ -20920,7 +20957,7 @@ mov.b @r6,r3
 add #2,r6
 mov.l @(52,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(52,r13)
@@ -21881,7 +21918,7 @@ add r13,r2
 mov.b @r2,r3
 mov.l @(56,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(56,r13)
@@ -21894,7 +21931,7 @@ add r14,r2
 mov.b @r2,r3
 mov.l @(56,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(56,r13)
@@ -21910,7 +21947,7 @@ jsr @r0
 nop
 mov.l @(56,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(56,r13)
@@ -21932,7 +21969,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(56,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(56,r13)
@@ -21954,7 +21991,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(56,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(56,r13)
@@ -21972,7 +22009,7 @@ jsr @r0
 nop
 mov.l @(56,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(56,r13)
@@ -21990,7 +22027,7 @@ jsr @r0
 nop
 mov.l @(56,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(56,r13)
@@ -22005,7 +22042,7 @@ jsr @r0
 nop
 mov.l @(56,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(56,r13)
@@ -22023,7 +22060,7 @@ jsr @r0
 nop
 mov.l @(56,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(56,r13)
@@ -22041,7 +22078,7 @@ jsr @r0
 nop
 mov.l @(56,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(56,r13)
@@ -22059,7 +22096,7 @@ jsr @r0
 nop
 mov.l @(56,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(56,r13)
@@ -22072,7 +22109,7 @@ mov.b @r6,r3
 add #2,r6
 mov.l @(56,r13),r4
 add #-1,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(56,r13)
@@ -23033,7 +23070,7 @@ add r13,r2
 mov.b @r2,r3
 mov.l @(60,r13),r4
 add #-2,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(60,r13)
@@ -23046,7 +23083,7 @@ add r14,r2
 mov.b @r2,r3
 mov.l @(60,r13),r4
 add #-2,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(60,r13)
@@ -23062,7 +23099,7 @@ jsr @r0
 nop
 mov.l @(60,r13),r4
 add #-2,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(60,r13)
@@ -23084,7 +23121,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(60,r13),r4
 add #-2,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(60,r13)
@@ -23106,7 +23143,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(60,r13),r4
 add #-2,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(60,r13)
@@ -23124,7 +23161,7 @@ jsr @r0
 nop
 mov.l @(60,r13),r4
 add #-2,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(60,r13)
@@ -23142,7 +23179,7 @@ jsr @r0
 nop
 mov.l @(60,r13),r4
 add #-2,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(60,r13)
@@ -23157,7 +23194,7 @@ jsr @r0
 nop
 mov.l @(60,r13),r4
 add #-2,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(60,r13)
@@ -23175,7 +23212,7 @@ jsr @r0
 nop
 mov.l @(60,r13),r4
 add #-2,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(60,r13)
@@ -23193,7 +23230,7 @@ jsr @r0
 nop
 mov.l @(60,r13),r4
 add #-2,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(60,r13)
@@ -23211,7 +23248,7 @@ jsr @r0
 nop
 mov.l @(60,r13),r4
 add #-2,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(60,r13)
@@ -23224,7 +23261,7 @@ mov.b @r6,r3
 add #2,r6
 mov.l @(60,r13),r4
 add #-2,r4
-mov.l @(wb_addr-fetch_idx,r11),r0
+mov.l @(wdecb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(60,r13)
@@ -24313,7 +24350,7 @@ add r13,r2
 mov.l @r2,r3
 mov.l @(32,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(32,r13)
@@ -24326,7 +24363,7 @@ add r14,r2
 mov.l @r2,r3
 mov.l @(32,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(32,r13)
@@ -24342,7 +24379,7 @@ jsr @r0
 nop
 mov.l @(32,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(32,r13)
@@ -24361,7 +24398,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(32,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(32,r13)
@@ -24380,7 +24417,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(32,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(32,r13)
@@ -24398,7 +24435,7 @@ jsr @r0
 nop
 mov.l @(32,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(32,r13)
@@ -24416,7 +24453,7 @@ jsr @r0
 nop
 mov.l @(32,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(32,r13)
@@ -24431,7 +24468,7 @@ jsr @r0
 nop
 mov.l @(32,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(32,r13)
@@ -24449,7 +24486,7 @@ jsr @r0
 nop
 mov.l @(32,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(32,r13)
@@ -24467,7 +24504,7 @@ jsr @r0
 nop
 mov.l @(32,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(32,r13)
@@ -24485,7 +24522,7 @@ jsr @r0
 nop
 mov.l @(32,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(32,r13)
@@ -24500,7 +24537,7 @@ shll16 r3
 xtrct r0,r3
 mov.l @(32,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(32,r13)
@@ -25757,7 +25794,7 @@ add r13,r2
 mov.l @r2,r3
 mov.l @(36,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(36,r13)
@@ -25770,7 +25807,7 @@ add r14,r2
 mov.l @r2,r3
 mov.l @(36,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(36,r13)
@@ -25786,7 +25823,7 @@ jsr @r0
 nop
 mov.l @(36,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(36,r13)
@@ -25805,7 +25842,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(36,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(36,r13)
@@ -25824,7 +25861,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(36,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(36,r13)
@@ -25842,7 +25879,7 @@ jsr @r0
 nop
 mov.l @(36,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(36,r13)
@@ -25860,7 +25897,7 @@ jsr @r0
 nop
 mov.l @(36,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(36,r13)
@@ -25875,7 +25912,7 @@ jsr @r0
 nop
 mov.l @(36,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(36,r13)
@@ -25893,7 +25930,7 @@ jsr @r0
 nop
 mov.l @(36,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(36,r13)
@@ -25911,7 +25948,7 @@ jsr @r0
 nop
 mov.l @(36,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(36,r13)
@@ -25929,7 +25966,7 @@ jsr @r0
 nop
 mov.l @(36,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(36,r13)
@@ -25944,7 +25981,7 @@ shll16 r3
 xtrct r0,r3
 mov.l @(36,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(36,r13)
@@ -27237,7 +27274,7 @@ add r13,r2
 mov.l @r2,r3
 mov.l @(40,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(40,r13)
@@ -27250,7 +27287,7 @@ add r14,r2
 mov.l @r2,r3
 mov.l @(40,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(40,r13)
@@ -27266,7 +27303,7 @@ jsr @r0
 nop
 mov.l @(40,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(40,r13)
@@ -27285,7 +27322,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(40,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(40,r13)
@@ -27304,7 +27341,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(40,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(40,r13)
@@ -27322,7 +27359,7 @@ jsr @r0
 nop
 mov.l @(40,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(40,r13)
@@ -27340,7 +27377,7 @@ jsr @r0
 nop
 mov.l @(40,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(40,r13)
@@ -27355,7 +27392,7 @@ jsr @r0
 nop
 mov.l @(40,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(40,r13)
@@ -27373,7 +27410,7 @@ jsr @r0
 nop
 mov.l @(40,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(40,r13)
@@ -27391,7 +27428,7 @@ jsr @r0
 nop
 mov.l @(40,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(40,r13)
@@ -27409,7 +27446,7 @@ jsr @r0
 nop
 mov.l @(40,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(40,r13)
@@ -27424,7 +27461,7 @@ shll16 r3
 xtrct r0,r3
 mov.l @(40,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(40,r13)
@@ -28505,7 +28542,7 @@ add r13,r2
 mov.l @r2,r3
 mov.l @(44,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(44,r13)
@@ -28518,7 +28555,7 @@ add r14,r2
 mov.l @r2,r3
 mov.l @(44,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(44,r13)
@@ -28534,7 +28571,7 @@ jsr @r0
 nop
 mov.l @(44,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(44,r13)
@@ -28553,7 +28590,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(44,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(44,r13)
@@ -28572,7 +28609,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(44,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(44,r13)
@@ -28590,7 +28627,7 @@ jsr @r0
 nop
 mov.l @(44,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(44,r13)
@@ -28608,7 +28645,7 @@ jsr @r0
 nop
 mov.l @(44,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(44,r13)
@@ -28623,7 +28660,7 @@ jsr @r0
 nop
 mov.l @(44,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(44,r13)
@@ -28641,7 +28678,7 @@ jsr @r0
 nop
 mov.l @(44,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(44,r13)
@@ -28659,7 +28696,7 @@ jsr @r0
 nop
 mov.l @(44,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(44,r13)
@@ -28677,7 +28714,7 @@ jsr @r0
 nop
 mov.l @(44,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(44,r13)
@@ -28692,7 +28729,7 @@ shll16 r3
 xtrct r0,r3
 mov.l @(44,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(44,r13)
@@ -29773,7 +29810,7 @@ add r13,r2
 mov.l @r2,r3
 mov.l @(48,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(48,r13)
@@ -29786,7 +29823,7 @@ add r14,r2
 mov.l @r2,r3
 mov.l @(48,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(48,r13)
@@ -29802,7 +29839,7 @@ jsr @r0
 nop
 mov.l @(48,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(48,r13)
@@ -29821,7 +29858,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(48,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(48,r13)
@@ -29840,7 +29877,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(48,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(48,r13)
@@ -29858,7 +29895,7 @@ jsr @r0
 nop
 mov.l @(48,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(48,r13)
@@ -29876,7 +29913,7 @@ jsr @r0
 nop
 mov.l @(48,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(48,r13)
@@ -29891,7 +29928,7 @@ jsr @r0
 nop
 mov.l @(48,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(48,r13)
@@ -29909,7 +29946,7 @@ jsr @r0
 nop
 mov.l @(48,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(48,r13)
@@ -29927,7 +29964,7 @@ jsr @r0
 nop
 mov.l @(48,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(48,r13)
@@ -29945,7 +29982,7 @@ jsr @r0
 nop
 mov.l @(48,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(48,r13)
@@ -29960,7 +29997,7 @@ shll16 r3
 xtrct r0,r3
 mov.l @(48,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(48,r13)
@@ -31041,7 +31078,7 @@ add r13,r2
 mov.l @r2,r3
 mov.l @(52,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(52,r13)
@@ -31054,7 +31091,7 @@ add r14,r2
 mov.l @r2,r3
 mov.l @(52,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(52,r13)
@@ -31070,7 +31107,7 @@ jsr @r0
 nop
 mov.l @(52,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(52,r13)
@@ -31089,7 +31126,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(52,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(52,r13)
@@ -31108,7 +31145,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(52,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(52,r13)
@@ -31126,7 +31163,7 @@ jsr @r0
 nop
 mov.l @(52,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(52,r13)
@@ -31144,7 +31181,7 @@ jsr @r0
 nop
 mov.l @(52,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(52,r13)
@@ -31159,7 +31196,7 @@ jsr @r0
 nop
 mov.l @(52,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(52,r13)
@@ -31177,7 +31214,7 @@ jsr @r0
 nop
 mov.l @(52,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(52,r13)
@@ -31195,7 +31232,7 @@ jsr @r0
 nop
 mov.l @(52,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(52,r13)
@@ -31213,7 +31250,7 @@ jsr @r0
 nop
 mov.l @(52,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(52,r13)
@@ -31228,7 +31265,7 @@ shll16 r3
 xtrct r0,r3
 mov.l @(52,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(52,r13)
@@ -32309,7 +32346,7 @@ add r13,r2
 mov.l @r2,r3
 mov.l @(56,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(56,r13)
@@ -32322,7 +32359,7 @@ add r14,r2
 mov.l @r2,r3
 mov.l @(56,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(56,r13)
@@ -32338,7 +32375,7 @@ jsr @r0
 nop
 mov.l @(56,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(56,r13)
@@ -32357,7 +32394,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(56,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(56,r13)
@@ -32376,7 +32413,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(56,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(56,r13)
@@ -32394,7 +32431,7 @@ jsr @r0
 nop
 mov.l @(56,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(56,r13)
@@ -32412,7 +32449,7 @@ jsr @r0
 nop
 mov.l @(56,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(56,r13)
@@ -32427,7 +32464,7 @@ jsr @r0
 nop
 mov.l @(56,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(56,r13)
@@ -32445,7 +32482,7 @@ jsr @r0
 nop
 mov.l @(56,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(56,r13)
@@ -32463,7 +32500,7 @@ jsr @r0
 nop
 mov.l @(56,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(56,r13)
@@ -32481,7 +32518,7 @@ jsr @r0
 nop
 mov.l @(56,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(56,r13)
@@ -32496,7 +32533,7 @@ shll16 r3
 xtrct r0,r3
 mov.l @(56,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(56,r13)
@@ -33577,7 +33614,7 @@ add r13,r2
 mov.l @r2,r3
 mov.l @(60,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(60,r13)
@@ -33590,7 +33627,7 @@ add r14,r2
 mov.l @r2,r3
 mov.l @(60,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(60,r13)
@@ -33606,7 +33643,7 @@ jsr @r0
 nop
 mov.l @(60,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(60,r13)
@@ -33625,7 +33662,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(60,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(60,r13)
@@ -33644,7 +33681,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(60,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(60,r13)
@@ -33662,7 +33699,7 @@ jsr @r0
 nop
 mov.l @(60,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(60,r13)
@@ -33680,7 +33717,7 @@ jsr @r0
 nop
 mov.l @(60,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(60,r13)
@@ -33695,7 +33732,7 @@ jsr @r0
 nop
 mov.l @(60,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(60,r13)
@@ -33713,7 +33750,7 @@ jsr @r0
 nop
 mov.l @(60,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(60,r13)
@@ -33731,7 +33768,7 @@ jsr @r0
 nop
 mov.l @(60,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(60,r13)
@@ -33749,7 +33786,7 @@ jsr @r0
 nop
 mov.l @(60,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(60,r13)
@@ -33764,7 +33801,7 @@ shll16 r3
 xtrct r0,r3
 mov.l @(60,r13),r4
 add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(60,r13)
@@ -34833,7 +34870,7 @@ add r13,r2
 mov.w @r2,r3
 mov.l @(32,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(32,r13)
@@ -34846,7 +34883,7 @@ add r14,r2
 mov.w @r2,r3
 mov.l @(32,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(32,r13)
@@ -34862,7 +34899,7 @@ jsr @r0
 nop
 mov.l @(32,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(32,r13)
@@ -34881,7 +34918,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(32,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(32,r13)
@@ -34900,7 +34937,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(32,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(32,r13)
@@ -34918,7 +34955,7 @@ jsr @r0
 nop
 mov.l @(32,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(32,r13)
@@ -34936,7 +34973,7 @@ jsr @r0
 nop
 mov.l @(32,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(32,r13)
@@ -34951,7 +34988,7 @@ jsr @r0
 nop
 mov.l @(32,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(32,r13)
@@ -34969,7 +35006,7 @@ jsr @r0
 nop
 mov.l @(32,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(32,r13)
@@ -34987,7 +35024,7 @@ jsr @r0
 nop
 mov.l @(32,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(32,r13)
@@ -35005,7 +35042,7 @@ jsr @r0
 nop
 mov.l @(32,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(32,r13)
@@ -35017,7 +35054,7 @@ N13C:
 mov.w @r6+,r3
 mov.l @(32,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(32,r13)
@@ -36265,7 +36302,7 @@ add r13,r2
 mov.w @r2,r3
 mov.l @(36,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(36,r13)
@@ -36278,7 +36315,7 @@ add r14,r2
 mov.w @r2,r3
 mov.l @(36,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(36,r13)
@@ -36294,7 +36331,7 @@ jsr @r0
 nop
 mov.l @(36,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(36,r13)
@@ -36313,7 +36350,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(36,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(36,r13)
@@ -36332,7 +36369,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(36,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(36,r13)
@@ -36350,7 +36387,7 @@ jsr @r0
 nop
 mov.l @(36,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(36,r13)
@@ -36368,7 +36405,7 @@ jsr @r0
 nop
 mov.l @(36,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(36,r13)
@@ -36383,7 +36420,7 @@ jsr @r0
 nop
 mov.l @(36,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(36,r13)
@@ -36401,7 +36438,7 @@ jsr @r0
 nop
 mov.l @(36,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(36,r13)
@@ -36419,7 +36456,7 @@ jsr @r0
 nop
 mov.l @(36,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(36,r13)
@@ -36437,7 +36474,7 @@ jsr @r0
 nop
 mov.l @(36,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(36,r13)
@@ -36449,7 +36486,7 @@ N33C:
 mov.w @r6+,r3
 mov.l @(36,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(36,r13)
@@ -37733,7 +37770,7 @@ add r13,r2
 mov.w @r2,r3
 mov.l @(40,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(40,r13)
@@ -37746,7 +37783,7 @@ add r14,r2
 mov.w @r2,r3
 mov.l @(40,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(40,r13)
@@ -37762,7 +37799,7 @@ jsr @r0
 nop
 mov.l @(40,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(40,r13)
@@ -37781,7 +37818,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(40,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(40,r13)
@@ -37800,7 +37837,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(40,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(40,r13)
@@ -37818,7 +37855,7 @@ jsr @r0
 nop
 mov.l @(40,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(40,r13)
@@ -37836,7 +37873,7 @@ jsr @r0
 nop
 mov.l @(40,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(40,r13)
@@ -37851,7 +37888,7 @@ jsr @r0
 nop
 mov.l @(40,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(40,r13)
@@ -37869,7 +37906,7 @@ jsr @r0
 nop
 mov.l @(40,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(40,r13)
@@ -37887,7 +37924,7 @@ jsr @r0
 nop
 mov.l @(40,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(40,r13)
@@ -37905,7 +37942,7 @@ jsr @r0
 nop
 mov.l @(40,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(40,r13)
@@ -37917,7 +37954,7 @@ N53C:
 mov.w @r6+,r3
 mov.l @(40,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(40,r13)
@@ -38992,7 +39029,7 @@ add r13,r2
 mov.w @r2,r3
 mov.l @(44,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(44,r13)
@@ -39005,7 +39042,7 @@ add r14,r2
 mov.w @r2,r3
 mov.l @(44,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(44,r13)
@@ -39021,7 +39058,7 @@ jsr @r0
 nop
 mov.l @(44,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(44,r13)
@@ -39040,7 +39077,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(44,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(44,r13)
@@ -39059,7 +39096,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(44,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(44,r13)
@@ -39077,7 +39114,7 @@ jsr @r0
 nop
 mov.l @(44,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(44,r13)
@@ -39095,7 +39132,7 @@ jsr @r0
 nop
 mov.l @(44,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(44,r13)
@@ -39110,7 +39147,7 @@ jsr @r0
 nop
 mov.l @(44,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(44,r13)
@@ -39128,7 +39165,7 @@ jsr @r0
 nop
 mov.l @(44,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(44,r13)
@@ -39146,7 +39183,7 @@ jsr @r0
 nop
 mov.l @(44,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(44,r13)
@@ -39164,7 +39201,7 @@ jsr @r0
 nop
 mov.l @(44,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(44,r13)
@@ -39176,7 +39213,7 @@ N73C:
 mov.w @r6+,r3
 mov.l @(44,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(44,r13)
@@ -40251,7 +40288,7 @@ add r13,r2
 mov.w @r2,r3
 mov.l @(48,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(48,r13)
@@ -40264,7 +40301,7 @@ add r14,r2
 mov.w @r2,r3
 mov.l @(48,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(48,r13)
@@ -40280,7 +40317,7 @@ jsr @r0
 nop
 mov.l @(48,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(48,r13)
@@ -40299,7 +40336,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(48,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(48,r13)
@@ -40318,7 +40355,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(48,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(48,r13)
@@ -40336,7 +40373,7 @@ jsr @r0
 nop
 mov.l @(48,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(48,r13)
@@ -40354,7 +40391,7 @@ jsr @r0
 nop
 mov.l @(48,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(48,r13)
@@ -40369,7 +40406,7 @@ jsr @r0
 nop
 mov.l @(48,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(48,r13)
@@ -40387,7 +40424,7 @@ jsr @r0
 nop
 mov.l @(48,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(48,r13)
@@ -40405,7 +40442,7 @@ jsr @r0
 nop
 mov.l @(48,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(48,r13)
@@ -40423,7 +40460,7 @@ jsr @r0
 nop
 mov.l @(48,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(48,r13)
@@ -40435,7 +40472,7 @@ N93C:
 mov.w @r6+,r3
 mov.l @(48,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(48,r13)
@@ -41510,7 +41547,7 @@ add r13,r2
 mov.w @r2,r3
 mov.l @(52,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(52,r13)
@@ -41523,7 +41560,7 @@ add r14,r2
 mov.w @r2,r3
 mov.l @(52,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(52,r13)
@@ -41539,7 +41576,7 @@ jsr @r0
 nop
 mov.l @(52,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(52,r13)
@@ -41558,7 +41595,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(52,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(52,r13)
@@ -41577,7 +41614,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(52,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(52,r13)
@@ -41595,7 +41632,7 @@ jsr @r0
 nop
 mov.l @(52,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(52,r13)
@@ -41613,7 +41650,7 @@ jsr @r0
 nop
 mov.l @(52,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(52,r13)
@@ -41628,7 +41665,7 @@ jsr @r0
 nop
 mov.l @(52,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(52,r13)
@@ -41646,7 +41683,7 @@ jsr @r0
 nop
 mov.l @(52,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(52,r13)
@@ -41664,7 +41701,7 @@ jsr @r0
 nop
 mov.l @(52,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(52,r13)
@@ -41682,7 +41719,7 @@ jsr @r0
 nop
 mov.l @(52,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(52,r13)
@@ -41694,7 +41731,7 @@ NB3C:
 mov.w @r6+,r3
 mov.l @(52,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(52,r13)
@@ -42769,7 +42806,7 @@ add r13,r2
 mov.w @r2,r3
 mov.l @(56,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(56,r13)
@@ -42782,7 +42819,7 @@ add r14,r2
 mov.w @r2,r3
 mov.l @(56,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(56,r13)
@@ -42798,7 +42835,7 @@ jsr @r0
 nop
 mov.l @(56,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(56,r13)
@@ -42817,7 +42854,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(56,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(56,r13)
@@ -42836,7 +42873,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(56,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(56,r13)
@@ -42854,7 +42891,7 @@ jsr @r0
 nop
 mov.l @(56,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(56,r13)
@@ -42872,7 +42909,7 @@ jsr @r0
 nop
 mov.l @(56,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(56,r13)
@@ -42887,7 +42924,7 @@ jsr @r0
 nop
 mov.l @(56,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(56,r13)
@@ -42905,7 +42942,7 @@ jsr @r0
 nop
 mov.l @(56,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(56,r13)
@@ -42923,7 +42960,7 @@ jsr @r0
 nop
 mov.l @(56,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(56,r13)
@@ -42941,7 +42978,7 @@ jsr @r0
 nop
 mov.l @(56,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(56,r13)
@@ -42953,7 +42990,7 @@ ND3C:
 mov.w @r6+,r3
 mov.l @(56,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(56,r13)
@@ -44028,7 +44065,7 @@ add r13,r2
 mov.w @r2,r3
 mov.l @(60,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(60,r13)
@@ -44041,7 +44078,7 @@ add r14,r2
 mov.w @r2,r3
 mov.l @(60,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(60,r13)
@@ -44057,7 +44094,7 @@ jsr @r0
 nop
 mov.l @(60,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(60,r13)
@@ -44076,7 +44113,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(60,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(60,r13)
@@ -44095,7 +44132,7 @@ mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @(60,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(60,r13)
@@ -44113,7 +44150,7 @@ jsr @r0
 nop
 mov.l @(60,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(60,r13)
@@ -44131,7 +44168,7 @@ jsr @r0
 nop
 mov.l @(60,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(60,r13)
@@ -44146,7 +44183,7 @@ jsr @r0
 nop
 mov.l @(60,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(60,r13)
@@ -44164,7 +44201,7 @@ jsr @r0
 nop
 mov.l @(60,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(60,r13)
@@ -44182,7 +44219,7 @@ jsr @r0
 nop
 mov.l @(60,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(60,r13)
@@ -44200,7 +44237,7 @@ jsr @r0
 nop
 mov.l @(60,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(60,r13)
@@ -44212,7 +44249,7 @@ NF3C:
 mov.w @r6+,r3
 mov.l @(60,r13),r4
 add #-2,r4
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov.l r4,@(60,r13)
@@ -45737,81 +45774,12 @@ mov.w @(r0,r13),r3
 mov.w @r13,r1
 extu.w r1,r1
 cmp/pz r1
-bf setn50
-mov #0,r8
-cmp/hi r3,r1
-bt ln50
-jmp @r10
-add #-10,r7
-setn50:
-mov #1,r8
-ln50:
-mov.l r1,@-r15
-mov.l g2_except_ptr50,r0
-jsr @r0
-mov #0x18,r4
-mov.l @r15+,r3
-mov.l bf_addr50,r0
-jsr @r0
-nop
-add r5,r6
-jmp @r10
-add #-50,r7
-.align 2
-g2_except_ptr50: .long group_2_exception
-bf_addr50: .long basefunction
-! Opcodes 4190 - 4197
-O190:
-mov r2,r0
-mov.l @(r0,r14),r4
-mov.l @(rw_addr-fetch_idx,r11),r0
-jsr @r0
-nop
-mov.w @r13,r1
-extu.w r1,r1
-cmp/pz r1
-bf setn51
-mov #0,r8
-cmp/hi r3,r1
-bt ln51
-jmp @r10
-add #-14,r7
-setn51:
-mov #1,r8
-ln51:
-mov.l r1,@-r15
-mov.l g2_except_ptr51,r0
-jsr @r0
-mov #0x18,r4
-mov.l @r15+,r3
-mov.l bf_addr51,r0
-jsr @r0
-nop
-add r5,r6
-jmp @r10
-add #-54,r7
-.align 2
-g2_except_ptr51: .long group_2_exception
-bf_addr51: .long basefunction
-! Opcodes 4198 - 419F
-O198:
-mov r2,r0
-mov.l @(r0,r14),r4
-mov.l @(rw_addr-fetch_idx,r11),r0
-jsr @r0
-nop
-add #2,r4
-mov r2,r0
-mov.l r4,@(r0,r14)
-mov.w @r13,r1
-extu.w r1,r1
-cmp/pz r1
 bf setn52
 mov #0,r8
 cmp/hi r3,r1
 bt ln52
 jmp @r10
-add #-14,r7
+add #-10,r7
 setn52:
 mov #1,r8
 ln52:
@@ -45825,20 +45793,17 @@ jsr @r0
 nop
 add r5,r6
 jmp @r10
-add #-54,r7
+add #-50,r7
 .align 2
 g2_except_ptr52: .long group_2_exception
 bf_addr52: .long basefunction
-! Opcodes 41A0 - 41A7
-O1A0:
+! Opcodes 4190 - 4197
+O190:
 mov r2,r0
 mov.l @(r0,r14),r4
-add #-2,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
-mov r2,r0
-mov.l r4,@(r0,r14)
 mov.w @r13,r1
 extu.w r1,r1
 cmp/pz r1
@@ -45847,7 +45812,7 @@ mov #0,r8
 cmp/hi r3,r1
 bt ln53
 jmp @r10
-add #-16,r7
+add #-14,r7
 setn53:
 mov #1,r8
 ln53:
@@ -45861,19 +45826,20 @@ jsr @r0
 nop
 add r5,r6
 jmp @r10
-add #-56,r7
+add #-54,r7
 .align 2
 g2_except_ptr53: .long group_2_exception
 bf_addr53: .long basefunction
-! Opcodes 41A8 - 41AF
-O1A8:
-mov.w @r6+,r4
+! Opcodes 4198 - 419F
+O198:
 mov r2,r0
-mov.l @(r0,r14),r1
-add r1,r4
+mov.l @(r0,r14),r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+add #2,r4
+mov r2,r0
+mov.l r4,@(r0,r14)
 mov.w @r13,r1
 extu.w r1,r1
 cmp/pz r1
@@ -45882,7 +45848,7 @@ mov #0,r8
 cmp/hi r3,r1
 bt ln54
 jmp @r10
-add #-18,r7
+add #-14,r7
 setn54:
 mov #1,r8
 ln54:
@@ -45896,19 +45862,20 @@ jsr @r0
 nop
 add r5,r6
 jmp @r10
-add #-58,r7
+add #-54,r7
 .align 2
 g2_except_ptr54: .long group_2_exception
 bf_addr54: .long basefunction
-! Opcodes 41B0 - 41B7
-O1B0:
-mov.l @(decode_extw_addr-fetch_idx,r11),r4
+! Opcodes 41A0 - 41A7
+O1A0:
 mov r2,r0
-jsr @r4
-mov.l @(r0,r14),r1
+mov.l @(r0,r14),r4
+add #-2,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+mov r2,r0
+mov.l r4,@(r0,r14)
 mov.w @r13,r1
 extu.w r1,r1
 cmp/pz r1
@@ -45917,7 +45884,7 @@ mov #0,r8
 cmp/hi r3,r1
 bt ln55
 jmp @r10
-add #-20,r7
+add #-16,r7
 setn55:
 mov #1,r8
 ln55:
@@ -45931,13 +45898,16 @@ jsr @r0
 nop
 add r5,r6
 jmp @r10
-add #-60,r7
+add #-56,r7
 .align 2
 g2_except_ptr55: .long group_2_exception
 bf_addr55: .long basefunction
-! Opcode 41B8
-O1B8:
+! Opcodes 41A8 - 41AF
+O1A8:
 mov.w @r6+,r4
+mov r2,r0
+mov.l @(r0,r14),r1
+add r1,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
@@ -45967,12 +45937,12 @@ add #-58,r7
 .align 2
 g2_except_ptr56: .long group_2_exception
 bf_addr56: .long basefunction
-! Opcode 41B9
-O1B9:
-mov.w @r6+,r0
-mov.w @r6+,r4
-shll16 r4
-xtrct r0,r4
+! Opcodes 41B0 - 41B7
+O1B0:
+mov.l @(decode_extw_addr-fetch_idx,r11),r4
+mov r2,r0
+jsr @r4
+mov.l @(r0,r14),r1
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
@@ -45984,7 +45954,7 @@ mov #0,r8
 cmp/hi r3,r1
 bt ln57
 jmp @r10
-add #-22,r7
+add #-20,r7
 setn57:
 mov #1,r8
 ln57:
@@ -45998,16 +45968,13 @@ jsr @r0
 nop
 add r5,r6
 jmp @r10
-add #-62,r7
+add #-60,r7
 .align 2
 g2_except_ptr57: .long group_2_exception
 bf_addr57: .long basefunction
-! Opcode 41BA
-O1BA:
-mov r6,r0
+! Opcode 41B8
+O1B8:
 mov.w @r6+,r4
-sub r5,r0
-add r0,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
@@ -46037,12 +46004,12 @@ add #-58,r7
 .align 2
 g2_except_ptr58: .long group_2_exception
 bf_addr58: .long basefunction
-! Opcode 41BB
-O1BB:
-mov.l @(decode_extw_addr-fetch_idx,r11),r4
-mov r6,r1
-jsr @r4
-sub r5,r1
+! Opcode 41B9
+O1B9:
+mov.w @r6+,r0
+mov.w @r6+,r4
+shll16 r4
+xtrct r0,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
@@ -46054,7 +46021,7 @@ mov #0,r8
 cmp/hi r3,r1
 bt ln59
 jmp @r10
-add #-20,r7
+add #-22,r7
 setn59:
 mov #1,r8
 ln59:
@@ -46068,13 +46035,19 @@ jsr @r0
 nop
 add r5,r6
 jmp @r10
-add #-60,r7
+add #-62,r7
 .align 2
 g2_except_ptr59: .long group_2_exception
 bf_addr59: .long basefunction
-! Opcode 41BC
-O1BC:
-mov.w @r6+,r3
+! Opcode 41BA
+O1BA:
+mov r6,r0
+mov.w @r6+,r4
+sub r5,r0
+add r0,r4
+mov.l @(rw_addr-fetch_idx,r11),r0
+jsr @r0
+nop
 mov.w @r13,r1
 extu.w r1,r1
 cmp/pz r1
@@ -46083,7 +46056,7 @@ mov #0,r8
 cmp/hi r3,r1
 bt ln60
 jmp @r10
-add #-14,r7
+add #-18,r7
 setn60:
 mov #1,r8
 ln60:
@@ -46097,10 +46070,74 @@ jsr @r0
 nop
 add r5,r6
 jmp @r10
-add #-54,r7
+add #-58,r7
 .align 2
 g2_except_ptr60: .long group_2_exception
 bf_addr60: .long basefunction
+! Opcode 41BB
+O1BB:
+mov.l @(decode_extw_addr-fetch_idx,r11),r4
+mov r6,r1
+jsr @r4
+sub r5,r1
+mov.l @(rw_addr-fetch_idx,r11),r0
+jsr @r0
+nop
+mov.w @r13,r1
+extu.w r1,r1
+cmp/pz r1
+bf setn61
+mov #0,r8
+cmp/hi r3,r1
+bt ln61
+jmp @r10
+add #-20,r7
+setn61:
+mov #1,r8
+ln61:
+mov.l r1,@-r15
+mov.l g2_except_ptr61,r0
+jsr @r0
+mov #0x18,r4
+mov.l @r15+,r3
+mov.l bf_addr61,r0
+jsr @r0
+nop
+add r5,r6
+jmp @r10
+add #-60,r7
+.align 2
+g2_except_ptr61: .long group_2_exception
+bf_addr61: .long basefunction
+! Opcode 41BC
+O1BC:
+mov.w @r6+,r3
+mov.w @r13,r1
+extu.w r1,r1
+cmp/pz r1
+bf setn62
+mov #0,r8
+cmp/hi r3,r1
+bt ln62
+jmp @r10
+add #-14,r7
+setn62:
+mov #1,r8
+ln62:
+mov.l r1,@-r15
+mov.l g2_except_ptr62,r0
+jsr @r0
+mov #0x18,r4
+mov.l @r15+,r3
+mov.l bf_addr62,r0
+jsr @r0
+nop
+add r5,r6
+jmp @r10
+add #-54,r7
+.align 2
+g2_except_ptr62: .long group_2_exception
+bf_addr62: .long basefunction
 ! Opcodes 41D0 - 41D7
 O1D0:
 mov r2,r0
@@ -46461,29 +46498,29 @@ mov #4,r0
 mov.w @(r0,r13),r1
 extu.w r1,r1
 cmp/pz r1
-bf setn61
+bf setn63
 mov #0,r8
 cmp/hi r3,r1
-bt ln61
+bt ln63
 jmp @r10
 add #-10,r7
-setn61:
+setn63:
 mov #1,r8
-ln61:
+ln63:
 mov.l r1,@-r15
-mov.l g2_except_ptr61,r0
+mov.l g2_except_ptr63,r0
 jsr @r0
 mov #0x18,r4
 mov.l @r15+,r3
-mov.l bf_addr61,r0
+mov.l bf_addr63,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-50,r7
 .align 2
-g2_except_ptr61: .long group_2_exception
-bf_addr61: .long basefunction
+g2_except_ptr63: .long group_2_exception
+bf_addr63: .long basefunction
 ! Opcodes 4390 - 4397
 O390:
 mov r2,r0
@@ -46495,29 +46532,29 @@ mov #4,r0
 mov.w @(r0,r13),r1
 extu.w r1,r1
 cmp/pz r1
-bf setn62
+bf setn64
 mov #0,r8
 cmp/hi r3,r1
-bt ln62
+bt ln64
 jmp @r10
 add #-14,r7
-setn62:
+setn64:
 mov #1,r8
-ln62:
+ln64:
 mov.l r1,@-r15
-mov.l g2_except_ptr62,r0
+mov.l g2_except_ptr64,r0
 jsr @r0
 mov #0x18,r4
 mov.l @r15+,r3
-mov.l bf_addr62,r0
+mov.l bf_addr64,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-54,r7
 .align 2
-g2_except_ptr62: .long group_2_exception
-bf_addr62: .long basefunction
+g2_except_ptr64: .long group_2_exception
+bf_addr64: .long basefunction
 ! Opcodes 4398 - 439F
 O398:
 mov r2,r0
@@ -46532,29 +46569,29 @@ mov #4,r0
 mov.w @(r0,r13),r1
 extu.w r1,r1
 cmp/pz r1
-bf setn63
+bf setn65
 mov #0,r8
 cmp/hi r3,r1
-bt ln63
+bt ln65
 jmp @r10
 add #-14,r7
-setn63:
+setn65:
 mov #1,r8
-ln63:
+ln65:
 mov.l r1,@-r15
-mov.l g2_except_ptr63,r0
+mov.l g2_except_ptr65,r0
 jsr @r0
 mov #0x18,r4
 mov.l @r15+,r3
-mov.l bf_addr63,r0
+mov.l bf_addr65,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-54,r7
 .align 2
-g2_except_ptr63: .long group_2_exception
-bf_addr63: .long basefunction
+g2_except_ptr65: .long group_2_exception
+bf_addr65: .long basefunction
 ! Opcodes 43A0 - 43A7
 O3A0:
 mov r2,r0
@@ -46569,84 +46606,12 @@ mov #4,r0
 mov.w @(r0,r13),r1
 extu.w r1,r1
 cmp/pz r1
-bf setn64
-mov #0,r8
-cmp/hi r3,r1
-bt ln64
-jmp @r10
-add #-16,r7
-setn64:
-mov #1,r8
-ln64:
-mov.l r1,@-r15
-mov.l g2_except_ptr64,r0
-jsr @r0
-mov #0x18,r4
-mov.l @r15+,r3
-mov.l bf_addr64,r0
-jsr @r0
-nop
-add r5,r6
-jmp @r10
-add #-56,r7
-.align 2
-g2_except_ptr64: .long group_2_exception
-bf_addr64: .long basefunction
-! Opcodes 43A8 - 43AF
-O3A8:
-mov.w @r6+,r4
-mov r2,r0
-mov.l @(r0,r14),r1
-add r1,r4
-mov.l @(rw_addr-fetch_idx,r11),r0
-jsr @r0
-nop
-mov #4,r0
-mov.w @(r0,r13),r1
-extu.w r1,r1
-cmp/pz r1
-bf setn65
-mov #0,r8
-cmp/hi r3,r1
-bt ln65
-jmp @r10
-add #-18,r7
-setn65:
-mov #1,r8
-ln65:
-mov.l r1,@-r15
-mov.l g2_except_ptr65,r0
-jsr @r0
-mov #0x18,r4
-mov.l @r15+,r3
-mov.l bf_addr65,r0
-jsr @r0
-nop
-add r5,r6
-jmp @r10
-add #-58,r7
-.align 2
-g2_except_ptr65: .long group_2_exception
-bf_addr65: .long basefunction
-! Opcodes 43B0 - 43B7
-O3B0:
-mov.l @(decode_extw_addr-fetch_idx,r11),r4
-mov r2,r0
-jsr @r4
-mov.l @(r0,r14),r1
-mov.l @(rw_addr-fetch_idx,r11),r0
-jsr @r0
-nop
-mov #4,r0
-mov.w @(r0,r13),r1
-extu.w r1,r1
-cmp/pz r1
 bf setn66
 mov #0,r8
 cmp/hi r3,r1
 bt ln66
 jmp @r10
-add #-20,r7
+add #-16,r7
 setn66:
 mov #1,r8
 ln66:
@@ -46660,13 +46625,16 @@ jsr @r0
 nop
 add r5,r6
 jmp @r10
-add #-60,r7
+add #-56,r7
 .align 2
 g2_except_ptr66: .long group_2_exception
 bf_addr66: .long basefunction
-! Opcode 43B8
-O3B8:
+! Opcodes 43A8 - 43AF
+O3A8:
 mov.w @r6+,r4
+mov r2,r0
+mov.l @(r0,r14),r1
+add r1,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
@@ -46697,12 +46665,12 @@ add #-58,r7
 .align 2
 g2_except_ptr67: .long group_2_exception
 bf_addr67: .long basefunction
-! Opcode 43B9
-O3B9:
-mov.w @r6+,r0
-mov.w @r6+,r4
-shll16 r4
-xtrct r0,r4
+! Opcodes 43B0 - 43B7
+O3B0:
+mov.l @(decode_extw_addr-fetch_idx,r11),r4
+mov r2,r0
+jsr @r4
+mov.l @(r0,r14),r1
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
@@ -46715,7 +46683,7 @@ mov #0,r8
 cmp/hi r3,r1
 bt ln68
 jmp @r10
-add #-22,r7
+add #-20,r7
 setn68:
 mov #1,r8
 ln68:
@@ -46729,16 +46697,13 @@ jsr @r0
 nop
 add r5,r6
 jmp @r10
-add #-62,r7
+add #-60,r7
 .align 2
 g2_except_ptr68: .long group_2_exception
 bf_addr68: .long basefunction
-! Opcode 43BA
-O3BA:
-mov r6,r0
+! Opcode 43B8
+O3B8:
 mov.w @r6+,r4
-sub r5,r0
-add r0,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
@@ -46769,12 +46734,12 @@ add #-58,r7
 .align 2
 g2_except_ptr69: .long group_2_exception
 bf_addr69: .long basefunction
-! Opcode 43BB
-O3BB:
-mov.l @(decode_extw_addr-fetch_idx,r11),r4
-mov r6,r1
-jsr @r4
-sub r5,r1
+! Opcode 43B9
+O3B9:
+mov.w @r6+,r0
+mov.w @r6+,r4
+shll16 r4
+xtrct r0,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
@@ -46787,7 +46752,7 @@ mov #0,r8
 cmp/hi r3,r1
 bt ln70
 jmp @r10
-add #-20,r7
+add #-22,r7
 setn70:
 mov #1,r8
 ln70:
@@ -46801,13 +46766,19 @@ jsr @r0
 nop
 add r5,r6
 jmp @r10
-add #-60,r7
+add #-62,r7
 .align 2
 g2_except_ptr70: .long group_2_exception
 bf_addr70: .long basefunction
-! Opcode 43BC
-O3BC:
-mov.w @r6+,r3
+! Opcode 43BA
+O3BA:
+mov r6,r0
+mov.w @r6+,r4
+sub r5,r0
+add r0,r4
+mov.l @(rw_addr-fetch_idx,r11),r0
+jsr @r0
+nop
 mov #4,r0
 mov.w @(r0,r13),r1
 extu.w r1,r1
@@ -46817,7 +46788,7 @@ mov #0,r8
 cmp/hi r3,r1
 bt ln71
 jmp @r10
-add #-14,r7
+add #-18,r7
 setn71:
 mov #1,r8
 ln71:
@@ -46831,10 +46802,76 @@ jsr @r0
 nop
 add r5,r6
 jmp @r10
-add #-54,r7
+add #-58,r7
 .align 2
 g2_except_ptr71: .long group_2_exception
 bf_addr71: .long basefunction
+! Opcode 43BB
+O3BB:
+mov.l @(decode_extw_addr-fetch_idx,r11),r4
+mov r6,r1
+jsr @r4
+sub r5,r1
+mov.l @(rw_addr-fetch_idx,r11),r0
+jsr @r0
+nop
+mov #4,r0
+mov.w @(r0,r13),r1
+extu.w r1,r1
+cmp/pz r1
+bf setn72
+mov #0,r8
+cmp/hi r3,r1
+bt ln72
+jmp @r10
+add #-20,r7
+setn72:
+mov #1,r8
+ln72:
+mov.l r1,@-r15
+mov.l g2_except_ptr72,r0
+jsr @r0
+mov #0x18,r4
+mov.l @r15+,r3
+mov.l bf_addr72,r0
+jsr @r0
+nop
+add r5,r6
+jmp @r10
+add #-60,r7
+.align 2
+g2_except_ptr72: .long group_2_exception
+bf_addr72: .long basefunction
+! Opcode 43BC
+O3BC:
+mov.w @r6+,r3
+mov #4,r0
+mov.w @(r0,r13),r1
+extu.w r1,r1
+cmp/pz r1
+bf setn73
+mov #0,r8
+cmp/hi r3,r1
+bt ln73
+jmp @r10
+add #-14,r7
+setn73:
+mov #1,r8
+ln73:
+mov.l r1,@-r15
+mov.l g2_except_ptr73,r0
+jsr @r0
+mov #0x18,r4
+mov.l @r15+,r3
+mov.l bf_addr73,r0
+jsr @r0
+nop
+add r5,r6
+jmp @r10
+add #-54,r7
+.align 2
+g2_except_ptr73: .long group_2_exception
+bf_addr73: .long basefunction
 ! Opcodes 43D0 - 43D7
 O3D0:
 mov r2,r0
@@ -47735,29 +47772,29 @@ mov #8,r0
 mov.w @(r0,r13),r1
 extu.w r1,r1
 cmp/pz r1
-bf setn72
+bf setn74
 mov #0,r8
 cmp/hi r3,r1
-bt ln72
+bt ln74
 jmp @r10
 add #-10,r7
-setn72:
+setn74:
 mov #1,r8
-ln72:
+ln74:
 mov.l r1,@-r15
-mov.l g2_except_ptr72,r0
+mov.l g2_except_ptr74,r0
 jsr @r0
 mov #0x18,r4
 mov.l @r15+,r3
-mov.l bf_addr72,r0
+mov.l bf_addr74,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-50,r7
 .align 2
-g2_except_ptr72: .long group_2_exception
-bf_addr72: .long basefunction
+g2_except_ptr74: .long group_2_exception
+bf_addr74: .long basefunction
 ! Opcodes 4590 - 4597
 O590:
 mov r2,r0
@@ -47769,29 +47806,29 @@ mov #8,r0
 mov.w @(r0,r13),r1
 extu.w r1,r1
 cmp/pz r1
-bf setn73
+bf setn75
 mov #0,r8
 cmp/hi r3,r1
-bt ln73
+bt ln75
 jmp @r10
 add #-14,r7
-setn73:
+setn75:
 mov #1,r8
-ln73:
+ln75:
 mov.l r1,@-r15
-mov.l g2_except_ptr73,r0
+mov.l g2_except_ptr75,r0
 jsr @r0
 mov #0x18,r4
 mov.l @r15+,r3
-mov.l bf_addr73,r0
+mov.l bf_addr75,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-54,r7
 .align 2
-g2_except_ptr73: .long group_2_exception
-bf_addr73: .long basefunction
+g2_except_ptr75: .long group_2_exception
+bf_addr75: .long basefunction
 ! Opcodes 4598 - 459F
 O598:
 mov r2,r0
@@ -47806,29 +47843,29 @@ mov #8,r0
 mov.w @(r0,r13),r1
 extu.w r1,r1
 cmp/pz r1
-bf setn74
+bf setn76
 mov #0,r8
 cmp/hi r3,r1
-bt ln74
+bt ln76
 jmp @r10
 add #-14,r7
-setn74:
+setn76:
 mov #1,r8
-ln74:
+ln76:
 mov.l r1,@-r15
-mov.l g2_except_ptr74,r0
+mov.l g2_except_ptr76,r0
 jsr @r0
 mov #0x18,r4
 mov.l @r15+,r3
-mov.l bf_addr74,r0
+mov.l bf_addr76,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-54,r7
 .align 2
-g2_except_ptr74: .long group_2_exception
-bf_addr74: .long basefunction
+g2_except_ptr76: .long group_2_exception
+bf_addr76: .long basefunction
 ! Opcodes 45A0 - 45A7
 O5A0:
 mov r2,r0
@@ -47843,84 +47880,12 @@ mov #8,r0
 mov.w @(r0,r13),r1
 extu.w r1,r1
 cmp/pz r1
-bf setn75
-mov #0,r8
-cmp/hi r3,r1
-bt ln75
-jmp @r10
-add #-16,r7
-setn75:
-mov #1,r8
-ln75:
-mov.l r1,@-r15
-mov.l g2_except_ptr75,r0
-jsr @r0
-mov #0x18,r4
-mov.l @r15+,r3
-mov.l bf_addr75,r0
-jsr @r0
-nop
-add r5,r6
-jmp @r10
-add #-56,r7
-.align 2
-g2_except_ptr75: .long group_2_exception
-bf_addr75: .long basefunction
-! Opcodes 45A8 - 45AF
-O5A8:
-mov.w @r6+,r4
-mov r2,r0
-mov.l @(r0,r14),r1
-add r1,r4
-mov.l @(rw_addr-fetch_idx,r11),r0
-jsr @r0
-nop
-mov #8,r0
-mov.w @(r0,r13),r1
-extu.w r1,r1
-cmp/pz r1
-bf setn76
-mov #0,r8
-cmp/hi r3,r1
-bt ln76
-jmp @r10
-add #-18,r7
-setn76:
-mov #1,r8
-ln76:
-mov.l r1,@-r15
-mov.l g2_except_ptr76,r0
-jsr @r0
-mov #0x18,r4
-mov.l @r15+,r3
-mov.l bf_addr76,r0
-jsr @r0
-nop
-add r5,r6
-jmp @r10
-add #-58,r7
-.align 2
-g2_except_ptr76: .long group_2_exception
-bf_addr76: .long basefunction
-! Opcodes 45B0 - 45B7
-O5B0:
-mov.l @(decode_extw_addr-fetch_idx,r11),r4
-mov r2,r0
-jsr @r4
-mov.l @(r0,r14),r1
-mov.l @(rw_addr-fetch_idx,r11),r0
-jsr @r0
-nop
-mov #8,r0
-mov.w @(r0,r13),r1
-extu.w r1,r1
-cmp/pz r1
 bf setn77
 mov #0,r8
 cmp/hi r3,r1
 bt ln77
 jmp @r10
-add #-20,r7
+add #-16,r7
 setn77:
 mov #1,r8
 ln77:
@@ -47934,13 +47899,16 @@ jsr @r0
 nop
 add r5,r6
 jmp @r10
-add #-60,r7
+add #-56,r7
 .align 2
 g2_except_ptr77: .long group_2_exception
 bf_addr77: .long basefunction
-! Opcode 45B8
-O5B8:
+! Opcodes 45A8 - 45AF
+O5A8:
 mov.w @r6+,r4
+mov r2,r0
+mov.l @(r0,r14),r1
+add r1,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
@@ -47971,12 +47939,12 @@ add #-58,r7
 .align 2
 g2_except_ptr78: .long group_2_exception
 bf_addr78: .long basefunction
-! Opcode 45B9
-O5B9:
-mov.w @r6+,r0
-mov.w @r6+,r4
-shll16 r4
-xtrct r0,r4
+! Opcodes 45B0 - 45B7
+O5B0:
+mov.l @(decode_extw_addr-fetch_idx,r11),r4
+mov r2,r0
+jsr @r4
+mov.l @(r0,r14),r1
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
@@ -47989,7 +47957,7 @@ mov #0,r8
 cmp/hi r3,r1
 bt ln79
 jmp @r10
-add #-22,r7
+add #-20,r7
 setn79:
 mov #1,r8
 ln79:
@@ -48003,16 +47971,13 @@ jsr @r0
 nop
 add r5,r6
 jmp @r10
-add #-62,r7
+add #-60,r7
 .align 2
 g2_except_ptr79: .long group_2_exception
 bf_addr79: .long basefunction
-! Opcode 45BA
-O5BA:
-mov r6,r0
+! Opcode 45B8
+O5B8:
 mov.w @r6+,r4
-sub r5,r0
-add r0,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
@@ -48043,12 +48008,12 @@ add #-58,r7
 .align 2
 g2_except_ptr80: .long group_2_exception
 bf_addr80: .long basefunction
-! Opcode 45BB
-O5BB:
-mov.l @(decode_extw_addr-fetch_idx,r11),r4
-mov r6,r1
-jsr @r4
-sub r5,r1
+! Opcode 45B9
+O5B9:
+mov.w @r6+,r0
+mov.w @r6+,r4
+shll16 r4
+xtrct r0,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
@@ -48061,7 +48026,7 @@ mov #0,r8
 cmp/hi r3,r1
 bt ln81
 jmp @r10
-add #-20,r7
+add #-22,r7
 setn81:
 mov #1,r8
 ln81:
@@ -48075,13 +48040,19 @@ jsr @r0
 nop
 add r5,r6
 jmp @r10
-add #-60,r7
+add #-62,r7
 .align 2
 g2_except_ptr81: .long group_2_exception
 bf_addr81: .long basefunction
-! Opcode 45BC
-O5BC:
-mov.w @r6+,r3
+! Opcode 45BA
+O5BA:
+mov r6,r0
+mov.w @r6+,r4
+sub r5,r0
+add r0,r4
+mov.l @(rw_addr-fetch_idx,r11),r0
+jsr @r0
+nop
 mov #8,r0
 mov.w @(r0,r13),r1
 extu.w r1,r1
@@ -48091,7 +48062,7 @@ mov #0,r8
 cmp/hi r3,r1
 bt ln82
 jmp @r10
-add #-14,r7
+add #-18,r7
 setn82:
 mov #1,r8
 ln82:
@@ -48105,10 +48076,76 @@ jsr @r0
 nop
 add r5,r6
 jmp @r10
-add #-54,r7
+add #-58,r7
 .align 2
 g2_except_ptr82: .long group_2_exception
 bf_addr82: .long basefunction
+! Opcode 45BB
+O5BB:
+mov.l @(decode_extw_addr-fetch_idx,r11),r4
+mov r6,r1
+jsr @r4
+sub r5,r1
+mov.l @(rw_addr-fetch_idx,r11),r0
+jsr @r0
+nop
+mov #8,r0
+mov.w @(r0,r13),r1
+extu.w r1,r1
+cmp/pz r1
+bf setn83
+mov #0,r8
+cmp/hi r3,r1
+bt ln83
+jmp @r10
+add #-20,r7
+setn83:
+mov #1,r8
+ln83:
+mov.l r1,@-r15
+mov.l g2_except_ptr83,r0
+jsr @r0
+mov #0x18,r4
+mov.l @r15+,r3
+mov.l bf_addr83,r0
+jsr @r0
+nop
+add r5,r6
+jmp @r10
+add #-60,r7
+.align 2
+g2_except_ptr83: .long group_2_exception
+bf_addr83: .long basefunction
+! Opcode 45BC
+O5BC:
+mov.w @r6+,r3
+mov #8,r0
+mov.w @(r0,r13),r1
+extu.w r1,r1
+cmp/pz r1
+bf setn84
+mov #0,r8
+cmp/hi r3,r1
+bt ln84
+jmp @r10
+add #-14,r7
+setn84:
+mov #1,r8
+ln84:
+mov.l r1,@-r15
+mov.l g2_except_ptr84,r0
+jsr @r0
+mov #0x18,r4
+mov.l @r15+,r3
+mov.l bf_addr84,r0
+jsr @r0
+nop
+add r5,r6
+jmp @r10
+add #-54,r7
+.align 2
+g2_except_ptr84: .long group_2_exception
+bf_addr84: .long basefunction
 ! Opcodes 45D0 - 45D7
 O5D0:
 mov r2,r0
@@ -48548,13 +48585,13 @@ O6C0:
 mov.l @(sreg-areg,r14),r0
 shlr8 r0
 tst #0x20,r0
-bf pcheck_ok83
-mov.l priviolation_addr83,r0
+bf pcheck_ok85
+mov.l priviolation_addr85,r0
 jmp @r0
 nop
 .align 2
-priviolation_addr83: .long privilege_violation
-pcheck_ok83:
+priviolation_addr85: .long privilege_violation
+pcheck_ok85:
 mov r2,r0
 mov.w @(r0,r13),r3
 mov.l @(sreg - areg,r14),r0
@@ -48562,12 +48599,12 @@ mov #0x20,r1
 shll8 r1
 xor r3,r0
 tst r1,r0
-bt ln84
+bt ln86
 mov.l @(32,r14),r0
 mov.l @(60,r13),r1
 mov.l r0,@(60,r13)
 mov.l r1,@(32,r14)
-ln84:
+ln86:
 mov r3,r0
 shlr8 r0
 and #0xA7,r0
@@ -48588,23 +48625,23 @@ and r0,r3
 movt r0
 shll2 r0
 or r0,r8
-mov.l fdl_cp_addr86,r4
+mov.l fdl_cp_addr88,r4
 jmp @r4
 add #-12,r7
 .align 2
-fdl_cp_addr86: .long fdl_cp
+fdl_cp_addr88: .long fdl_cp
 ! Opcodes 46D0 - 46D7
 O6D0:
 mov.l @(sreg-areg,r14),r0
 shlr8 r0
 tst #0x20,r0
-bf pcheck_ok87
-mov.l priviolation_addr87,r0
+bf pcheck_ok89
+mov.l priviolation_addr89,r0
 jmp @r0
 nop
 .align 2
-priviolation_addr87: .long privilege_violation
-pcheck_ok87:
+priviolation_addr89: .long privilege_violation
+pcheck_ok89:
 mov r2,r0
 mov.l @(r0,r14),r4
 mov.l @(rw_addr-fetch_idx,r11),r0
@@ -48615,12 +48652,12 @@ mov #0x20,r1
 shll8 r1
 xor r3,r0
 tst r1,r0
-bt ln88
+bt ln90
 mov.l @(32,r14),r0
 mov.l @(60,r13),r1
 mov.l r0,@(60,r13)
 mov.l r1,@(32,r14)
-ln88:
+ln90:
 mov r3,r0
 shlr8 r0
 and #0xA7,r0
@@ -48641,23 +48678,23 @@ and r0,r3
 movt r0
 shll2 r0
 or r0,r8
-mov.l fdl_cp_addr90,r4
+mov.l fdl_cp_addr92,r4
 jmp @r4
 add #-16,r7
 .align 2
-fdl_cp_addr90: .long fdl_cp
+fdl_cp_addr92: .long fdl_cp
 ! Opcodes 46D8 - 46DF
 O6D8:
 mov.l @(sreg-areg,r14),r0
 shlr8 r0
 tst #0x20,r0
-bf pcheck_ok91
-mov.l priviolation_addr91,r0
+bf pcheck_ok93
+mov.l priviolation_addr93,r0
 jmp @r0
 nop
 .align 2
-priviolation_addr91: .long privilege_violation
-pcheck_ok91:
+priviolation_addr93: .long privilege_violation
+pcheck_ok93:
 mov r2,r0
 mov.l @(r0,r14),r4
 mov.l @(rw_addr-fetch_idx,r11),r0
@@ -48671,12 +48708,12 @@ mov #0x20,r1
 shll8 r1
 xor r3,r0
 tst r1,r0
-bt ln92
+bt ln94
 mov.l @(32,r14),r0
 mov.l @(60,r13),r1
 mov.l r0,@(60,r13)
 mov.l r1,@(32,r14)
-ln92:
+ln94:
 mov r3,r0
 shlr8 r0
 and #0xA7,r0
@@ -48697,23 +48734,23 @@ and r0,r3
 movt r0
 shll2 r0
 or r0,r8
-mov.l fdl_cp_addr94,r4
+mov.l fdl_cp_addr96,r4
 jmp @r4
 add #-16,r7
 .align 2
-fdl_cp_addr94: .long fdl_cp
+fdl_cp_addr96: .long fdl_cp
 ! Opcodes 46E0 - 46E7
 O6E0:
 mov.l @(sreg-areg,r14),r0
 shlr8 r0
 tst #0x20,r0
-bf pcheck_ok95
-mov.l priviolation_addr95,r0
+bf pcheck_ok97
+mov.l priviolation_addr97,r0
 jmp @r0
 nop
 .align 2
-priviolation_addr95: .long privilege_violation
-pcheck_ok95:
+priviolation_addr97: .long privilege_violation
+pcheck_ok97:
 mov r2,r0
 mov.l @(r0,r14),r4
 add #-2,r4
@@ -48727,12 +48764,12 @@ mov #0x20,r1
 shll8 r1
 xor r3,r0
 tst r1,r0
-bt ln96
+bt ln98
 mov.l @(32,r14),r0
 mov.l @(60,r13),r1
 mov.l r0,@(60,r13)
 mov.l r1,@(32,r14)
-ln96:
+ln98:
 mov r3,r0
 shlr8 r0
 and #0xA7,r0
@@ -48753,23 +48790,23 @@ and r0,r3
 movt r0
 shll2 r0
 or r0,r8
-mov.l fdl_cp_addr98,r4
+mov.l fdl_cp_addr100,r4
 jmp @r4
 add #-18,r7
 .align 2
-fdl_cp_addr98: .long fdl_cp
+fdl_cp_addr100: .long fdl_cp
 ! Opcodes 46E8 - 46EF
 O6E8:
 mov.l @(sreg-areg,r14),r0
 shlr8 r0
 tst #0x20,r0
-bf pcheck_ok99
-mov.l priviolation_addr99,r0
+bf pcheck_ok101
+mov.l priviolation_addr101,r0
 jmp @r0
 nop
 .align 2
-priviolation_addr99: .long privilege_violation
-pcheck_ok99:
+priviolation_addr101: .long privilege_violation
+pcheck_ok101:
 mov.w @r6+,r4
 mov r2,r0
 mov.l @(r0,r14),r1
@@ -48782,12 +48819,12 @@ mov #0x20,r1
 shll8 r1
 xor r3,r0
 tst r1,r0
-bt ln100
+bt ln102
 mov.l @(32,r14),r0
 mov.l @(60,r13),r1
 mov.l r0,@(60,r13)
 mov.l r1,@(32,r14)
-ln100:
+ln102:
 mov r3,r0
 shlr8 r0
 and #0xA7,r0
@@ -48808,23 +48845,23 @@ and r0,r3
 movt r0
 shll2 r0
 or r0,r8
-mov.l fdl_cp_addr102,r4
+mov.l fdl_cp_addr104,r4
 jmp @r4
 add #-20,r7
 .align 2
-fdl_cp_addr102: .long fdl_cp
+fdl_cp_addr104: .long fdl_cp
 ! Opcodes 46F0 - 46F7
 O6F0:
 mov.l @(sreg-areg,r14),r0
 shlr8 r0
 tst #0x20,r0
-bf pcheck_ok103
-mov.l priviolation_addr103,r0
+bf pcheck_ok105
+mov.l priviolation_addr105,r0
 jmp @r0
 nop
 .align 2
-priviolation_addr103: .long privilege_violation
-pcheck_ok103:
+priviolation_addr105: .long privilege_violation
+pcheck_ok105:
 mov.l @(decode_extw_addr-fetch_idx,r11),r4
 mov r2,r0
 jsr @r4
@@ -48837,12 +48874,12 @@ mov #0x20,r1
 shll8 r1
 xor r3,r0
 tst r1,r0
-bt ln104
+bt ln106
 mov.l @(32,r14),r0
 mov.l @(60,r13),r1
 mov.l r0,@(60,r13)
 mov.l r1,@(32,r14)
-ln104:
+ln106:
 mov r3,r0
 shlr8 r0
 and #0xA7,r0
@@ -48863,23 +48900,23 @@ and r0,r3
 movt r0
 shll2 r0
 or r0,r8
-mov.l fdl_cp_addr106,r4
+mov.l fdl_cp_addr108,r4
 jmp @r4
 add #-22,r7
 .align 2
-fdl_cp_addr106: .long fdl_cp
+fdl_cp_addr108: .long fdl_cp
 ! Opcode 46F8
 O6F8:
 mov.l @(sreg-areg,r14),r0
 shlr8 r0
 tst #0x20,r0
-bf pcheck_ok107
-mov.l priviolation_addr107,r0
+bf pcheck_ok109
+mov.l priviolation_addr109,r0
 jmp @r0
 nop
 .align 2
-priviolation_addr107: .long privilege_violation
-pcheck_ok107:
+priviolation_addr109: .long privilege_violation
+pcheck_ok109:
 mov.w @r6+,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
@@ -48889,12 +48926,12 @@ mov #0x20,r1
 shll8 r1
 xor r3,r0
 tst r1,r0
-bt ln108
+bt ln110
 mov.l @(32,r14),r0
 mov.l @(60,r13),r1
 mov.l r0,@(60,r13)
 mov.l r1,@(32,r14)
-ln108:
+ln110:
 mov r3,r0
 shlr8 r0
 and #0xA7,r0
@@ -48915,23 +48952,23 @@ and r0,r3
 movt r0
 shll2 r0
 or r0,r8
-mov.l fdl_cp_addr110,r4
+mov.l fdl_cp_addr112,r4
 jmp @r4
 add #-20,r7
 .align 2
-fdl_cp_addr110: .long fdl_cp
+fdl_cp_addr112: .long fdl_cp
 ! Opcode 46F9
 O6F9:
 mov.l @(sreg-areg,r14),r0
 shlr8 r0
 tst #0x20,r0
-bf pcheck_ok111
-mov.l priviolation_addr111,r0
+bf pcheck_ok113
+mov.l priviolation_addr113,r0
 jmp @r0
 nop
 .align 2
-priviolation_addr111: .long privilege_violation
-pcheck_ok111:
+priviolation_addr113: .long privilege_violation
+pcheck_ok113:
 mov.w @r6+,r0
 mov.w @r6+,r4
 shll16 r4
@@ -48944,12 +48981,12 @@ mov #0x20,r1
 shll8 r1
 xor r3,r0
 tst r1,r0
-bt ln112
+bt ln114
 mov.l @(32,r14),r0
 mov.l @(60,r13),r1
 mov.l r0,@(60,r13)
 mov.l r1,@(32,r14)
-ln112:
+ln114:
 mov r3,r0
 shlr8 r0
 and #0xA7,r0
@@ -48970,23 +49007,23 @@ and r0,r3
 movt r0
 shll2 r0
 or r0,r8
-mov.l fdl_cp_addr114,r4
+mov.l fdl_cp_addr116,r4
 jmp @r4
 add #-24,r7
 .align 2
-fdl_cp_addr114: .long fdl_cp
+fdl_cp_addr116: .long fdl_cp
 ! Opcode 46FA
 O6FA:
 mov.l @(sreg-areg,r14),r0
 shlr8 r0
 tst #0x20,r0
-bf pcheck_ok115
-mov.l priviolation_addr115,r0
+bf pcheck_ok117
+mov.l priviolation_addr117,r0
 jmp @r0
 nop
 .align 2
-priviolation_addr115: .long privilege_violation
-pcheck_ok115:
+priviolation_addr117: .long privilege_violation
+pcheck_ok117:
 mov r6,r0
 mov.w @r6+,r4
 sub r5,r0
@@ -48999,12 +49036,12 @@ mov #0x20,r1
 shll8 r1
 xor r3,r0
 tst r1,r0
-bt ln116
+bt ln118
 mov.l @(32,r14),r0
 mov.l @(60,r13),r1
 mov.l r0,@(60,r13)
 mov.l r1,@(32,r14)
-ln116:
+ln118:
 mov r3,r0
 shlr8 r0
 and #0xA7,r0
@@ -49025,23 +49062,23 @@ and r0,r3
 movt r0
 shll2 r0
 or r0,r8
-mov.l fdl_cp_addr118,r4
+mov.l fdl_cp_addr120,r4
 jmp @r4
 add #-20,r7
 .align 2
-fdl_cp_addr118: .long fdl_cp
+fdl_cp_addr120: .long fdl_cp
 ! Opcode 46FB
 O6FB:
 mov.l @(sreg-areg,r14),r0
 shlr8 r0
 tst #0x20,r0
-bf pcheck_ok119
-mov.l priviolation_addr119,r0
+bf pcheck_ok121
+mov.l priviolation_addr121,r0
 jmp @r0
 nop
 .align 2
-priviolation_addr119: .long privilege_violation
-pcheck_ok119:
+priviolation_addr121: .long privilege_violation
+pcheck_ok121:
 mov.l @(decode_extw_addr-fetch_idx,r11),r4
 mov r6,r1
 jsr @r4
@@ -49054,12 +49091,12 @@ mov #0x20,r1
 shll8 r1
 xor r3,r0
 tst r1,r0
-bt ln120
+bt ln122
 mov.l @(32,r14),r0
 mov.l @(60,r13),r1
 mov.l r0,@(60,r13)
 mov.l r1,@(32,r14)
-ln120:
+ln122:
 mov r3,r0
 shlr8 r0
 and #0xA7,r0
@@ -49080,35 +49117,35 @@ and r0,r3
 movt r0
 shll2 r0
 or r0,r8
-mov.l fdl_cp_addr122,r4
+mov.l fdl_cp_addr124,r4
 jmp @r4
 add #-22,r7
 .align 2
-fdl_cp_addr122: .long fdl_cp
+fdl_cp_addr124: .long fdl_cp
 ! Opcode 46FC
 O6FC:
 mov.l @(sreg-areg,r14),r0
 shlr8 r0
 tst #0x20,r0
-bf pcheck_ok123
-mov.l priviolation_addr123,r0
+bf pcheck_ok125
+mov.l priviolation_addr125,r0
 jmp @r0
 nop
 .align 2
-priviolation_addr123: .long privilege_violation
-pcheck_ok123:
+priviolation_addr125: .long privilege_violation
+pcheck_ok125:
 mov.w @r6+,r3
 mov.l @(sreg - areg,r14),r0
 mov #0x20,r1
 shll8 r1
 xor r3,r0
 tst r1,r0
-bt ln124
+bt ln126
 mov.l @(32,r14),r0
 mov.l @(60,r13),r1
 mov.l r0,@(60,r13)
 mov.l r1,@(32,r14)
-ln124:
+ln126:
 mov r3,r0
 shlr8 r0
 and #0xA7,r0
@@ -49129,11 +49166,11 @@ and r0,r3
 movt r0
 shll2 r0
 or r0,r8
-mov.l fdl_cp_addr126,r4
+mov.l fdl_cp_addr128,r4
 jmp @r4
 add #-16,r7
 .align 2
-fdl_cp_addr126: .long fdl_cp
+fdl_cp_addr128: .long fdl_cp
 ! Opcodes 4780 - 4787
 O780:
 mov r2,r0
@@ -49142,29 +49179,29 @@ mov #12,r0
 mov.w @(r0,r13),r1
 extu.w r1,r1
 cmp/pz r1
-bf setn127
+bf setn129
 mov #0,r8
 cmp/hi r3,r1
-bt ln127
+bt ln129
 jmp @r10
 add #-10,r7
-setn127:
+setn129:
 mov #1,r8
-ln127:
+ln129:
 mov.l r1,@-r15
-mov.l g2_except_ptr127,r0
+mov.l g2_except_ptr129,r0
 jsr @r0
 mov #0x18,r4
 mov.l @r15+,r3
-mov.l bf_addr127,r0
+mov.l bf_addr129,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-50,r7
 .align 2
-g2_except_ptr127: .long group_2_exception
-bf_addr127: .long basefunction
+g2_except_ptr129: .long group_2_exception
+bf_addr129: .long basefunction
 ! Opcodes 4790 - 4797
 O790:
 mov r2,r0
@@ -49176,29 +49213,29 @@ mov #12,r0
 mov.w @(r0,r13),r1
 extu.w r1,r1
 cmp/pz r1
-bf setn128
+bf setn130
 mov #0,r8
 cmp/hi r3,r1
-bt ln128
+bt ln130
 jmp @r10
 add #-14,r7
-setn128:
+setn130:
 mov #1,r8
-ln128:
+ln130:
 mov.l r1,@-r15
-mov.l g2_except_ptr128,r0
+mov.l g2_except_ptr130,r0
 jsr @r0
 mov #0x18,r4
 mov.l @r15+,r3
-mov.l bf_addr128,r0
+mov.l bf_addr130,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-54,r7
 .align 2
-g2_except_ptr128: .long group_2_exception
-bf_addr128: .long basefunction
+g2_except_ptr130: .long group_2_exception
+bf_addr130: .long basefunction
 ! Opcodes 4798 - 479F
 O798:
 mov r2,r0
@@ -49213,29 +49250,29 @@ mov #12,r0
 mov.w @(r0,r13),r1
 extu.w r1,r1
 cmp/pz r1
-bf setn129
+bf setn131
 mov #0,r8
 cmp/hi r3,r1
-bt ln129
+bt ln131
 jmp @r10
 add #-14,r7
-setn129:
+setn131:
 mov #1,r8
-ln129:
+ln131:
 mov.l r1,@-r15
-mov.l g2_except_ptr129,r0
+mov.l g2_except_ptr131,r0
 jsr @r0
 mov #0x18,r4
 mov.l @r15+,r3
-mov.l bf_addr129,r0
+mov.l bf_addr131,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-54,r7
 .align 2
-g2_except_ptr129: .long group_2_exception
-bf_addr129: .long basefunction
+g2_except_ptr131: .long group_2_exception
+bf_addr131: .long basefunction
 ! Opcodes 47A0 - 47A7
 O7A0:
 mov r2,r0
@@ -49250,84 +49287,12 @@ mov #12,r0
 mov.w @(r0,r13),r1
 extu.w r1,r1
 cmp/pz r1
-bf setn130
-mov #0,r8
-cmp/hi r3,r1
-bt ln130
-jmp @r10
-add #-16,r7
-setn130:
-mov #1,r8
-ln130:
-mov.l r1,@-r15
-mov.l g2_except_ptr130,r0
-jsr @r0
-mov #0x18,r4
-mov.l @r15+,r3
-mov.l bf_addr130,r0
-jsr @r0
-nop
-add r5,r6
-jmp @r10
-add #-56,r7
-.align 2
-g2_except_ptr130: .long group_2_exception
-bf_addr130: .long basefunction
-! Opcodes 47A8 - 47AF
-O7A8:
-mov.w @r6+,r4
-mov r2,r0
-mov.l @(r0,r14),r1
-add r1,r4
-mov.l @(rw_addr-fetch_idx,r11),r0
-jsr @r0
-nop
-mov #12,r0
-mov.w @(r0,r13),r1
-extu.w r1,r1
-cmp/pz r1
-bf setn131
-mov #0,r8
-cmp/hi r3,r1
-bt ln131
-jmp @r10
-add #-18,r7
-setn131:
-mov #1,r8
-ln131:
-mov.l r1,@-r15
-mov.l g2_except_ptr131,r0
-jsr @r0
-mov #0x18,r4
-mov.l @r15+,r3
-mov.l bf_addr131,r0
-jsr @r0
-nop
-add r5,r6
-jmp @r10
-add #-58,r7
-.align 2
-g2_except_ptr131: .long group_2_exception
-bf_addr131: .long basefunction
-! Opcodes 47B0 - 47B7
-O7B0:
-mov.l @(decode_extw_addr-fetch_idx,r11),r4
-mov r2,r0
-jsr @r4
-mov.l @(r0,r14),r1
-mov.l @(rw_addr-fetch_idx,r11),r0
-jsr @r0
-nop
-mov #12,r0
-mov.w @(r0,r13),r1
-extu.w r1,r1
-cmp/pz r1
 bf setn132
 mov #0,r8
 cmp/hi r3,r1
 bt ln132
 jmp @r10
-add #-20,r7
+add #-16,r7
 setn132:
 mov #1,r8
 ln132:
@@ -49341,13 +49306,16 @@ jsr @r0
 nop
 add r5,r6
 jmp @r10
-add #-60,r7
+add #-56,r7
 .align 2
 g2_except_ptr132: .long group_2_exception
 bf_addr132: .long basefunction
-! Opcode 47B8
-O7B8:
+! Opcodes 47A8 - 47AF
+O7A8:
 mov.w @r6+,r4
+mov r2,r0
+mov.l @(r0,r14),r1
+add r1,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
@@ -49378,12 +49346,12 @@ add #-58,r7
 .align 2
 g2_except_ptr133: .long group_2_exception
 bf_addr133: .long basefunction
-! Opcode 47B9
-O7B9:
-mov.w @r6+,r0
-mov.w @r6+,r4
-shll16 r4
-xtrct r0,r4
+! Opcodes 47B0 - 47B7
+O7B0:
+mov.l @(decode_extw_addr-fetch_idx,r11),r4
+mov r2,r0
+jsr @r4
+mov.l @(r0,r14),r1
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
@@ -49396,7 +49364,7 @@ mov #0,r8
 cmp/hi r3,r1
 bt ln134
 jmp @r10
-add #-22,r7
+add #-20,r7
 setn134:
 mov #1,r8
 ln134:
@@ -49410,16 +49378,13 @@ jsr @r0
 nop
 add r5,r6
 jmp @r10
-add #-62,r7
+add #-60,r7
 .align 2
 g2_except_ptr134: .long group_2_exception
 bf_addr134: .long basefunction
-! Opcode 47BA
-O7BA:
-mov r6,r0
+! Opcode 47B8
+O7B8:
 mov.w @r6+,r4
-sub r5,r0
-add r0,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
@@ -49450,12 +49415,12 @@ add #-58,r7
 .align 2
 g2_except_ptr135: .long group_2_exception
 bf_addr135: .long basefunction
-! Opcode 47BB
-O7BB:
-mov.l @(decode_extw_addr-fetch_idx,r11),r4
-mov r6,r1
-jsr @r4
-sub r5,r1
+! Opcode 47B9
+O7B9:
+mov.w @r6+,r0
+mov.w @r6+,r4
+shll16 r4
+xtrct r0,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
@@ -49468,7 +49433,7 @@ mov #0,r8
 cmp/hi r3,r1
 bt ln136
 jmp @r10
-add #-20,r7
+add #-22,r7
 setn136:
 mov #1,r8
 ln136:
@@ -49482,13 +49447,19 @@ jsr @r0
 nop
 add r5,r6
 jmp @r10
-add #-60,r7
+add #-62,r7
 .align 2
 g2_except_ptr136: .long group_2_exception
 bf_addr136: .long basefunction
-! Opcode 47BC
-O7BC:
-mov.w @r6+,r3
+! Opcode 47BA
+O7BA:
+mov r6,r0
+mov.w @r6+,r4
+sub r5,r0
+add r0,r4
+mov.l @(rw_addr-fetch_idx,r11),r0
+jsr @r0
+nop
 mov #12,r0
 mov.w @(r0,r13),r1
 extu.w r1,r1
@@ -49498,7 +49469,7 @@ mov #0,r8
 cmp/hi r3,r1
 bt ln137
 jmp @r10
-add #-14,r7
+add #-18,r7
 setn137:
 mov #1,r8
 ln137:
@@ -49512,10 +49483,76 @@ jsr @r0
 nop
 add r5,r6
 jmp @r10
-add #-54,r7
+add #-58,r7
 .align 2
 g2_except_ptr137: .long group_2_exception
 bf_addr137: .long basefunction
+! Opcode 47BB
+O7BB:
+mov.l @(decode_extw_addr-fetch_idx,r11),r4
+mov r6,r1
+jsr @r4
+sub r5,r1
+mov.l @(rw_addr-fetch_idx,r11),r0
+jsr @r0
+nop
+mov #12,r0
+mov.w @(r0,r13),r1
+extu.w r1,r1
+cmp/pz r1
+bf setn138
+mov #0,r8
+cmp/hi r3,r1
+bt ln138
+jmp @r10
+add #-20,r7
+setn138:
+mov #1,r8
+ln138:
+mov.l r1,@-r15
+mov.l g2_except_ptr138,r0
+jsr @r0
+mov #0x18,r4
+mov.l @r15+,r3
+mov.l bf_addr138,r0
+jsr @r0
+nop
+add r5,r6
+jmp @r10
+add #-60,r7
+.align 2
+g2_except_ptr138: .long group_2_exception
+bf_addr138: .long basefunction
+! Opcode 47BC
+O7BC:
+mov.w @r6+,r3
+mov #12,r0
+mov.w @(r0,r13),r1
+extu.w r1,r1
+cmp/pz r1
+bf setn139
+mov #0,r8
+cmp/hi r3,r1
+bt ln139
+jmp @r10
+add #-14,r7
+setn139:
+mov #1,r8
+ln139:
+mov.l r1,@-r15
+mov.l g2_except_ptr139,r0
+jsr @r0
+mov #0x18,r4
+mov.l @r15+,r3
+mov.l bf_addr139,r0
+jsr @r0
+nop
+add r5,r6
+jmp @r10
+add #-54,r7
+.align 2
+g2_except_ptr139: .long group_2_exception
+bf_addr139: .long basefunction
 ! Opcodes 47D0 - 47D7
 O7D0:
 mov r2,r0
@@ -49589,50 +49626,6 @@ cmp/pl r9
 subc r0,r8
 mov #9,r0
 cmp/hi r0,r8
-bf .nonibadd139
-add #-6,r8
-.nonibadd139:
-mov r3,r0
-and #0xF0,r0
-mov r0,r3
-mov r1,r0
-and #0xF0,r0
-sub r0,r3
-add r8,r3
-mov #0x99,r0
-extu.b r0,r0
-cmp/hi r0,r3
-movt r9
-bf .endop139
-mov #0xA0,r0
-extu.b r0,r0
-add r0,r3
-.endop139:
-exts.b r3,r3
-mov r9,r8
-mov.b r3,@r2
-mov.l @r15+,r2
-or r2,r3
-jmp @r10
-add #-6,r7
-! Opcodes 4810 - 4817
-O810:
-mov.l r3,@-r15
-mov r2,r0
-mov.l @(r0,r14),r4
-mov.l @(rb_addr-fetch_idx,r11),r0
-jsr @r0
-nop
-mov r3,r1
-mov #0,r3
-mov #0x0F,r0
-and r1,r0
-mov #0x0F,r8
-and r3,r8
-cmp/pl r9
-subc r0,r8
-mov #9,r0
-cmp/hi r0,r8
 bf .nonibadd141
 add #-6,r8
 .nonibadd141:
@@ -49654,15 +49647,13 @@ add r0,r3
 .endop141:
 exts.b r3,r3
 mov r9,r8
-mov.l @(wb_addr-fetch_idx,r11),r0
-jsr @r0
-nop
+mov.b r3,@r2
 mov.l @r15+,r2
 or r2,r3
 jmp @r10
-add #-12,r7
-! Opcodes 4818 - 481F
-O818:
+add #-6,r7
+! Opcodes 4810 - 4817
+O810:
 mov.l r3,@-r15
 mov r2,r0
 mov.l @(r0,r14),r4
@@ -49703,25 +49694,15 @@ mov r9,r8
 mov.l @(wb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
-mov r2,r0
-cmp/eq #28,r0
-mov #1,r0
-addc r0,r4
-mov r2,r0
-mov.l r4,@(r0,r14)
 mov.l @r15+,r2
 or r2,r3
 jmp @r10
 add #-12,r7
-! Opcodes 4820 - 4827
-O820:
+! Opcodes 4818 - 481F
+O818:
 mov.l r3,@-r15
 mov r2,r0
 mov.l @(r0,r14),r4
-mov r2,r0
-cmp/eq #28,r0
-mov #1,r0
-subc r0,r4
 mov.l @(rb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
@@ -49760,18 +49741,24 @@ mov.l @(wb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov r2,r0
+cmp/eq #28,r0
+mov #1,r0
+addc r0,r4
+mov r2,r0
 mov.l r4,@(r0,r14)
 mov.l @r15+,r2
 or r2,r3
 jmp @r10
-add #-14,r7
-! Opcodes 4828 - 482F
-O828:
+add #-12,r7
+! Opcodes 4820 - 4827
+O820:
 mov.l r3,@-r15
-mov.w @r6+,r4
 mov r2,r0
-mov.l @(r0,r14),r1
-add r1,r4
+mov.l @(r0,r14),r4
+mov r2,r0
+cmp/eq #28,r0
+mov #1,r0
+subc r0,r4
 mov.l @(rb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
@@ -49809,17 +49796,19 @@ mov r9,r8
 mov.l @(wb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+mov r2,r0
+mov.l r4,@(r0,r14)
 mov.l @r15+,r2
 or r2,r3
 jmp @r10
-add #-16,r7
-! Opcodes 4830 - 4837
-O830:
+add #-14,r7
+! Opcodes 4828 - 482F
+O828:
 mov.l r3,@-r15
-mov.l @(decode_extw_addr-fetch_idx,r11),r4
+mov.w @r6+,r4
 mov r2,r0
-jsr @r4
 mov.l @(r0,r14),r1
+add r1,r4
 mov.l @(rb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
@@ -49860,11 +49849,14 @@ nop
 mov.l @r15+,r2
 or r2,r3
 jmp @r10
-add #-18,r7
-! Opcode 4838
-O838:
+add #-16,r7
+! Opcodes 4830 - 4837
+O830:
 mov.l r3,@-r15
-mov.w @r6+,r4
+mov.l @(decode_extw_addr-fetch_idx,r11),r4
+mov r2,r0
+jsr @r4
+mov.l @(r0,r14),r1
 mov.l @(rb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
@@ -49905,14 +49897,11 @@ nop
 mov.l @r15+,r2
 or r2,r3
 jmp @r10
-add #-16,r7
-! Opcode 4839
-O839:
+add #-18,r7
+! Opcode 4838
+O838:
 mov.l r3,@-r15
-mov.w @r6+,r0
 mov.w @r6+,r4
-shll16 r4
-xtrct r0,r4
 mov.l @(rb_addr-fetch_idx,r11),r0
 jsr @r0
 nop
@@ -49945,6 +49934,54 @@ mov #0xA0,r0
 extu.b r0,r0
 add r0,r3
 .endop153:
+exts.b r3,r3
+mov r9,r8
+mov.l @(wb_addr-fetch_idx,r11),r0
+jsr @r0
+nop
+mov.l @r15+,r2
+or r2,r3
+jmp @r10
+add #-16,r7
+! Opcode 4839
+O839:
+mov.l r3,@-r15
+mov.w @r6+,r0
+mov.w @r6+,r4
+shll16 r4
+xtrct r0,r4
+mov.l @(rb_addr-fetch_idx,r11),r0
+jsr @r0
+nop
+mov r3,r1
+mov #0,r3
+mov #0x0F,r0
+and r1,r0
+mov #0x0F,r8
+and r3,r8
+cmp/pl r9
+subc r0,r8
+mov #9,r0
+cmp/hi r0,r8
+bf .nonibadd155
+add #-6,r8
+.nonibadd155:
+mov r3,r0
+and #0xF0,r0
+mov r0,r3
+mov r1,r0
+and #0xF0,r0
+sub r0,r3
+add r8,r3
+mov #0x99,r0
+extu.b r0,r0
+cmp/hi r0,r3
+movt r9
+bf .endop155
+mov #0xA0,r0
+extu.b r0,r0
+add r0,r3
+.endop155:
 exts.b r3,r3
 mov r9,r8
 mov.l @(wb_addr-fetch_idx,r11),r0
@@ -50093,20 +50130,20 @@ mov.w @r6+,r10
 mov r2,r0
 mov.l @(r0,r14),r4
 mov #0,r2
-ln154:
+ln156:
 shlr r10
-bf ln155
+bf ln157
 mov r13,r0
 mov.l @(r0,r2),r3
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 add #-4,r7
 add #2,r4
-ln155:
+ln157:
 add #4,r2
 mov #64,r0
 tst r0,r2
-bt ln154
+bt ln156
 mov.l @r15+,r10
 mov.l @r15+,r3
 jmp @r10
@@ -50120,19 +50157,19 @@ mov r2,r0
 mov.l @(r0,r14),r4
 mov.l r2,@-r15
 mov #60,r2
-ln156:
+ln158:
 shlr r10
-bf ln157
+bf ln159
 mov r13,r0
 add #-2,r4
 mov.l @(r0,r2),r3
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 add #-4,r7
-ln157:
+ln159:
 add #-4,r2
 cmp/pz r2
-bt ln156
+bt ln158
 mov.l @r15+,r2
 mov.l @r15+,r10
 mov r2,r0
@@ -50150,20 +50187,20 @@ mov r2,r0
 mov.l @(r0,r14),r1
 add r1,r4
 mov #0,r2
-ln158:
+ln160:
 shlr r10
-bf ln159
+bf ln161
 mov r13,r0
 mov.l @(r0,r2),r3
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 add #-4,r7
 add #2,r4
-ln159:
+ln161:
 add #4,r2
 mov #64,r0
 tst r0,r2
-bt ln158
+bt ln160
 mov.l @r15+,r10
 mov.l @r15+,r3
 jmp @r10
@@ -50178,20 +50215,20 @@ mov r2,r0
 jsr @r4
 mov.l @(r0,r14),r1
 mov #0,r2
-ln160:
+ln162:
 shlr r10
-bf ln161
+bf ln163
 mov r13,r0
 mov.l @(r0,r2),r3
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 add #-4,r7
 add #2,r4
-ln161:
+ln163:
 add #4,r2
 mov #64,r0
 tst r0,r2
-bt ln160
+bt ln162
 mov.l @r15+,r10
 mov.l @r15+,r3
 jmp @r10
@@ -50203,20 +50240,20 @@ mov.l r10,@-r15
 mov.w @r6+,r10
 mov.w @r6+,r4
 mov #0,r2
-ln162:
+ln164:
 shlr r10
-bf ln163
+bf ln165
 mov r13,r0
 mov.l @(r0,r2),r3
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 add #-4,r7
 add #2,r4
-ln163:
+ln165:
 add #4,r2
 mov #64,r0
 tst r0,r2
-bt ln162
+bt ln164
 mov.l @r15+,r10
 mov.l @r15+,r3
 jmp @r10
@@ -50231,20 +50268,20 @@ mov.w @r6+,r4
 shll16 r4
 xtrct r0,r4
 mov #0,r2
-ln164:
+ln166:
 shlr r10
-bf ln165
+bf ln167
 mov r13,r0
 mov.l @(r0,r2),r3
-mov.l @(ww_addr-fetch_idx,r11),r0
+mov.l @(wdecw_addr-fetch_idx,r11),r0
 jsr @r0
 add #-4,r7
 add #2,r4
-ln165:
+ln167:
 add #4,r2
 mov #64,r0
 tst r0,r2
-bt ln164
+bt ln166
 mov.l @r15+,r10
 mov.l @r15+,r3
 jmp @r10
@@ -50265,20 +50302,20 @@ mov.w @r6+,r10
 mov r2,r0
 mov.l @(r0,r14),r4
 mov #0,r2
-ln166:
+ln168:
 shlr r10
-bf ln167
+bf ln169
 mov r13,r0
 mov.l @(r0,r2),r3
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 add #-8,r7
 add #4,r4
-ln167:
+ln169:
 add #4,r2
 mov #64,r0
 tst r0,r2
-bt ln166
+bt ln168
 mov.l @r15+,r10
 mov.l @r15+,r3
 jmp @r10
@@ -50292,19 +50329,19 @@ mov r2,r0
 mov.l @(r0,r14),r4
 mov.l r2,@-r15
 mov #60,r2
-ln168:
+ln170:
 shlr r10
-bf ln169
+bf ln171
 mov r13,r0
 add #-4,r4
 mov.l @(r0,r2),r3
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 add #-8,r7
-ln169:
+ln171:
 add #-4,r2
 cmp/pz r2
-bt ln168
+bt ln170
 mov.l @r15+,r2
 mov.l @r15+,r10
 mov r2,r0
@@ -50322,20 +50359,20 @@ mov r2,r0
 mov.l @(r0,r14),r1
 add r1,r4
 mov #0,r2
-ln170:
+ln172:
 shlr r10
-bf ln171
+bf ln173
 mov r13,r0
 mov.l @(r0,r2),r3
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 add #-8,r7
 add #4,r4
-ln171:
+ln173:
 add #4,r2
 mov #64,r0
 tst r0,r2
-bt ln170
+bt ln172
 mov.l @r15+,r10
 mov.l @r15+,r3
 jmp @r10
@@ -50350,20 +50387,20 @@ mov r2,r0
 jsr @r4
 mov.l @(r0,r14),r1
 mov #0,r2
-ln172:
+ln174:
 shlr r10
-bf ln173
+bf ln175
 mov r13,r0
 mov.l @(r0,r2),r3
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 add #-8,r7
 add #4,r4
-ln173:
+ln175:
 add #4,r2
 mov #64,r0
 tst r0,r2
-bt ln172
+bt ln174
 mov.l @r15+,r10
 mov.l @r15+,r3
 jmp @r10
@@ -50375,20 +50412,20 @@ mov.l r10,@-r15
 mov.w @r6+,r10
 mov.w @r6+,r4
 mov #0,r2
-ln174:
+ln176:
 shlr r10
-bf ln175
+bf ln177
 mov r13,r0
 mov.l @(r0,r2),r3
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 add #-8,r7
 add #4,r4
-ln175:
+ln177:
 add #4,r2
 mov #64,r0
 tst r0,r2
-bt ln174
+bt ln176
 mov.l @r15+,r10
 mov.l @r15+,r3
 jmp @r10
@@ -50403,20 +50440,20 @@ mov.w @r6+,r4
 shll16 r4
 xtrct r0,r4
 mov #0,r2
-ln176:
+ln178:
 shlr r10
-bf ln177
+bf ln179
 mov r13,r0
 mov.l @(r0,r2),r3
-mov.l @(wl_addr-fetch_idx,r11),r0
+mov.l @(wdecl_addr-fetch_idx,r11),r0
 jsr @r0
 add #-8,r7
 add #4,r4
-ln177:
+ln179:
 add #4,r2
 mov #64,r0
 tst r0,r2
-bt ln176
+bt ln178
 mov.l @r15+,r10
 mov.l @r15+,r3
 jmp @r10
@@ -50429,29 +50466,29 @@ mov #16,r0
 mov.w @(r0,r13),r1
 extu.w r1,r1
 cmp/pz r1
-bf setn178
+bf setn180
 mov #0,r8
 cmp/hi r3,r1
-bt ln178
+bt ln180
 jmp @r10
 add #-10,r7
-setn178:
+setn180:
 mov #1,r8
-ln178:
+ln180:
 mov.l r1,@-r15
-mov.l g2_except_ptr178,r0
+mov.l g2_except_ptr180,r0
 jsr @r0
 mov #0x18,r4
 mov.l @r15+,r3
-mov.l bf_addr178,r0
+mov.l bf_addr180,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-50,r7
 .align 2
-g2_except_ptr178: .long group_2_exception
-bf_addr178: .long basefunction
+g2_except_ptr180: .long group_2_exception
+bf_addr180: .long basefunction
 ! Opcodes 4990 - 4997
 O990:
 mov r2,r0
@@ -50463,29 +50500,29 @@ mov #16,r0
 mov.w @(r0,r13),r1
 extu.w r1,r1
 cmp/pz r1
-bf setn179
+bf setn181
 mov #0,r8
 cmp/hi r3,r1
-bt ln179
+bt ln181
 jmp @r10
 add #-14,r7
-setn179:
+setn181:
 mov #1,r8
-ln179:
+ln181:
 mov.l r1,@-r15
-mov.l g2_except_ptr179,r0
+mov.l g2_except_ptr181,r0
 jsr @r0
 mov #0x18,r4
 mov.l @r15+,r3
-mov.l bf_addr179,r0
+mov.l bf_addr181,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-54,r7
 .align 2
-g2_except_ptr179: .long group_2_exception
-bf_addr179: .long basefunction
+g2_except_ptr181: .long group_2_exception
+bf_addr181: .long basefunction
 ! Opcodes 4998 - 499F
 O998:
 mov r2,r0
@@ -50500,29 +50537,29 @@ mov #16,r0
 mov.w @(r0,r13),r1
 extu.w r1,r1
 cmp/pz r1
-bf setn180
+bf setn182
 mov #0,r8
 cmp/hi r3,r1
-bt ln180
+bt ln182
 jmp @r10
 add #-14,r7
-setn180:
+setn182:
 mov #1,r8
-ln180:
+ln182:
 mov.l r1,@-r15
-mov.l g2_except_ptr180,r0
+mov.l g2_except_ptr182,r0
 jsr @r0
 mov #0x18,r4
 mov.l @r15+,r3
-mov.l bf_addr180,r0
+mov.l bf_addr182,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-54,r7
 .align 2
-g2_except_ptr180: .long group_2_exception
-bf_addr180: .long basefunction
+g2_except_ptr182: .long group_2_exception
+bf_addr182: .long basefunction
 ! Opcodes 49A0 - 49A7
 O9A0:
 mov r2,r0
@@ -50537,84 +50574,12 @@ mov #16,r0
 mov.w @(r0,r13),r1
 extu.w r1,r1
 cmp/pz r1
-bf setn181
-mov #0,r8
-cmp/hi r3,r1
-bt ln181
-jmp @r10
-add #-16,r7
-setn181:
-mov #1,r8
-ln181:
-mov.l r1,@-r15
-mov.l g2_except_ptr181,r0
-jsr @r0
-mov #0x18,r4
-mov.l @r15+,r3
-mov.l bf_addr181,r0
-jsr @r0
-nop
-add r5,r6
-jmp @r10
-add #-56,r7
-.align 2
-g2_except_ptr181: .long group_2_exception
-bf_addr181: .long basefunction
-! Opcodes 49A8 - 49AF
-O9A8:
-mov.w @r6+,r4
-mov r2,r0
-mov.l @(r0,r14),r1
-add r1,r4
-mov.l @(rw_addr-fetch_idx,r11),r0
-jsr @r0
-nop
-mov #16,r0
-mov.w @(r0,r13),r1
-extu.w r1,r1
-cmp/pz r1
-bf setn182
-mov #0,r8
-cmp/hi r3,r1
-bt ln182
-jmp @r10
-add #-18,r7
-setn182:
-mov #1,r8
-ln182:
-mov.l r1,@-r15
-mov.l g2_except_ptr182,r0
-jsr @r0
-mov #0x18,r4
-mov.l @r15+,r3
-mov.l bf_addr182,r0
-jsr @r0
-nop
-add r5,r6
-jmp @r10
-add #-58,r7
-.align 2
-g2_except_ptr182: .long group_2_exception
-bf_addr182: .long basefunction
-! Opcodes 49B0 - 49B7
-O9B0:
-mov.l @(decode_extw_addr-fetch_idx,r11),r4
-mov r2,r0
-jsr @r4
-mov.l @(r0,r14),r1
-mov.l @(rw_addr-fetch_idx,r11),r0
-jsr @r0
-nop
-mov #16,r0
-mov.w @(r0,r13),r1
-extu.w r1,r1
-cmp/pz r1
 bf setn183
 mov #0,r8
 cmp/hi r3,r1
 bt ln183
 jmp @r10
-add #-20,r7
+add #-16,r7
 setn183:
 mov #1,r8
 ln183:
@@ -50628,13 +50593,16 @@ jsr @r0
 nop
 add r5,r6
 jmp @r10
-add #-60,r7
+add #-56,r7
 .align 2
 g2_except_ptr183: .long group_2_exception
 bf_addr183: .long basefunction
-! Opcode 49B8
-O9B8:
+! Opcodes 49A8 - 49AF
+O9A8:
 mov.w @r6+,r4
+mov r2,r0
+mov.l @(r0,r14),r1
+add r1,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
@@ -50665,12 +50633,12 @@ add #-58,r7
 .align 2
 g2_except_ptr184: .long group_2_exception
 bf_addr184: .long basefunction
-! Opcode 49B9
-O9B9:
-mov.w @r6+,r0
-mov.w @r6+,r4
-shll16 r4
-xtrct r0,r4
+! Opcodes 49B0 - 49B7
+O9B0:
+mov.l @(decode_extw_addr-fetch_idx,r11),r4
+mov r2,r0
+jsr @r4
+mov.l @(r0,r14),r1
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
@@ -50683,7 +50651,7 @@ mov #0,r8
 cmp/hi r3,r1
 bt ln185
 jmp @r10
-add #-22,r7
+add #-20,r7
 setn185:
 mov #1,r8
 ln185:
@@ -50697,16 +50665,13 @@ jsr @r0
 nop
 add r5,r6
 jmp @r10
-add #-62,r7
+add #-60,r7
 .align 2
 g2_except_ptr185: .long group_2_exception
 bf_addr185: .long basefunction
-! Opcode 49BA
-O9BA:
-mov r6,r0
+! Opcode 49B8
+O9B8:
 mov.w @r6+,r4
-sub r5,r0
-add r0,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
@@ -50737,12 +50702,12 @@ add #-58,r7
 .align 2
 g2_except_ptr186: .long group_2_exception
 bf_addr186: .long basefunction
-! Opcode 49BB
-O9BB:
-mov.l @(decode_extw_addr-fetch_idx,r11),r4
-mov r6,r1
-jsr @r4
-sub r5,r1
+! Opcode 49B9
+O9B9:
+mov.w @r6+,r0
+mov.w @r6+,r4
+shll16 r4
+xtrct r0,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
@@ -50755,7 +50720,7 @@ mov #0,r8
 cmp/hi r3,r1
 bt ln187
 jmp @r10
-add #-20,r7
+add #-22,r7
 setn187:
 mov #1,r8
 ln187:
@@ -50769,13 +50734,19 @@ jsr @r0
 nop
 add r5,r6
 jmp @r10
-add #-60,r7
+add #-62,r7
 .align 2
 g2_except_ptr187: .long group_2_exception
 bf_addr187: .long basefunction
-! Opcode 49BC
-O9BC:
-mov.w @r6+,r3
+! Opcode 49BA
+O9BA:
+mov r6,r0
+mov.w @r6+,r4
+sub r5,r0
+add r0,r4
+mov.l @(rw_addr-fetch_idx,r11),r0
+jsr @r0
+nop
 mov #16,r0
 mov.w @(r0,r13),r1
 extu.w r1,r1
@@ -50785,7 +50756,7 @@ mov #0,r8
 cmp/hi r3,r1
 bt ln188
 jmp @r10
-add #-14,r7
+add #-18,r7
 setn188:
 mov #1,r8
 ln188:
@@ -50799,10 +50770,76 @@ jsr @r0
 nop
 add r5,r6
 jmp @r10
-add #-54,r7
+add #-58,r7
 .align 2
 g2_except_ptr188: .long group_2_exception
 bf_addr188: .long basefunction
+! Opcode 49BB
+O9BB:
+mov.l @(decode_extw_addr-fetch_idx,r11),r4
+mov r6,r1
+jsr @r4
+sub r5,r1
+mov.l @(rw_addr-fetch_idx,r11),r0
+jsr @r0
+nop
+mov #16,r0
+mov.w @(r0,r13),r1
+extu.w r1,r1
+cmp/pz r1
+bf setn189
+mov #0,r8
+cmp/hi r3,r1
+bt ln189
+jmp @r10
+add #-20,r7
+setn189:
+mov #1,r8
+ln189:
+mov.l r1,@-r15
+mov.l g2_except_ptr189,r0
+jsr @r0
+mov #0x18,r4
+mov.l @r15+,r3
+mov.l bf_addr189,r0
+jsr @r0
+nop
+add r5,r6
+jmp @r10
+add #-60,r7
+.align 2
+g2_except_ptr189: .long group_2_exception
+bf_addr189: .long basefunction
+! Opcode 49BC
+O9BC:
+mov.w @r6+,r3
+mov #16,r0
+mov.w @(r0,r13),r1
+extu.w r1,r1
+cmp/pz r1
+bf setn190
+mov #0,r8
+cmp/hi r3,r1
+bt ln190
+jmp @r10
+add #-14,r7
+setn190:
+mov #1,r8
+ln190:
+mov.l r1,@-r15
+mov.l g2_except_ptr190,r0
+jsr @r0
+mov #0x18,r4
+mov.l @r15+,r3
+mov.l bf_addr190,r0
+jsr @r0
+nop
+add r5,r6
+jmp @r10
+add #-54,r7
+.align 2
+g2_except_ptr190: .long group_2_exception
+bf_addr190: .long basefunction
 ! Opcodes 49D0 - 49D7
 O9D0:
 mov r2,r0
@@ -51300,40 +51337,6 @@ add #-26,r7
 OAFA:
 r_illegal:
 mov.l r3,@-r15
-mov.l g1_except_addr189,r0
-add #-2,r6
-jsr @r0
-mov #0x10,r4
-mov.l bf_addr189,r0
-jsr @r0
-nop
-add r5,r6
-mov.l @r15+,r3
-jmp @r10
-add #-34,r7
-.align 2
-g1_except_addr189: .long group_1_exception
-bf_addr189: .long basefunction
-! Opcode 4AFB
-OAFB:
-mov.l r3,@-r15
-mov.l g1_except_addr190,r0
-add #-2,r6
-jsr @r0
-mov #0x10,r4
-mov.l bf_addr190,r0
-jsr @r0
-nop
-add r5,r6
-mov.l @r15+,r3
-jmp @r10
-add #-34,r7
-.align 2
-g1_except_addr190: .long group_1_exception
-bf_addr190: .long basefunction
-! Opcode 4AFC
-OAFC:
-mov.l r3,@-r15
 mov.l g1_except_addr191,r0
 add #-2,r6
 jsr @r0
@@ -51348,6 +51351,40 @@ add #-34,r7
 .align 2
 g1_except_addr191: .long group_1_exception
 bf_addr191: .long basefunction
+! Opcode 4AFB
+OAFB:
+mov.l r3,@-r15
+mov.l g1_except_addr192,r0
+add #-2,r6
+jsr @r0
+mov #0x10,r4
+mov.l bf_addr192,r0
+jsr @r0
+nop
+add r5,r6
+mov.l @r15+,r3
+jmp @r10
+add #-34,r7
+.align 2
+g1_except_addr192: .long group_1_exception
+bf_addr192: .long basefunction
+! Opcode 4AFC
+OAFC:
+mov.l r3,@-r15
+mov.l g1_except_addr193,r0
+add #-2,r6
+jsr @r0
+mov #0x10,r4
+mov.l bf_addr193,r0
+jsr @r0
+nop
+add r5,r6
+mov.l @r15+,r3
+jmp @r10
+add #-34,r7
+.align 2
+g1_except_addr193: .long group_1_exception
+bf_addr193: .long basefunction
 ! Opcodes 4B80 - 4B87
 OB80:
 mov r2,r0
@@ -51356,29 +51393,29 @@ mov #20,r0
 mov.w @(r0,r13),r1
 extu.w r1,r1
 cmp/pz r1
-bf setn192
+bf setn194
 mov #0,r8
 cmp/hi r3,r1
-bt ln192
+bt ln194
 jmp @r10
 add #-10,r7
-setn192:
+setn194:
 mov #1,r8
-ln192:
+ln194:
 mov.l r1,@-r15
-mov.l g2_except_ptr192,r0
+mov.l g2_except_ptr194,r0
 jsr @r0
 mov #0x18,r4
 mov.l @r15+,r3
-mov.l bf_addr192,r0
+mov.l bf_addr194,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-50,r7
 .align 2
-g2_except_ptr192: .long group_2_exception
-bf_addr192: .long basefunction
+g2_except_ptr194: .long group_2_exception
+bf_addr194: .long basefunction
 ! Opcodes 4B90 - 4B97
 OB90:
 mov r2,r0
@@ -51390,29 +51427,29 @@ mov #20,r0
 mov.w @(r0,r13),r1
 extu.w r1,r1
 cmp/pz r1
-bf setn193
+bf setn195
 mov #0,r8
 cmp/hi r3,r1
-bt ln193
+bt ln195
 jmp @r10
 add #-14,r7
-setn193:
+setn195:
 mov #1,r8
-ln193:
+ln195:
 mov.l r1,@-r15
-mov.l g2_except_ptr193,r0
+mov.l g2_except_ptr195,r0
 jsr @r0
 mov #0x18,r4
 mov.l @r15+,r3
-mov.l bf_addr193,r0
+mov.l bf_addr195,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-54,r7
 .align 2
-g2_except_ptr193: .long group_2_exception
-bf_addr193: .long basefunction
+g2_except_ptr195: .long group_2_exception
+bf_addr195: .long basefunction
 ! Opcodes 4B98 - 4B9F
 OB98:
 mov r2,r0
@@ -51427,29 +51464,29 @@ mov #20,r0
 mov.w @(r0,r13),r1
 extu.w r1,r1
 cmp/pz r1
-bf setn194
+bf setn196
 mov #0,r8
 cmp/hi r3,r1
-bt ln194
+bt ln196
 jmp @r10
 add #-14,r7
-setn194:
+setn196:
 mov #1,r8
-ln194:
+ln196:
 mov.l r1,@-r15
-mov.l g2_except_ptr194,r0
+mov.l g2_except_ptr196,r0
 jsr @r0
 mov #0x18,r4
 mov.l @r15+,r3
-mov.l bf_addr194,r0
+mov.l bf_addr196,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-54,r7
 .align 2
-g2_except_ptr194: .long group_2_exception
-bf_addr194: .long basefunction
+g2_except_ptr196: .long group_2_exception
+bf_addr196: .long basefunction
 ! Opcodes 4BA0 - 4BA7
 OBA0:
 mov r2,r0
@@ -51464,84 +51501,12 @@ mov #20,r0
 mov.w @(r0,r13),r1
 extu.w r1,r1
 cmp/pz r1
-bf setn195
-mov #0,r8
-cmp/hi r3,r1
-bt ln195
-jmp @r10
-add #-16,r7
-setn195:
-mov #1,r8
-ln195:
-mov.l r1,@-r15
-mov.l g2_except_ptr195,r0
-jsr @r0
-mov #0x18,r4
-mov.l @r15+,r3
-mov.l bf_addr195,r0
-jsr @r0
-nop
-add r5,r6
-jmp @r10
-add #-56,r7
-.align 2
-g2_except_ptr195: .long group_2_exception
-bf_addr195: .long basefunction
-! Opcodes 4BA8 - 4BAF
-OBA8:
-mov.w @r6+,r4
-mov r2,r0
-mov.l @(r0,r14),r1
-add r1,r4
-mov.l @(rw_addr-fetch_idx,r11),r0
-jsr @r0
-nop
-mov #20,r0
-mov.w @(r0,r13),r1
-extu.w r1,r1
-cmp/pz r1
-bf setn196
-mov #0,r8
-cmp/hi r3,r1
-bt ln196
-jmp @r10
-add #-18,r7
-setn196:
-mov #1,r8
-ln196:
-mov.l r1,@-r15
-mov.l g2_except_ptr196,r0
-jsr @r0
-mov #0x18,r4
-mov.l @r15+,r3
-mov.l bf_addr196,r0
-jsr @r0
-nop
-add r5,r6
-jmp @r10
-add #-58,r7
-.align 2
-g2_except_ptr196: .long group_2_exception
-bf_addr196: .long basefunction
-! Opcodes 4BB0 - 4BB7
-OBB0:
-mov.l @(decode_extw_addr-fetch_idx,r11),r4
-mov r2,r0
-jsr @r4
-mov.l @(r0,r14),r1
-mov.l @(rw_addr-fetch_idx,r11),r0
-jsr @r0
-nop
-mov #20,r0
-mov.w @(r0,r13),r1
-extu.w r1,r1
-cmp/pz r1
 bf setn197
 mov #0,r8
 cmp/hi r3,r1
 bt ln197
 jmp @r10
-add #-20,r7
+add #-16,r7
 setn197:
 mov #1,r8
 ln197:
@@ -51555,13 +51520,16 @@ jsr @r0
 nop
 add r5,r6
 jmp @r10
-add #-60,r7
+add #-56,r7
 .align 2
 g2_except_ptr197: .long group_2_exception
 bf_addr197: .long basefunction
-! Opcode 4BB8
-OBB8:
+! Opcodes 4BA8 - 4BAF
+OBA8:
 mov.w @r6+,r4
+mov r2,r0
+mov.l @(r0,r14),r1
+add r1,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
@@ -51592,12 +51560,12 @@ add #-58,r7
 .align 2
 g2_except_ptr198: .long group_2_exception
 bf_addr198: .long basefunction
-! Opcode 4BB9
-OBB9:
-mov.w @r6+,r0
-mov.w @r6+,r4
-shll16 r4
-xtrct r0,r4
+! Opcodes 4BB0 - 4BB7
+OBB0:
+mov.l @(decode_extw_addr-fetch_idx,r11),r4
+mov r2,r0
+jsr @r4
+mov.l @(r0,r14),r1
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
@@ -51610,7 +51578,7 @@ mov #0,r8
 cmp/hi r3,r1
 bt ln199
 jmp @r10
-add #-22,r7
+add #-20,r7
 setn199:
 mov #1,r8
 ln199:
@@ -51624,16 +51592,13 @@ jsr @r0
 nop
 add r5,r6
 jmp @r10
-add #-62,r7
+add #-60,r7
 .align 2
 g2_except_ptr199: .long group_2_exception
 bf_addr199: .long basefunction
-! Opcode 4BBA
-OBBA:
-mov r6,r0
+! Opcode 4BB8
+OBB8:
 mov.w @r6+,r4
-sub r5,r0
-add r0,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
@@ -51664,12 +51629,12 @@ add #-58,r7
 .align 2
 g2_except_ptr200: .long group_2_exception
 bf_addr200: .long basefunction
-! Opcode 4BBB
-OBBB:
-mov.l @(decode_extw_addr-fetch_idx,r11),r4
-mov r6,r1
-jsr @r4
-sub r5,r1
+! Opcode 4BB9
+OBB9:
+mov.w @r6+,r0
+mov.w @r6+,r4
+shll16 r4
+xtrct r0,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
@@ -51682,7 +51647,7 @@ mov #0,r8
 cmp/hi r3,r1
 bt ln201
 jmp @r10
-add #-20,r7
+add #-22,r7
 setn201:
 mov #1,r8
 ln201:
@@ -51696,13 +51661,19 @@ jsr @r0
 nop
 add r5,r6
 jmp @r10
-add #-60,r7
+add #-62,r7
 .align 2
 g2_except_ptr201: .long group_2_exception
 bf_addr201: .long basefunction
-! Opcode 4BBC
-OBBC:
-mov.w @r6+,r3
+! Opcode 4BBA
+OBBA:
+mov r6,r0
+mov.w @r6+,r4
+sub r5,r0
+add r0,r4
+mov.l @(rw_addr-fetch_idx,r11),r0
+jsr @r0
+nop
 mov #20,r0
 mov.w @(r0,r13),r1
 extu.w r1,r1
@@ -51712,7 +51683,7 @@ mov #0,r8
 cmp/hi r3,r1
 bt ln202
 jmp @r10
-add #-14,r7
+add #-18,r7
 setn202:
 mov #1,r8
 ln202:
@@ -51726,10 +51697,76 @@ jsr @r0
 nop
 add r5,r6
 jmp @r10
-add #-54,r7
+add #-58,r7
 .align 2
 g2_except_ptr202: .long group_2_exception
 bf_addr202: .long basefunction
+! Opcode 4BBB
+OBBB:
+mov.l @(decode_extw_addr-fetch_idx,r11),r4
+mov r6,r1
+jsr @r4
+sub r5,r1
+mov.l @(rw_addr-fetch_idx,r11),r0
+jsr @r0
+nop
+mov #20,r0
+mov.w @(r0,r13),r1
+extu.w r1,r1
+cmp/pz r1
+bf setn203
+mov #0,r8
+cmp/hi r3,r1
+bt ln203
+jmp @r10
+add #-20,r7
+setn203:
+mov #1,r8
+ln203:
+mov.l r1,@-r15
+mov.l g2_except_ptr203,r0
+jsr @r0
+mov #0x18,r4
+mov.l @r15+,r3
+mov.l bf_addr203,r0
+jsr @r0
+nop
+add r5,r6
+jmp @r10
+add #-60,r7
+.align 2
+g2_except_ptr203: .long group_2_exception
+bf_addr203: .long basefunction
+! Opcode 4BBC
+OBBC:
+mov.w @r6+,r3
+mov #20,r0
+mov.w @(r0,r13),r1
+extu.w r1,r1
+cmp/pz r1
+bf setn204
+mov #0,r8
+cmp/hi r3,r1
+bt ln204
+jmp @r10
+add #-14,r7
+setn204:
+mov #1,r8
+ln204:
+mov.l r1,@-r15
+mov.l g2_except_ptr204,r0
+jsr @r0
+mov #0x18,r4
+mov.l @r15+,r3
+mov.l bf_addr204,r0
+jsr @r0
+nop
+add r5,r6
+jmp @r10
+add #-54,r7
+.align 2
+g2_except_ptr204: .long group_2_exception
+bf_addr204: .long basefunction
 ! Opcodes 4BD0 - 4BD7
 OBD0:
 mov r2,r0
@@ -51796,20 +51833,20 @@ mov.w @r6+,r10
 mov r2,r0
 mov.l @(r0,r14),r4
 mov #0,r2
-ln203:
+ln205:
 shlr r10
-bf ln204
+bf ln206
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 add #-4,r7
 mov r13,r0
 mov.l r3,@(r0,r2)
 add #2,r4
-ln204:
+ln206:
 add #4,r2
 mov #64,r0
 tst r0,r2
-bt ln203
+bt ln205
 mov.l @r15+,r10
 mov.l @r15+,r3
 jmp @r10
@@ -51823,20 +51860,20 @@ mov r2,r0
 mov.l @(r0,r14),r4
 mov.l r2,@-r15
 mov #0,r2
-ln205:
+ln207:
 shlr r10
-bf ln206
+bf ln208
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 add #-4,r7
 mov r13,r0
 add #2,r4
 mov.l r3,@(r0,r2)
-ln206:
+ln208:
 add #4,r2
 mov #64,r0
 tst r0,r2
-bt ln205
+bt ln207
 mov.l @r15+,r2
 mov.l @r15+,r10
 mov r2,r0
@@ -51853,34 +51890,6 @@ mov.w @r6+,r4
 mov r2,r0
 mov.l @(r0,r14),r1
 add r1,r4
-mov #0,r2
-ln207:
-shlr r10
-bf ln208
-mov.l @(rw_addr-fetch_idx,r11),r0
-jsr @r0
-add #-4,r7
-mov r13,r0
-mov.l r3,@(r0,r2)
-add #2,r4
-ln208:
-add #4,r2
-mov #64,r0
-tst r0,r2
-bt ln207
-mov.l @r15+,r10
-mov.l @r15+,r3
-jmp @r10
-add #-16,r7
-! Opcodes 4CB0 - 4CB7
-OCB0:
-mov.l r3,@-r15
-mov.l r10,@-r15
-mov.w @r6+,r10
-mov.l @(decode_extw_addr-fetch_idx,r11),r4
-mov r2,r0
-jsr @r4
-mov.l @(r0,r14),r1
 mov #0,r2
 ln209:
 shlr r10
@@ -51899,13 +51908,16 @@ bt ln209
 mov.l @r15+,r10
 mov.l @r15+,r3
 jmp @r10
-add #-18,r7
-! Opcode 4CB8
-OCB8:
+add #-16,r7
+! Opcodes 4CB0 - 4CB7
+OCB0:
 mov.l r3,@-r15
 mov.l r10,@-r15
 mov.w @r6+,r10
-mov.w @r6+,r4
+mov.l @(decode_extw_addr-fetch_idx,r11),r4
+mov r2,r0
+jsr @r4
+mov.l @(r0,r14),r1
 mov #0,r2
 ln211:
 shlr r10
@@ -51924,16 +51936,13 @@ bt ln211
 mov.l @r15+,r10
 mov.l @r15+,r3
 jmp @r10
-add #-16,r7
-! Opcode 4CB9
-OCB9:
+add #-18,r7
+! Opcode 4CB8
+OCB8:
 mov.l r3,@-r15
 mov.l r10,@-r15
 mov.w @r6+,r10
-mov.w @r6+,r0
 mov.w @r6+,r4
-shll16 r4
-xtrct r0,r4
 mov #0,r2
 ln213:
 shlr r10
@@ -51952,16 +51961,16 @@ bt ln213
 mov.l @r15+,r10
 mov.l @r15+,r3
 jmp @r10
-add #-20,r7
-! Opcode 4CBA
-OCBA:
+add #-16,r7
+! Opcode 4CB9
+OCB9:
 mov.l r3,@-r15
 mov.l r10,@-r15
 mov.w @r6+,r10
-mov r6,r0
+mov.w @r6+,r0
 mov.w @r6+,r4
-sub r5,r0
-add r0,r4
+shll16 r4
+xtrct r0,r4
 mov #0,r2
 ln215:
 shlr r10
@@ -51980,16 +51989,16 @@ bt ln215
 mov.l @r15+,r10
 mov.l @r15+,r3
 jmp @r10
-add #-16,r7
-! Opcode 4CBB
-OCBB:
+add #-20,r7
+! Opcode 4CBA
+OCBA:
 mov.l r3,@-r15
 mov.l r10,@-r15
 mov.w @r6+,r10
-mov.l @(decode_extw_addr-fetch_idx,r11),r4
-mov r6,r1
-jsr @r4
-sub r5,r1
+mov r6,r0
+mov.w @r6+,r4
+sub r5,r0
+add r0,r4
 mov #0,r2
 ln217:
 shlr r10
@@ -52008,6 +52017,34 @@ bt ln217
 mov.l @r15+,r10
 mov.l @r15+,r3
 jmp @r10
+add #-16,r7
+! Opcode 4CBB
+OCBB:
+mov.l r3,@-r15
+mov.l r10,@-r15
+mov.w @r6+,r10
+mov.l @(decode_extw_addr-fetch_idx,r11),r4
+mov r6,r1
+jsr @r4
+sub r5,r1
+mov #0,r2
+ln219:
+shlr r10
+bf ln220
+mov.l @(rw_addr-fetch_idx,r11),r0
+jsr @r0
+add #-4,r7
+mov r13,r0
+mov.l r3,@(r0,r2)
+add #2,r4
+ln220:
+add #4,r2
+mov #64,r0
+tst r0,r2
+bt ln219
+mov.l @r15+,r10
+mov.l @r15+,r3
+jmp @r10
 add #-18,r7
 ! Opcodes 4CD0 - 4CD7
 OCD0:
@@ -52017,20 +52054,20 @@ mov.w @r6+,r10
 mov r2,r0
 mov.l @(r0,r14),r4
 mov #0,r2
-ln219:
+ln221:
 shlr r10
-bf ln220
+bf ln222
 mov.l @(rl_addr-fetch_idx,r11),r0
 jsr @r0
 add #-8,r7
 mov r13,r0
 mov.l r3,@(r0,r2)
 add #4,r4
-ln220:
+ln222:
 add #4,r2
 mov #64,r0
 tst r0,r2
-bt ln219
+bt ln221
 mov.l @r15+,r10
 mov.l @r15+,r3
 jmp @r10
@@ -52044,20 +52081,20 @@ mov r2,r0
 mov.l @(r0,r14),r4
 mov.l r2,@-r15
 mov #0,r2
-ln221:
+ln223:
 shlr r10
-bf ln222
+bf ln224
 mov.l @(rl_addr-fetch_idx,r11),r0
 jsr @r0
 add #-8,r7
 mov r13,r0
 add #4,r4
 mov.l r3,@(r0,r2)
-ln222:
+ln224:
 add #4,r2
 mov #64,r0
 tst r0,r2
-bt ln221
+bt ln223
 mov.l @r15+,r2
 mov.l @r15+,r10
 mov r2,r0
@@ -52074,34 +52111,6 @@ mov.w @r6+,r4
 mov r2,r0
 mov.l @(r0,r14),r1
 add r1,r4
-mov #0,r2
-ln223:
-shlr r10
-bf ln224
-mov.l @(rl_addr-fetch_idx,r11),r0
-jsr @r0
-add #-8,r7
-mov r13,r0
-mov.l r3,@(r0,r2)
-add #4,r4
-ln224:
-add #4,r2
-mov #64,r0
-tst r0,r2
-bt ln223
-mov.l @r15+,r10
-mov.l @r15+,r3
-jmp @r10
-add #-16,r7
-! Opcodes 4CF0 - 4CF7
-OCF0:
-mov.l r3,@-r15
-mov.l r10,@-r15
-mov.w @r6+,r10
-mov.l @(decode_extw_addr-fetch_idx,r11),r4
-mov r2,r0
-jsr @r4
-mov.l @(r0,r14),r1
 mov #0,r2
 ln225:
 shlr r10
@@ -52120,13 +52129,16 @@ bt ln225
 mov.l @r15+,r10
 mov.l @r15+,r3
 jmp @r10
-add #-18,r7
-! Opcode 4CF8
-OCF8:
+add #-16,r7
+! Opcodes 4CF0 - 4CF7
+OCF0:
 mov.l r3,@-r15
 mov.l r10,@-r15
 mov.w @r6+,r10
-mov.w @r6+,r4
+mov.l @(decode_extw_addr-fetch_idx,r11),r4
+mov r2,r0
+jsr @r4
+mov.l @(r0,r14),r1
 mov #0,r2
 ln227:
 shlr r10
@@ -52145,16 +52157,13 @@ bt ln227
 mov.l @r15+,r10
 mov.l @r15+,r3
 jmp @r10
-add #-16,r7
-! Opcode 4CF9
-OCF9:
+add #-18,r7
+! Opcode 4CF8
+OCF8:
 mov.l r3,@-r15
 mov.l r10,@-r15
 mov.w @r6+,r10
-mov.w @r6+,r0
 mov.w @r6+,r4
-shll16 r4
-xtrct r0,r4
 mov #0,r2
 ln229:
 shlr r10
@@ -52173,16 +52182,16 @@ bt ln229
 mov.l @r15+,r10
 mov.l @r15+,r3
 jmp @r10
-add #-20,r7
-! Opcode 4CFA
-OCFA:
+add #-16,r7
+! Opcode 4CF9
+OCF9:
 mov.l r3,@-r15
 mov.l r10,@-r15
 mov.w @r6+,r10
-mov r6,r0
+mov.w @r6+,r0
 mov.w @r6+,r4
-sub r5,r0
-add r0,r4
+shll16 r4
+xtrct r0,r4
 mov #0,r2
 ln231:
 shlr r10
@@ -52201,16 +52210,16 @@ bt ln231
 mov.l @r15+,r10
 mov.l @r15+,r3
 jmp @r10
-add #-16,r7
-! Opcode 4CFB
-OCFB:
+add #-20,r7
+! Opcode 4CFA
+OCFA:
 mov.l r3,@-r15
 mov.l r10,@-r15
 mov.w @r6+,r10
-mov.l @(decode_extw_addr-fetch_idx,r11),r4
-mov r6,r1
-jsr @r4
-sub r5,r1
+mov r6,r0
+mov.w @r6+,r4
+sub r5,r0
+add r0,r4
 mov #0,r2
 ln233:
 shlr r10
@@ -52229,6 +52238,34 @@ bt ln233
 mov.l @r15+,r10
 mov.l @r15+,r3
 jmp @r10
+add #-16,r7
+! Opcode 4CFB
+OCFB:
+mov.l r3,@-r15
+mov.l r10,@-r15
+mov.w @r6+,r10
+mov.l @(decode_extw_addr-fetch_idx,r11),r4
+mov r6,r1
+jsr @r4
+sub r5,r1
+mov #0,r2
+ln235:
+shlr r10
+bf ln236
+mov.l @(rl_addr-fetch_idx,r11),r0
+jsr @r0
+add #-8,r7
+mov r13,r0
+mov.l r3,@(r0,r2)
+add #4,r4
+ln236:
+add #4,r2
+mov #64,r0
+tst r0,r2
+bt ln235
+mov.l @r15+,r10
+mov.l @r15+,r3
+jmp @r10
 add #-18,r7
 ! Opcodes 4D80 - 4D87
 OD80:
@@ -52238,29 +52275,29 @@ mov #24,r0
 mov.w @(r0,r13),r1
 extu.w r1,r1
 cmp/pz r1
-bf setn235
+bf setn237
 mov #0,r8
 cmp/hi r3,r1
-bt ln235
+bt ln237
 jmp @r10
 add #-10,r7
-setn235:
+setn237:
 mov #1,r8
-ln235:
+ln237:
 mov.l r1,@-r15
-mov.l g2_except_ptr235,r0
+mov.l g2_except_ptr237,r0
 jsr @r0
 mov #0x18,r4
 mov.l @r15+,r3
-mov.l bf_addr235,r0
+mov.l bf_addr237,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-50,r7
 .align 2
-g2_except_ptr235: .long group_2_exception
-bf_addr235: .long basefunction
+g2_except_ptr237: .long group_2_exception
+bf_addr237: .long basefunction
 ! Opcodes 4D90 - 4D97
 OD90:
 mov r2,r0
@@ -52272,29 +52309,29 @@ mov #24,r0
 mov.w @(r0,r13),r1
 extu.w r1,r1
 cmp/pz r1
-bf setn236
+bf setn238
 mov #0,r8
 cmp/hi r3,r1
-bt ln236
+bt ln238
 jmp @r10
 add #-14,r7
-setn236:
+setn238:
 mov #1,r8
-ln236:
+ln238:
 mov.l r1,@-r15
-mov.l g2_except_ptr236,r0
+mov.l g2_except_ptr238,r0
 jsr @r0
 mov #0x18,r4
 mov.l @r15+,r3
-mov.l bf_addr236,r0
+mov.l bf_addr238,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-54,r7
 .align 2
-g2_except_ptr236: .long group_2_exception
-bf_addr236: .long basefunction
+g2_except_ptr238: .long group_2_exception
+bf_addr238: .long basefunction
 ! Opcodes 4D98 - 4D9F
 OD98:
 mov r2,r0
@@ -52309,29 +52346,29 @@ mov #24,r0
 mov.w @(r0,r13),r1
 extu.w r1,r1
 cmp/pz r1
-bf setn237
+bf setn239
 mov #0,r8
 cmp/hi r3,r1
-bt ln237
+bt ln239
 jmp @r10
 add #-14,r7
-setn237:
+setn239:
 mov #1,r8
-ln237:
+ln239:
 mov.l r1,@-r15
-mov.l g2_except_ptr237,r0
+mov.l g2_except_ptr239,r0
 jsr @r0
 mov #0x18,r4
 mov.l @r15+,r3
-mov.l bf_addr237,r0
+mov.l bf_addr239,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-54,r7
 .align 2
-g2_except_ptr237: .long group_2_exception
-bf_addr237: .long basefunction
+g2_except_ptr239: .long group_2_exception
+bf_addr239: .long basefunction
 ! Opcodes 4DA0 - 4DA7
 ODA0:
 mov r2,r0
@@ -52346,84 +52383,12 @@ mov #24,r0
 mov.w @(r0,r13),r1
 extu.w r1,r1
 cmp/pz r1
-bf setn238
-mov #0,r8
-cmp/hi r3,r1
-bt ln238
-jmp @r10
-add #-16,r7
-setn238:
-mov #1,r8
-ln238:
-mov.l r1,@-r15
-mov.l g2_except_ptr238,r0
-jsr @r0
-mov #0x18,r4
-mov.l @r15+,r3
-mov.l bf_addr238,r0
-jsr @r0
-nop
-add r5,r6
-jmp @r10
-add #-56,r7
-.align 2
-g2_except_ptr238: .long group_2_exception
-bf_addr238: .long basefunction
-! Opcodes 4DA8 - 4DAF
-ODA8:
-mov.w @r6+,r4
-mov r2,r0
-mov.l @(r0,r14),r1
-add r1,r4
-mov.l @(rw_addr-fetch_idx,r11),r0
-jsr @r0
-nop
-mov #24,r0
-mov.w @(r0,r13),r1
-extu.w r1,r1
-cmp/pz r1
-bf setn239
-mov #0,r8
-cmp/hi r3,r1
-bt ln239
-jmp @r10
-add #-18,r7
-setn239:
-mov #1,r8
-ln239:
-mov.l r1,@-r15
-mov.l g2_except_ptr239,r0
-jsr @r0
-mov #0x18,r4
-mov.l @r15+,r3
-mov.l bf_addr239,r0
-jsr @r0
-nop
-add r5,r6
-jmp @r10
-add #-58,r7
-.align 2
-g2_except_ptr239: .long group_2_exception
-bf_addr239: .long basefunction
-! Opcodes 4DB0 - 4DB7
-ODB0:
-mov.l @(decode_extw_addr-fetch_idx,r11),r4
-mov r2,r0
-jsr @r4
-mov.l @(r0,r14),r1
-mov.l @(rw_addr-fetch_idx,r11),r0
-jsr @r0
-nop
-mov #24,r0
-mov.w @(r0,r13),r1
-extu.w r1,r1
-cmp/pz r1
 bf setn240
 mov #0,r8
 cmp/hi r3,r1
 bt ln240
 jmp @r10
-add #-20,r7
+add #-16,r7
 setn240:
 mov #1,r8
 ln240:
@@ -52437,13 +52402,16 @@ jsr @r0
 nop
 add r5,r6
 jmp @r10
-add #-60,r7
+add #-56,r7
 .align 2
 g2_except_ptr240: .long group_2_exception
 bf_addr240: .long basefunction
-! Opcode 4DB8
-ODB8:
+! Opcodes 4DA8 - 4DAF
+ODA8:
 mov.w @r6+,r4
+mov r2,r0
+mov.l @(r0,r14),r1
+add r1,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
@@ -52474,12 +52442,12 @@ add #-58,r7
 .align 2
 g2_except_ptr241: .long group_2_exception
 bf_addr241: .long basefunction
-! Opcode 4DB9
-ODB9:
-mov.w @r6+,r0
-mov.w @r6+,r4
-shll16 r4
-xtrct r0,r4
+! Opcodes 4DB0 - 4DB7
+ODB0:
+mov.l @(decode_extw_addr-fetch_idx,r11),r4
+mov r2,r0
+jsr @r4
+mov.l @(r0,r14),r1
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
@@ -52492,7 +52460,7 @@ mov #0,r8
 cmp/hi r3,r1
 bt ln242
 jmp @r10
-add #-22,r7
+add #-20,r7
 setn242:
 mov #1,r8
 ln242:
@@ -52506,16 +52474,13 @@ jsr @r0
 nop
 add r5,r6
 jmp @r10
-add #-62,r7
+add #-60,r7
 .align 2
 g2_except_ptr242: .long group_2_exception
 bf_addr242: .long basefunction
-! Opcode 4DBA
-ODBA:
-mov r6,r0
+! Opcode 4DB8
+ODB8:
 mov.w @r6+,r4
-sub r5,r0
-add r0,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
@@ -52546,12 +52511,12 @@ add #-58,r7
 .align 2
 g2_except_ptr243: .long group_2_exception
 bf_addr243: .long basefunction
-! Opcode 4DBB
-ODBB:
-mov.l @(decode_extw_addr-fetch_idx,r11),r4
-mov r6,r1
-jsr @r4
-sub r5,r1
+! Opcode 4DB9
+ODB9:
+mov.w @r6+,r0
+mov.w @r6+,r4
+shll16 r4
+xtrct r0,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
@@ -52564,7 +52529,7 @@ mov #0,r8
 cmp/hi r3,r1
 bt ln244
 jmp @r10
-add #-20,r7
+add #-22,r7
 setn244:
 mov #1,r8
 ln244:
@@ -52578,13 +52543,19 @@ jsr @r0
 nop
 add r5,r6
 jmp @r10
-add #-60,r7
+add #-62,r7
 .align 2
 g2_except_ptr244: .long group_2_exception
 bf_addr244: .long basefunction
-! Opcode 4DBC
-ODBC:
-mov.w @r6+,r3
+! Opcode 4DBA
+ODBA:
+mov r6,r0
+mov.w @r6+,r4
+sub r5,r0
+add r0,r4
+mov.l @(rw_addr-fetch_idx,r11),r0
+jsr @r0
+nop
 mov #24,r0
 mov.w @(r0,r13),r1
 extu.w r1,r1
@@ -52594,7 +52565,7 @@ mov #0,r8
 cmp/hi r3,r1
 bt ln245
 jmp @r10
-add #-14,r7
+add #-18,r7
 setn245:
 mov #1,r8
 ln245:
@@ -52608,10 +52579,76 @@ jsr @r0
 nop
 add r5,r6
 jmp @r10
-add #-54,r7
+add #-58,r7
 .align 2
 g2_except_ptr245: .long group_2_exception
 bf_addr245: .long basefunction
+! Opcode 4DBB
+ODBB:
+mov.l @(decode_extw_addr-fetch_idx,r11),r4
+mov r6,r1
+jsr @r4
+sub r5,r1
+mov.l @(rw_addr-fetch_idx,r11),r0
+jsr @r0
+nop
+mov #24,r0
+mov.w @(r0,r13),r1
+extu.w r1,r1
+cmp/pz r1
+bf setn246
+mov #0,r8
+cmp/hi r3,r1
+bt ln246
+jmp @r10
+add #-20,r7
+setn246:
+mov #1,r8
+ln246:
+mov.l r1,@-r15
+mov.l g2_except_ptr246,r0
+jsr @r0
+mov #0x18,r4
+mov.l @r15+,r3
+mov.l bf_addr246,r0
+jsr @r0
+nop
+add r5,r6
+jmp @r10
+add #-60,r7
+.align 2
+g2_except_ptr246: .long group_2_exception
+bf_addr246: .long basefunction
+! Opcode 4DBC
+ODBC:
+mov.w @r6+,r3
+mov #24,r0
+mov.w @(r0,r13),r1
+extu.w r1,r1
+cmp/pz r1
+bf setn247
+mov #0,r8
+cmp/hi r3,r1
+bt ln247
+jmp @r10
+add #-14,r7
+setn247:
+mov #1,r8
+ln247:
+mov.l r1,@-r15
+mov.l g2_except_ptr247,r0
+jsr @r0
+mov #0x18,r4
+mov.l @r15+,r3
+mov.l bf_addr247,r0
+jsr @r0
+nop
+add r5,r6
+jmp @r10
+add #-54,r7
+.align 2
+g2_except_ptr247: .long group_2_exception
+bf_addr247: .long basefunction
 ! Opcodes 4DD0 - 4DD7
 ODD0:
 mov r2,r0
@@ -52678,7 +52715,7 @@ mov.l g2_exception_addr,r1
 extu.b r4,r4
 jsr @r1
 add r0,r4
-mov.l bf_addr246,r0
+mov.l bf_addr248,r0
 jsr @r0
 nop
 add r5,r6
@@ -52686,7 +52723,7 @@ jmp @r10
 add #-34,r7
 .align 2
 g2_exception_addr: .long group_2_exception
-bf_addr246: .long basefunction
+bf_addr248: .long basefunction
 ! Opcodes 4E50 - 4E57
 OE50:
 mov.l r3,@-r15
@@ -52729,13 +52766,13 @@ OE60:
 mov.l @(sreg-areg,r14),r0
 shlr8 r0
 tst #0x20,r0
-bf pcheck_ok247
-mov.l priviolation_addr247,r0
+bf pcheck_ok249
+mov.l priviolation_addr249,r0
 jmp @r0
 nop
 .align 2
-priviolation_addr247: .long privilege_violation
-pcheck_ok247:
+priviolation_addr249: .long privilege_violation
+pcheck_ok249:
 mov r2,r0
 mov.l @(r0,r14),r1
 mov.l r1,@(32,r14)
@@ -52746,13 +52783,13 @@ OE68:
 mov.l @(sreg-areg,r14),r0
 shlr8 r0
 tst #0x20,r0
-bf pcheck_ok248
-mov.l priviolation_addr248,r0
+bf pcheck_ok250
+mov.l priviolation_addr250,r0
 jmp @r0
 nop
 .align 2
-priviolation_addr248: .long privilege_violation
-pcheck_ok248:
+priviolation_addr250: .long privilege_violation
+pcheck_ok250:
 mov.l @(32,r14),r1
 mov r2,r0
 mov.l r1,@(r0,r14)
@@ -52763,19 +52800,19 @@ OE70:
 mov.l @(sreg-areg,r14),r0
 shlr8 r0
 tst #0x20,r0
-bf pcheck_ok250
-mov.l priviolation_addr250,r0
+bf pcheck_ok252
+mov.l priviolation_addr252,r0
 jmp @r0
 nop
 .align 2
-priviolation_addr250: .long privilege_violation
-pcheck_ok250:
-mov.l resethandler_addr249,r0
+priviolation_addr252: .long privilege_violation
+pcheck_ok252:
+mov.l resethandler_addr251,r0
 mov.l @r0,r1
 tst r1,r1
 bt r_done
 mov.l r3,@-r15
-mov.l io_cycle_counter_addr249,r0
+mov.l io_cycle_counter_addr251,r0
 mov.l r7,@r0
 mov.l r5,@(io_fetchbase-io_cycle_counter,r0)
 mov.l r6,@(io_fetchbased_pc-io_cycle_counter,r0)
@@ -52783,7 +52820,7 @@ sts.l	pr,@-r15
 jsr @r1
 nop
 lds.l	@r15+,pr
-mov.l io_cycle_counter_addr249,r0
+mov.l io_cycle_counter_addr251,r0
 mov.l @r0,r7
 mov.l @(io_fetchbase-io_cycle_counter,r0),r5
 mov.l @(io_fetchbased_pc-io_cycle_counter,r0),r6
@@ -52793,8 +52830,8 @@ add #-128,r7
 jmp @r10
 add #-4,r7
 .align 2
-io_cycle_counter_addr249: .long io_cycle_counter
-resethandler_addr249: .long resethandler
+io_cycle_counter_addr251: .long io_cycle_counter
+resethandler_addr251: .long resethandler
 ! Opcode 4E71
 OE71:
 jmp @r10
@@ -52804,26 +52841,26 @@ OE72:
 mov.l @(sreg-areg,r14),r0
 shlr8 r0
 tst #0x20,r0
-bf pcheck_ok251
-mov.l priviolation_addr251,r0
+bf pcheck_ok253
+mov.l priviolation_addr253,r0
 jmp @r0
 nop
 .align 2
-priviolation_addr251: .long privilege_violation
-pcheck_ok251:
+priviolation_addr253: .long privilege_violation
+pcheck_ok253:
 mov.w @r6+,r3
-mov.l execinfo_addr251,r2
+mov.l execinfo_addr253,r2
 mov.l @(sreg - areg,r14),r0
 mov #0x20,r1
 shll8 r1
 xor r3,r0
 tst r1,r0
-bt ln252
+bt ln254
 mov.l @(32,r14),r0
 mov.l @(60,r13),r1
 mov.l r0,@(60,r13)
 mov.l r1,@(32,r14)
-ln252:
+ln254:
 mov r3,r0
 shlr8 r0
 and #0xA7,r0
@@ -52849,24 +52886,25 @@ mov #0x80,r1
 extu.b r1,r1
 or r1,r0
 mov.w r0,@r2
-mov.l @(execexit_addr-areg,r14),r0
-add #2,r6
-jmp @r0
+mov.l fdl_stop_cp_addr256,r4
+jmp @r4
 add #-4,r7
 .align 2
-execinfo_addr251: .long execinfo
+fdl_stop_cp_addr256: .long fdl_cp
+.align 2
+execinfo_addr253: .long execinfo
 ! Opcode 4E73
 OE73:
 mov.l @(sreg-areg,r14),r0
 shlr8 r0
 tst #0x20,r0
-bf pcheck_ok255
-mov.l priviolation_addr255,r0
+bf pcheck_ok258
+mov.l priviolation_addr258,r0
 jmp @r0
 nop
 .align 2
-priviolation_addr255: .long privilege_violation
-pcheck_ok255:
+priviolation_addr258: .long privilege_violation
+pcheck_ok258:
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 mov.l @(60,r13),r4
@@ -52876,12 +52914,12 @@ mov #0x20,r1
 shll8 r1
 xor r3,r0
 tst r1,r0
-bt ln256
+bt ln259
 mov.l @(32,r14),r0
 mov.l @(60,r13),r1
 mov.l r0,@(60,r13)
 mov.l r1,@(32,r14)
-ln256:
+ln259:
 mov r3,r0
 shlr8 r0
 and #0xA7,r0
@@ -52916,24 +52954,24 @@ add r14,r2
 mov.l @r2,r4
 add #6,r4
 mov.l r4,@r2
-mov.l execinfo_addr254,r1
+mov.l execinfo_addr257,r1
 mov.w @r1,r0
 and #0xE7,r0
 mov.w r0,@r1
 mov r3,r6
-mov.l bf_addr254,r0
+mov.l bf_addr257,r0
 jsr @r0
 nop
 add r5,r6
 mov.l @r15+,r3
-mov.l fdl_cp_addr258,r4
+mov.l fdl_cp_addr261,r4
 jmp @r4
 add #-20,r7
 .align 2
-fdl_cp_addr258: .long fdl_cp
+fdl_cp_addr261: .long fdl_cp
 .align 2
-bf_addr254: .long basefunction
-execinfo_addr254: .long execinfo
+bf_addr257: .long basefunction
+execinfo_addr257: .long execinfo
 ! Opcode 4E75
 OE75:
 mov r3,r2
@@ -52944,7 +52982,7 @@ nop
 add #4,r4
 mov.l r4,@(60,r13)
 mov r3,r6
-mov.l bf_addr259,r0
+mov.l bf_addr262,r0
 jsr @r0
 nop
 add r5,r6
@@ -52952,19 +52990,19 @@ mov r2,r3
 jmp @r10
 add #-16,r7
 .align 2
-bf_addr259: .long basefunction
+bf_addr262: .long basefunction
 ! Opcode 4E76
 OE76:
 mov r8,r0
 tst #0x4,r0
-bf ln260
+bf ln263
 jmp @r10
 add #-4,r7
-ln260:
+ln263:
 mov.l g2_exception_ptr,r0
 jsr @r0
 mov #0x1C,r4
-mov.l bf_addr260,r0
+mov.l bf_addr263,r0
 jsr @r0
 nop
 add r5,r6
@@ -52972,7 +53010,7 @@ jmp @r10
 add #-38,r7
 .align 2
 g2_exception_ptr: .long group_2_exception
-bf_addr260: .long basefunction
+bf_addr263: .long basefunction
 ! Opcode 4E77
 OE77:
 mov.l @(60,r13),r4
@@ -53002,7 +53040,7 @@ nop
 add #4,r4
 mov.l r4,@(60,r13)
 mov r3,r6
-mov.l bf_addr261,r0
+mov.l bf_addr264,r0
 jsr @r0
 nop
 add r5,r6
@@ -53010,83 +53048,11 @@ mov r2,r3
 jmp @r10
 add #-20,r7
 .align 2
-bf_addr261: .long basefunction
+bf_addr264: .long basefunction
 ! Opcodes 4E90 - 4E97
 OE90:
 mov r2,r0
 mov.l @(r0,r14),r4
-mov r3,r2
-mov r6,r3
-sub r5,r3
-mov r4,r6
-mov.l bf_addr262,r0
-jsr @r0
-nop
-add r5,r6
-mov.l @(60,r13),r4
-add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
-jsr @r0
-nop
-mov.l r4,@(60,r13)
-mov r2,r3
-jmp @r10
-add #-16,r7
-.align 2
-bf_addr262: .long basefunction
-! Opcodes 4EA8 - 4EAF
-OEA8:
-mov.w @r6+,r4
-mov r2,r0
-mov.l @(r0,r14),r1
-add r1,r4
-mov r3,r2
-mov r6,r3
-sub r5,r3
-mov r4,r6
-mov.l bf_addr263,r0
-jsr @r0
-nop
-add r5,r6
-mov.l @(60,r13),r4
-add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
-jsr @r0
-nop
-mov.l r4,@(60,r13)
-mov r2,r3
-jmp @r10
-add #-18,r7
-.align 2
-bf_addr263: .long basefunction
-! Opcodes 4EB0 - 4EB7
-OEB0:
-mov.l @(decode_extw_addr-fetch_idx,r11),r4
-mov r2,r0
-jsr @r4
-mov.l @(r0,r14),r1
-mov r3,r2
-mov r6,r3
-sub r5,r3
-mov r4,r6
-mov.l bf_addr264,r0
-jsr @r0
-nop
-add r5,r6
-mov.l @(60,r13),r4
-add #-4,r4
-mov.l @(wl_addr-fetch_idx,r11),r0
-jsr @r0
-nop
-mov.l r4,@(60,r13)
-mov r2,r3
-jmp @r10
-add #-22,r7
-.align 2
-bf_addr264: .long basefunction
-! Opcode 4EB8
-OEB8:
-mov.w @r6+,r4
 mov r3,r2
 mov r6,r3
 sub r5,r3
@@ -53103,15 +53069,15 @@ nop
 mov.l r4,@(60,r13)
 mov r2,r3
 jmp @r10
-add #-18,r7
+add #-16,r7
 .align 2
 bf_addr265: .long basefunction
-! Opcode 4EB9
-OEB9:
-mov.w @r6+,r0
+! Opcodes 4EA8 - 4EAF
+OEA8:
 mov.w @r6+,r4
-shll16 r4
-xtrct r0,r4
+mov r2,r0
+mov.l @(r0,r14),r1
+add r1,r4
 mov r3,r2
 mov r6,r3
 sub r5,r3
@@ -53128,15 +53094,15 @@ nop
 mov.l r4,@(60,r13)
 mov r2,r3
 jmp @r10
-add #-20,r7
+add #-18,r7
 .align 2
 bf_addr266: .long basefunction
-! Opcode 4EBA
-OEBA:
-mov r6,r0
-mov.w @r6+,r4
-sub r5,r0
-add r0,r4
+! Opcodes 4EB0 - 4EB7
+OEB0:
+mov.l @(decode_extw_addr-fetch_idx,r11),r4
+mov r2,r0
+jsr @r4
+mov.l @(r0,r14),r1
 mov r3,r2
 mov r6,r3
 sub r5,r3
@@ -53153,15 +53119,12 @@ nop
 mov.l r4,@(60,r13)
 mov r2,r3
 jmp @r10
-add #-18,r7
+add #-22,r7
 .align 2
 bf_addr267: .long basefunction
-! Opcode 4EBB
-OEBB:
-mov.l @(decode_extw_addr-fetch_idx,r11),r4
-mov r6,r1
-jsr @r4
-sub r5,r1
+! Opcode 4EB8
+OEB8:
+mov.w @r6+,r4
 mov r3,r2
 mov r6,r3
 sub r5,r3
@@ -53178,22 +53141,97 @@ nop
 mov.l r4,@(60,r13)
 mov r2,r3
 jmp @r10
-add #-22,r7
+add #-18,r7
 .align 2
 bf_addr268: .long basefunction
+! Opcode 4EB9
+OEB9:
+mov.w @r6+,r0
+mov.w @r6+,r4
+shll16 r4
+xtrct r0,r4
+mov r3,r2
+mov r6,r3
+sub r5,r3
+mov r4,r6
+mov.l bf_addr269,r0
+jsr @r0
+nop
+add r5,r6
+mov.l @(60,r13),r4
+add #-4,r4
+mov.l @(wl_addr-fetch_idx,r11),r0
+jsr @r0
+nop
+mov.l r4,@(60,r13)
+mov r2,r3
+jmp @r10
+add #-20,r7
+.align 2
+bf_addr269: .long basefunction
+! Opcode 4EBA
+OEBA:
+mov r6,r0
+mov.w @r6+,r4
+sub r5,r0
+add r0,r4
+mov r3,r2
+mov r6,r3
+sub r5,r3
+mov r4,r6
+mov.l bf_addr270,r0
+jsr @r0
+nop
+add r5,r6
+mov.l @(60,r13),r4
+add #-4,r4
+mov.l @(wl_addr-fetch_idx,r11),r0
+jsr @r0
+nop
+mov.l r4,@(60,r13)
+mov r2,r3
+jmp @r10
+add #-18,r7
+.align 2
+bf_addr270: .long basefunction
+! Opcode 4EBB
+OEBB:
+mov.l @(decode_extw_addr-fetch_idx,r11),r4
+mov r6,r1
+jsr @r4
+sub r5,r1
+mov r3,r2
+mov r6,r3
+sub r5,r3
+mov r4,r6
+mov.l bf_addr271,r0
+jsr @r0
+nop
+add r5,r6
+mov.l @(60,r13),r4
+add #-4,r4
+mov.l @(wl_addr-fetch_idx,r11),r0
+jsr @r0
+nop
+mov.l r4,@(60,r13)
+mov r2,r3
+jmp @r10
+add #-22,r7
+.align 2
+bf_addr271: .long basefunction
 ! Opcodes 4ED0 - 4ED7
 OED0:
 mov r2,r0
 mov.l @(r0,r14),r4
 mov r4,r6
-mov.l bf_addr269,r0
+mov.l bf_addr272,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-8,r7
 .align 2
-bf_addr269: .long basefunction
+bf_addr272: .long basefunction
 ! Opcodes 4EE8 - 4EEF
 OEE8:
 mov.w @r6+,r4
@@ -53201,14 +53239,14 @@ mov r2,r0
 mov.l @(r0,r14),r1
 add r1,r4
 mov r4,r6
-mov.l bf_addr270,r0
+mov.l bf_addr273,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-10,r7
 .align 2
-bf_addr270: .long basefunction
+bf_addr273: .long basefunction
 ! Opcodes 4EF0 - 4EF7
 OEF0:
 mov.l @(decode_extw_addr-fetch_idx,r11),r4
@@ -53216,26 +53254,26 @@ mov r2,r0
 jsr @r4
 mov.l @(r0,r14),r1
 mov r4,r6
-mov.l bf_addr271,r0
+mov.l bf_addr274,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-14,r7
 .align 2
-bf_addr271: .long basefunction
+bf_addr274: .long basefunction
 ! Opcode 4EF8
 OEF8:
 mov.w @r6+,r4
 mov r4,r6
-mov.l bf_addr272,r0
+mov.l bf_addr275,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-10,r7
 .align 2
-bf_addr272: .long basefunction
+bf_addr275: .long basefunction
 ! Opcode 4EF9
 OEF9:
 mov.w @r6+,r0
@@ -53243,14 +53281,14 @@ mov.w @r6+,r4
 shll16 r4
 xtrct r0,r4
 mov r4,r6
-mov.l bf_addr273,r0
+mov.l bf_addr276,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-12,r7
 .align 2
-bf_addr273: .long basefunction
+bf_addr276: .long basefunction
 ! Opcode 4EFA
 OEFA:
 mov r6,r0
@@ -53258,14 +53296,14 @@ mov.w @r6+,r4
 sub r5,r0
 add r0,r4
 mov r4,r6
-mov.l bf_addr274,r0
+mov.l bf_addr277,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-10,r7
 .align 2
-bf_addr274: .long basefunction
+bf_addr277: .long basefunction
 ! Opcode 4EFB
 OEFB:
 mov.l @(decode_extw_addr-fetch_idx,r11),r4
@@ -53273,14 +53311,14 @@ mov r6,r1
 jsr @r4
 sub r5,r1
 mov r4,r6
-mov.l bf_addr275,r0
+mov.l bf_addr278,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-14,r7
 .align 2
-bf_addr275: .long basefunction
+bf_addr278: .long basefunction
 ! Opcodes 4F80 - 4F87
 OF80:
 mov r2,r0
@@ -53289,29 +53327,29 @@ mov #28,r0
 mov.w @(r0,r13),r1
 extu.w r1,r1
 cmp/pz r1
-bf setn276
+bf setn279
 mov #0,r8
 cmp/hi r3,r1
-bt ln276
+bt ln279
 jmp @r10
 add #-10,r7
-setn276:
+setn279:
 mov #1,r8
-ln276:
+ln279:
 mov.l r1,@-r15
-mov.l g2_except_ptr276,r0
+mov.l g2_except_ptr279,r0
 jsr @r0
 mov #0x18,r4
 mov.l @r15+,r3
-mov.l bf_addr276,r0
+mov.l bf_addr279,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-50,r7
 .align 2
-g2_except_ptr276: .long group_2_exception
-bf_addr276: .long basefunction
+g2_except_ptr279: .long group_2_exception
+bf_addr279: .long basefunction
 ! Opcodes 4F90 - 4F97
 OF90:
 mov r2,r0
@@ -53323,29 +53361,29 @@ mov #28,r0
 mov.w @(r0,r13),r1
 extu.w r1,r1
 cmp/pz r1
-bf setn277
+bf setn280
 mov #0,r8
 cmp/hi r3,r1
-bt ln277
+bt ln280
 jmp @r10
 add #-14,r7
-setn277:
+setn280:
 mov #1,r8
-ln277:
+ln280:
 mov.l r1,@-r15
-mov.l g2_except_ptr277,r0
+mov.l g2_except_ptr280,r0
 jsr @r0
 mov #0x18,r4
 mov.l @r15+,r3
-mov.l bf_addr277,r0
+mov.l bf_addr280,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-54,r7
 .align 2
-g2_except_ptr277: .long group_2_exception
-bf_addr277: .long basefunction
+g2_except_ptr280: .long group_2_exception
+bf_addr280: .long basefunction
 ! Opcodes 4F98 - 4F9F
 OF98:
 mov r2,r0
@@ -53360,29 +53398,29 @@ mov #28,r0
 mov.w @(r0,r13),r1
 extu.w r1,r1
 cmp/pz r1
-bf setn278
+bf setn281
 mov #0,r8
 cmp/hi r3,r1
-bt ln278
+bt ln281
 jmp @r10
 add #-14,r7
-setn278:
+setn281:
 mov #1,r8
-ln278:
+ln281:
 mov.l r1,@-r15
-mov.l g2_except_ptr278,r0
+mov.l g2_except_ptr281,r0
 jsr @r0
 mov #0x18,r4
 mov.l @r15+,r3
-mov.l bf_addr278,r0
+mov.l bf_addr281,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-54,r7
 .align 2
-g2_except_ptr278: .long group_2_exception
-bf_addr278: .long basefunction
+g2_except_ptr281: .long group_2_exception
+bf_addr281: .long basefunction
 ! Opcodes 4FA0 - 4FA7
 OFA0:
 mov r2,r0
@@ -53397,117 +53435,12 @@ mov #28,r0
 mov.w @(r0,r13),r1
 extu.w r1,r1
 cmp/pz r1
-bf setn279
-mov #0,r8
-cmp/hi r3,r1
-bt ln279
-jmp @r10
-add #-16,r7
-setn279:
-mov #1,r8
-ln279:
-mov.l r1,@-r15
-mov.l g2_except_ptr279,r0
-jsr @r0
-mov #0x18,r4
-mov.l @r15+,r3
-mov.l bf_addr279,r0
-jsr @r0
-nop
-add r5,r6
-jmp @r10
-add #-56,r7
-.align 2
-g2_except_ptr279: .long group_2_exception
-bf_addr279: .long basefunction
-! Opcodes 4FA8 - 4FAF
-OFA8:
-mov.w @r6+,r4
-mov r2,r0
-mov.l @(r0,r14),r1
-add r1,r4
-mov.l @(rw_addr-fetch_idx,r11),r0
-jsr @r0
-nop
-mov #28,r0
-mov.w @(r0,r13),r1
-extu.w r1,r1
-cmp/pz r1
-bf setn280
-mov #0,r8
-cmp/hi r3,r1
-bt ln280
-jmp @r10
-add #-18,r7
-setn280:
-mov #1,r8
-ln280:
-mov.l r1,@-r15
-mov.l g2_except_ptr280,r0
-jsr @r0
-mov #0x18,r4
-mov.l @r15+,r3
-mov.l bf_addr280,r0
-jsr @r0
-nop
-add r5,r6
-jmp @r10
-add #-58,r7
-.align 2
-g2_except_ptr280: .long group_2_exception
-bf_addr280: .long basefunction
-! Opcodes 4FB0 - 4FB7
-OFB0:
-mov.l @(decode_extw_addr-fetch_idx,r11),r4
-mov r2,r0
-jsr @r4
-mov.l @(r0,r14),r1
-mov.l @(rw_addr-fetch_idx,r11),r0
-jsr @r0
-nop
-mov #28,r0
-mov.w @(r0,r13),r1
-extu.w r1,r1
-cmp/pz r1
-bf setn281
-mov #0,r8
-cmp/hi r3,r1
-bt ln281
-jmp @r10
-add #-20,r7
-setn281:
-mov #1,r8
-ln281:
-mov.l r1,@-r15
-mov.l g2_except_ptr281,r0
-jsr @r0
-mov #0x18,r4
-mov.l @r15+,r3
-mov.l bf_addr281,r0
-jsr @r0
-nop
-add r5,r6
-jmp @r10
-add #-60,r7
-.align 2
-g2_except_ptr281: .long group_2_exception
-bf_addr281: .long basefunction
-! Opcode 4FB8
-OFB8:
-mov.w @r6+,r4
-mov.l @(rw_addr-fetch_idx,r11),r0
-jsr @r0
-nop
-mov #28,r0
-mov.w @(r0,r13),r1
-extu.w r1,r1
-cmp/pz r1
 bf setn282
 mov #0,r8
 cmp/hi r3,r1
 bt ln282
 jmp @r10
-add #-18,r7
+add #-16,r7
 setn282:
 mov #1,r8
 ln282:
@@ -53521,16 +53454,16 @@ jsr @r0
 nop
 add r5,r6
 jmp @r10
-add #-58,r7
+add #-56,r7
 .align 2
 g2_except_ptr282: .long group_2_exception
 bf_addr282: .long basefunction
-! Opcode 4FB9
-OFB9:
-mov.w @r6+,r0
+! Opcodes 4FA8 - 4FAF
+OFA8:
 mov.w @r6+,r4
-shll16 r4
-xtrct r0,r4
+mov r2,r0
+mov.l @(r0,r14),r1
+add r1,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
@@ -53543,7 +53476,7 @@ mov #0,r8
 cmp/hi r3,r1
 bt ln283
 jmp @r10
-add #-22,r7
+add #-18,r7
 setn283:
 mov #1,r8
 ln283:
@@ -53557,16 +53490,16 @@ jsr @r0
 nop
 add r5,r6
 jmp @r10
-add #-62,r7
+add #-58,r7
 .align 2
 g2_except_ptr283: .long group_2_exception
 bf_addr283: .long basefunction
-! Opcode 4FBA
-OFBA:
-mov r6,r0
-mov.w @r6+,r4
-sub r5,r0
-add r0,r4
+! Opcodes 4FB0 - 4FB7
+OFB0:
+mov.l @(decode_extw_addr-fetch_idx,r11),r4
+mov r2,r0
+jsr @r4
+mov.l @(r0,r14),r1
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
@@ -53579,7 +53512,7 @@ mov #0,r8
 cmp/hi r3,r1
 bt ln284
 jmp @r10
-add #-18,r7
+add #-20,r7
 setn284:
 mov #1,r8
 ln284:
@@ -53593,16 +53526,13 @@ jsr @r0
 nop
 add r5,r6
 jmp @r10
-add #-58,r7
+add #-60,r7
 .align 2
 g2_except_ptr284: .long group_2_exception
 bf_addr284: .long basefunction
-! Opcode 4FBB
-OFBB:
-mov.l @(decode_extw_addr-fetch_idx,r11),r4
-mov r6,r1
-jsr @r4
-sub r5,r1
+! Opcode 4FB8
+OFB8:
+mov.w @r6+,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
@@ -53615,7 +53545,7 @@ mov #0,r8
 cmp/hi r3,r1
 bt ln285
 jmp @r10
-add #-20,r7
+add #-18,r7
 setn285:
 mov #1,r8
 ln285:
@@ -53629,13 +53559,19 @@ jsr @r0
 nop
 add r5,r6
 jmp @r10
-add #-60,r7
+add #-58,r7
 .align 2
 g2_except_ptr285: .long group_2_exception
 bf_addr285: .long basefunction
-! Opcode 4FBC
-OFBC:
-mov.w @r6+,r3
+! Opcode 4FB9
+OFB9:
+mov.w @r6+,r0
+mov.w @r6+,r4
+shll16 r4
+xtrct r0,r4
+mov.l @(rw_addr-fetch_idx,r11),r0
+jsr @r0
+nop
 mov #28,r0
 mov.w @(r0,r13),r1
 extu.w r1,r1
@@ -53645,7 +53581,7 @@ mov #0,r8
 cmp/hi r3,r1
 bt ln286
 jmp @r10
-add #-14,r7
+add #-22,r7
 setn286:
 mov #1,r8
 ln286:
@@ -53659,10 +53595,112 @@ jsr @r0
 nop
 add r5,r6
 jmp @r10
-add #-54,r7
+add #-62,r7
 .align 2
 g2_except_ptr286: .long group_2_exception
 bf_addr286: .long basefunction
+! Opcode 4FBA
+OFBA:
+mov r6,r0
+mov.w @r6+,r4
+sub r5,r0
+add r0,r4
+mov.l @(rw_addr-fetch_idx,r11),r0
+jsr @r0
+nop
+mov #28,r0
+mov.w @(r0,r13),r1
+extu.w r1,r1
+cmp/pz r1
+bf setn287
+mov #0,r8
+cmp/hi r3,r1
+bt ln287
+jmp @r10
+add #-18,r7
+setn287:
+mov #1,r8
+ln287:
+mov.l r1,@-r15
+mov.l g2_except_ptr287,r0
+jsr @r0
+mov #0x18,r4
+mov.l @r15+,r3
+mov.l bf_addr287,r0
+jsr @r0
+nop
+add r5,r6
+jmp @r10
+add #-58,r7
+.align 2
+g2_except_ptr287: .long group_2_exception
+bf_addr287: .long basefunction
+! Opcode 4FBB
+OFBB:
+mov.l @(decode_extw_addr-fetch_idx,r11),r4
+mov r6,r1
+jsr @r4
+sub r5,r1
+mov.l @(rw_addr-fetch_idx,r11),r0
+jsr @r0
+nop
+mov #28,r0
+mov.w @(r0,r13),r1
+extu.w r1,r1
+cmp/pz r1
+bf setn288
+mov #0,r8
+cmp/hi r3,r1
+bt ln288
+jmp @r10
+add #-20,r7
+setn288:
+mov #1,r8
+ln288:
+mov.l r1,@-r15
+mov.l g2_except_ptr288,r0
+jsr @r0
+mov #0x18,r4
+mov.l @r15+,r3
+mov.l bf_addr288,r0
+jsr @r0
+nop
+add r5,r6
+jmp @r10
+add #-60,r7
+.align 2
+g2_except_ptr288: .long group_2_exception
+bf_addr288: .long basefunction
+! Opcode 4FBC
+OFBC:
+mov.w @r6+,r3
+mov #28,r0
+mov.w @(r0,r13),r1
+extu.w r1,r1
+cmp/pz r1
+bf setn289
+mov #0,r8
+cmp/hi r3,r1
+bt ln289
+jmp @r10
+add #-14,r7
+setn289:
+mov #1,r8
+ln289:
+mov.l r1,@-r15
+mov.l g2_except_ptr289,r0
+jsr @r0
+mov #0x18,r4
+mov.l @r15+,r3
+mov.l bf_addr289,r0
+jsr @r0
+nop
+add r5,r6
+jmp @r10
+add #-54,r7
+.align 2
+g2_except_ptr289: .long group_2_exception
+bf_addr289: .long basefunction
 ! Opcodes 4FD0 - 4FD7
 OFD0:
 mov r2,r0
@@ -55033,12 +55071,12 @@ mov r2,r0
 mov.w @(r0,r13),r1
 tst r1,r1
 add #-1,r1
-bf/s bcc_w287
+bf/s bcc_w290
 mov.w r1,@(r0,r13)
 add #2,r6
 jmp @r10
 add #-14,r7
-bcc_w287:
+bcc_w290:
 mov.w @r6,r0
 add r0,r6
 jmp @r10
@@ -55757,21 +55795,21 @@ tst r3,r3
 mov r8,r0
 addc r0,r0
 tst #3,r0
-bf dbcc288
+bf dbcc291
 add #2,r6
 jmp @r10
 add #-12,r7
-dbcc288:
+dbcc291:
 mov r2,r0
 mov.w @(r0,r13),r1
 tst r1,r1
 add #-1,r1
-bf/s bcc_w288
+bf/s bcc_w291
 mov.w r1,@(r0,r13)
 add #2,r6
 jmp @r10
 add #-14,r7
-bcc_w288:
+bcc_w291:
 mov.w @r6,r0
 add r0,r6
 jmp @r10
@@ -56525,21 +56563,21 @@ tst r3,r3
 mov r8,r0
 addc r0,r0
 tst #3,r0
-bt dbcc289
+bt dbcc292
 add #2,r6
 jmp @r10
 add #-12,r7
-dbcc289:
+dbcc292:
 mov r2,r0
 mov.w @(r0,r13),r1
 tst r1,r1
 add #-1,r1
-bf/s bcc_w289
+bf/s bcc_w292
 mov.w r1,@(r0,r13)
 add #2,r6
 jmp @r10
 add #-14,r7
-bcc_w289:
+bcc_w292:
 mov.w @r6,r0
 add r0,r6
 jmp @r10
@@ -57289,21 +57327,21 @@ add #-4,r7
 P4C8:
 mov r8,r0
 tst #1,r0
-bf dbcc290
+bf dbcc293
 add #2,r6
 jmp @r10
 add #-12,r7
-dbcc290:
+dbcc293:
 mov r2,r0
 mov.w @(r0,r13),r1
 tst r1,r1
 add #-1,r1
-bf/s bcc_w290
+bf/s bcc_w293
 mov.w r1,@(r0,r13)
 add #2,r6
 jmp @r10
 add #-14,r7
-bcc_w290:
+bcc_w293:
 mov.w @r6,r0
 add r0,r6
 jmp @r10
@@ -58039,21 +58077,21 @@ add #-4,r7
 P5C8:
 mov r8,r0
 tst #1,r0
-bt dbcc291
+bt dbcc294
 add #2,r6
 jmp @r10
 add #-12,r7
-dbcc291:
+dbcc294:
 mov r2,r0
 mov.w @(r0,r13),r1
 tst r1,r1
 add #-1,r1
-bf/s bcc_w291
+bf/s bcc_w294
 mov.w r1,@(r0,r13)
 add #2,r6
 jmp @r10
 add #-14,r7
-bcc_w291:
+bcc_w294:
 mov.w @r6,r0
 add r0,r6
 jmp @r10
@@ -58787,21 +58825,21 @@ add #-4,r7
 ! Opcodes 56C8 - 56CF
 P6C8:
 tst r3,r3
-bt dbcc292
+bt dbcc295
 add #2,r6
 jmp @r10
 add #-12,r7
-dbcc292:
+dbcc295:
 mov r2,r0
 mov.w @(r0,r13),r1
 tst r1,r1
 add #-1,r1
-bf/s bcc_w292
+bf/s bcc_w295
 mov.w r1,@(r0,r13)
 add #2,r6
 jmp @r10
 add #-14,r7
-bcc_w292:
+bcc_w295:
 mov.w @r6,r0
 add r0,r6
 jmp @r10
@@ -59528,21 +59566,21 @@ add #-4,r7
 ! Opcodes 57C8 - 57CF
 P7C8:
 tst r3,r3
-bf dbcc293
+bf dbcc296
 add #2,r6
 jmp @r10
 add #-12,r7
-dbcc293:
+dbcc296:
 mov r2,r0
 mov.w @(r0,r13),r1
 tst r1,r1
 add #-1,r1
-bf/s bcc_w293
+bf/s bcc_w296
 mov.w r1,@(r0,r13)
 add #2,r6
 jmp @r10
 add #-14,r7
-bcc_w293:
+bcc_w296:
 mov.w @r6,r0
 add r0,r6
 jmp @r10
@@ -60271,21 +60309,21 @@ add #-4,r7
 P8C8:
 mov r8,r0
 tst #2,r0
-bf dbcc294
+bf dbcc297
 add #2,r6
 jmp @r10
 add #-12,r7
-dbcc294:
+dbcc297:
 mov r2,r0
 mov.w @(r0,r13),r1
 tst r1,r1
 add #-1,r1
-bf/s bcc_w294
+bf/s bcc_w297
 mov.w r1,@(r0,r13)
 add #2,r6
 jmp @r10
 add #-14,r7
-bcc_w294:
+bcc_w297:
 mov.w @r6,r0
 add r0,r6
 jmp @r10
@@ -61021,21 +61059,21 @@ add #-4,r7
 P9C8:
 mov r8,r0
 tst #2,r0
-bt dbcc295
+bt dbcc298
 add #2,r6
 jmp @r10
 add #-12,r7
-dbcc295:
+dbcc298:
 mov r2,r0
 mov.w @(r0,r13),r1
 tst r1,r1
 add #-1,r1
-bf/s bcc_w295
+bf/s bcc_w298
 mov.w r1,@(r0,r13)
 add #2,r6
 jmp @r10
 add #-14,r7
-bcc_w295:
+bcc_w298:
 mov.w @r6,r0
 add r0,r6
 jmp @r10
@@ -61781,21 +61819,21 @@ shlr2 r0
 xor r1,r0
 rotr r3
 shlr r0
-bt dbcc296
+bt dbcc299
 add #2,r6
 jmp @r10
 add #-12,r7
-dbcc296:
+dbcc299:
 mov r2,r0
 mov.w @(r0,r13),r1
 tst r1,r1
 add #-1,r1
-bf/s bcc_w296
+bf/s bcc_w299
 mov.w r1,@(r0,r13)
 add #2,r6
 jmp @r10
 add #-14,r7
-bcc_w296:
+bcc_w299:
 mov.w @r6,r0
 add r0,r6
 jmp @r10
@@ -62576,21 +62614,21 @@ shlr2 r0
 xor r1,r0
 rotr r3
 shlr r0
-bf dbcc297
+bf dbcc300
 add #2,r6
 jmp @r10
 add #-12,r7
-dbcc297:
+dbcc300:
 mov r2,r0
 mov.w @(r0,r13),r1
 tst r1,r1
 add #-1,r1
-bf/s bcc_w297
+bf/s bcc_w300
 mov.w r1,@(r0,r13)
 add #2,r6
 jmp @r10
 add #-14,r7
-bcc_w297:
+bcc_w300:
 mov.w @r6,r0
 add r0,r6
 jmp @r10
@@ -63395,21 +63433,21 @@ mov r8,r0
 shlr r0
 xor r1,r0
 shlr r0
-bt dbcc298
+bt dbcc301
 add #2,r6
 jmp @r10
 add #-12,r7
-dbcc298:
+dbcc301:
 mov r2,r0
 mov.w @(r0,r13),r1
 tst r1,r1
 add #-1,r1
-bf/s bcc_w298
+bf/s bcc_w301
 mov.w r1,@(r0,r13)
 add #2,r6
 jmp @r10
 add #-14,r7
-bcc_w298:
+bcc_w301:
 mov.w @r6,r0
 add r0,r6
 jmp @r10
@@ -64298,21 +64336,21 @@ mov r8,r0
 shlr r0
 xor r1,r0
 shlr r0
-bf dbcc299
+bf dbcc302
 add #2,r6
 jmp @r10
 add #-12,r7
-dbcc299:
+dbcc302:
 mov r2,r0
 mov.w @(r0,r13),r1
 tst r1,r1
 add #-1,r1
-bf/s bcc_w299
+bf/s bcc_w302
 mov.w r1,@(r0,r13)
 add #2,r6
 jmp @r10
 add #-14,r7
-bcc_w299:
+bcc_w302:
 mov.w @r6,r0
 add r0,r6
 jmp @r10
@@ -65183,21 +65221,21 @@ tst r3,r3
 xor r8,r0
 addc r0,r0
 tst #5,r0
-bf dbcc300
+bf dbcc303
 add #2,r6
 jmp @r10
 add #-12,r7
-dbcc300:
+dbcc303:
 mov r2,r0
 mov.w @(r0,r13),r1
 tst r1,r1
 add #-1,r1
-bf/s bcc_w300
+bf/s bcc_w303
 mov.w r1,@(r0,r13)
 add #2,r6
 jmp @r10
 add #-14,r7
-bcc_w300:
+bcc_w303:
 mov.w @r6,r0
 add r0,r6
 jmp @r10
@@ -66005,21 +66043,21 @@ tst r3,r3
 xor r8,r0
 addc r0,r0
 tst #5,r0
-bt dbcc301
+bt dbcc304
 add #2,r6
 jmp @r10
 add #-12,r7
-dbcc301:
+dbcc304:
 mov r2,r0
 mov.w @(r0,r13),r1
 tst r1,r1
 add #-1,r1
-bf/s bcc_w301
+bf/s bcc_w304
 mov.w r1,@(r0,r13)
 add #2,r6
 jmp @r10
 add #-14,r7
-bcc_w301:
+bcc_w304:
 mov.w @r6,r0
 add r0,r6
 jmp @r10
@@ -66255,11 +66293,11 @@ tst r3,r3
 mov r8,r0
 addc r0,r0
 tst #3,r0
-bt bcc_w303
+bt bcc_w306
 add #2,r6
 jmp @r10
 add #-12,r7
-bcc_w303:
+bcc_w306:
 mov.w @r6,r0
 add r0,r6
 jmp @r10
@@ -66271,10 +66309,10 @@ tst r3,r3
 mov r8,r0
 addc r0,r0
 tst #3,r0
-bt bcc_b304
+bt bcc_b307
 jmp @r10
 add #-8,r7
-bcc_b304:
+bcc_b307:
 shlr2 r2
 exts.b r2,r0
 add r0,r6
@@ -66286,11 +66324,11 @@ tst r3,r3
 mov r8,r0
 addc r0,r0
 tst #3,r0
-bf bcc_w305
+bf bcc_w308
 add #2,r6
 jmp @r10
 add #-12,r7
-bcc_w305:
+bcc_w308:
 mov.w @r6,r0
 add r0,r6
 jmp @r10
@@ -66302,10 +66340,10 @@ tst r3,r3
 mov r8,r0
 addc r0,r0
 tst #3,r0
-bf bcc_b306
+bf bcc_b309
 jmp @r10
 add #-8,r7
-bcc_b306:
+bcc_b309:
 shlr2 r2
 exts.b r2,r0
 add r0,r6
@@ -66315,11 +66353,11 @@ add #-10,r7
 Q400:
 mov r8,r0
 tst #1,r0
-bt bcc_w307
+bt bcc_w310
 add #2,r6
 jmp @r10
 add #-12,r7
-bcc_w307:
+bcc_w310:
 mov.w @r6,r0
 add r0,r6
 jmp @r10
@@ -66329,10 +66367,10 @@ Q401:
 mov r0,r2
 mov r8,r0
 tst #1,r0
-bt bcc_b308
+bt bcc_b311
 jmp @r10
 add #-8,r7
-bcc_b308:
+bcc_b311:
 shlr2 r2
 exts.b r2,r0
 add r0,r6
@@ -66342,11 +66380,11 @@ add #-10,r7
 Q500:
 mov r8,r0
 tst #1,r0
-bf bcc_w309
+bf bcc_w312
 add #2,r6
 jmp @r10
 add #-12,r7
-bcc_w309:
+bcc_w312:
 mov.w @r6,r0
 add r0,r6
 jmp @r10
@@ -66356,10 +66394,10 @@ Q501:
 mov r0,r2
 mov r8,r0
 tst #1,r0
-bf bcc_b310
+bf bcc_b313
 jmp @r10
 add #-8,r7
-bcc_b310:
+bcc_b313:
 shlr2 r2
 exts.b r2,r0
 add r0,r6
@@ -66368,11 +66406,11 @@ add #-10,r7
 ! Opcode 6600
 Q600:
 tst r3,r3
-bf bcc_w311
+bf bcc_w314
 add #2,r6
 jmp @r10
 add #-12,r7
-bcc_w311:
+bcc_w314:
 mov.w @r6,r0
 add r0,r6
 jmp @r10
@@ -66381,10 +66419,10 @@ add #-10,r7
 Q601:
 mov r0,r2
 tst r3,r3
-bf bcc_b312
+bf bcc_b315
 jmp @r10
 add #-8,r7
-bcc_b312:
+bcc_b315:
 shlr2 r2
 exts.b r2,r0
 add r0,r6
@@ -66393,11 +66431,11 @@ add #-10,r7
 ! Opcode 6700
 Q700:
 tst r3,r3
-bt bcc_w313
+bt bcc_w316
 add #2,r6
 jmp @r10
 add #-12,r7
-bcc_w313:
+bcc_w316:
 mov.w @r6,r0
 add r0,r6
 jmp @r10
@@ -66406,10 +66444,10 @@ add #-10,r7
 Q701:
 mov r0,r2
 tst r3,r3
-bt bcc_b314
+bt bcc_b317
 jmp @r10
 add #-8,r7
-bcc_b314:
+bcc_b317:
 shlr2 r2
 exts.b r2,r0
 add r0,r6
@@ -66419,11 +66457,11 @@ add #-10,r7
 Q800:
 mov r8,r0
 tst #2,r0
-bt bcc_w315
+bt bcc_w318
 add #2,r6
 jmp @r10
 add #-12,r7
-bcc_w315:
+bcc_w318:
 mov.w @r6,r0
 add r0,r6
 jmp @r10
@@ -66433,10 +66471,10 @@ Q801:
 mov r0,r2
 mov r8,r0
 tst #2,r0
-bt bcc_b316
+bt bcc_b319
 jmp @r10
 add #-8,r7
-bcc_b316:
+bcc_b319:
 shlr2 r2
 exts.b r2,r0
 add r0,r6
@@ -66446,11 +66484,11 @@ add #-10,r7
 Q900:
 mov r8,r0
 tst #2,r0
-bf bcc_w317
+bf bcc_w320
 add #2,r6
 jmp @r10
 add #-12,r7
-bcc_w317:
+bcc_w320:
 mov.w @r6,r0
 add r0,r6
 jmp @r10
@@ -66460,10 +66498,10 @@ Q901:
 mov r0,r2
 mov r8,r0
 tst #2,r0
-bf bcc_b318
+bf bcc_b321
 jmp @r10
 add #-8,r7
-bcc_b318:
+bcc_b321:
 shlr2 r2
 exts.b r2,r0
 add r0,r6
@@ -66478,11 +66516,11 @@ shlr2 r0
 xor r1,r0
 rotr r3
 shlr r0
-bf bcc_w319
+bf bcc_w322
 add #2,r6
 jmp @r10
 add #-12,r7
-bcc_w319:
+bcc_w322:
 mov.w @r6,r0
 add r0,r6
 jmp @r10
@@ -66497,10 +66535,10 @@ shlr2 r0
 xor r1,r0
 rotr r3
 shlr r0
-bf bcc_b320
+bf bcc_b323
 jmp @r10
 add #-8,r7
-bcc_b320:
+bcc_b323:
 shlr2 r2
 exts.b r2,r0
 add r0,r6
@@ -66515,11 +66553,11 @@ shlr2 r0
 xor r1,r0
 rotr r3
 shlr r0
-bt bcc_w321
+bt bcc_w324
 add #2,r6
 jmp @r10
 add #-12,r7
-bcc_w321:
+bcc_w324:
 mov.w @r6,r0
 add r0,r6
 jmp @r10
@@ -66534,10 +66572,10 @@ shlr2 r0
 xor r1,r0
 rotr r3
 shlr r0
-bt bcc_b322
+bt bcc_b325
 jmp @r10
 add #-8,r7
-bcc_b322:
+bcc_b325:
 shlr2 r2
 exts.b r2,r0
 add r0,r6
@@ -66564,11 +66602,11 @@ mov r8,r0
 shlr r0
 xor r1,r0
 shlr r0
-bf bcc_w323
+bf bcc_w326
 add #2,r6
 jmp @r10
 add #-12,r7
-bcc_w323:
+bcc_w326:
 mov.w @r6,r0
 add r0,r6
 jmp @r10
@@ -66595,10 +66633,10 @@ mov r8,r0
 shlr r0
 xor r1,r0
 shlr r0
-bf bcc_b324
+bf bcc_b327
 jmp @r10
 add #-8,r7
-bcc_b324:
+bcc_b327:
 shlr2 r2
 exts.b r2,r0
 add r0,r6
@@ -66625,11 +66663,11 @@ mov r8,r0
 shlr r0
 xor r1,r0
 shlr r0
-bt bcc_w325
+bt bcc_w328
 add #2,r6
 jmp @r10
 add #-12,r7
-bcc_w325:
+bcc_w328:
 mov.w @r6,r0
 add r0,r6
 jmp @r10
@@ -66656,10 +66694,10 @@ mov r8,r0
 shlr r0
 xor r1,r0
 shlr r0
-bt bcc_b326
+bt bcc_b329
 jmp @r10
 add #-8,r7
-bcc_b326:
+bcc_b329:
 shlr2 r2
 exts.b r2,r0
 add r0,r6
@@ -66677,11 +66715,11 @@ tst r3,r3
 xor r8,r0
 addc r0,r0
 tst #5,r0
-bt bcc_w327
+bt bcc_w330
 add #2,r6
 jmp @r10
 add #-12,r7
-bcc_w327:
+bcc_w330:
 mov.w @r6,r0
 add r0,r6
 jmp @r10
@@ -66699,10 +66737,10 @@ tst r3,r3
 xor r8,r0
 addc r0,r0
 tst #5,r0
-bt bcc_b328
+bt bcc_b331
 jmp @r10
 add #-8,r7
-bcc_b328:
+bcc_b331:
 shlr2 r2
 exts.b r2,r0
 add r0,r6
@@ -66720,11 +66758,11 @@ tst r3,r3
 xor r8,r0
 addc r0,r0
 tst #5,r0
-bf bcc_w329
+bf bcc_w332
 add #2,r6
 jmp @r10
 add #-12,r7
-bcc_w329:
+bcc_w332:
 mov.w @r6,r0
 add r0,r6
 jmp @r10
@@ -66742,10 +66780,10 @@ tst r3,r3
 xor r8,r0
 addc r0,r0
 tst #5,r0
-bf bcc_b330
+bf bcc_b333
 jmp @r10
 add #-8,r7
-bcc_b330:
+bcc_b333:
 shlr2 r2
 exts.b r2,r0
 add r0,r6
@@ -67285,10 +67323,10 @@ mov.w @r2,r3
 mov.l @r13,r1
 mov r3,r8
 tst r8,r8
-bt/s ln331
+bt/s ln334
 shll16 r3
 cmp/hs r3,r1
-bt ov332
+bt ov335
 mov r1,r0
 div0u
 .rept 16
@@ -67306,23 +67344,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-106,r7
-ov332:
-mov #0x4,r8
+ov335:
+mov #0x2,r8
 jmp @r10
 add #-10,r7
-ln331:
-mov.l g2_except_addr331,r0
+ln334:
+mov.l g2_except_addr334,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr331,r0
+mov.l bf_addr334,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-38,r7
 .align 2
-g2_except_addr331: .long group_2_exception
-bf_addr331: .long basefunction
+g2_except_addr334: .long group_2_exception
+bf_addr334: .long basefunction
 ! Opcodes 80D0 - 80D7
 S0D0:
 mov r2,r0
@@ -67333,10 +67371,10 @@ nop
 mov.l @r13,r1
 mov r3,r8
 tst r8,r8
-bt/s ln333
+bt/s ln336
 shll16 r3
 cmp/hs r3,r1
-bt ov334
+bt ov337
 mov r1,r0
 div0u
 .rept 16
@@ -67354,23 +67392,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-110,r7
-ov334:
-mov #0x4,r8
+ov337:
+mov #0x2,r8
 jmp @r10
 add #-14,r7
-ln333:
-mov.l g2_except_addr333,r0
+ln336:
+mov.l g2_except_addr336,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr333,r0
+mov.l bf_addr336,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr333: .long group_2_exception
-bf_addr333: .long basefunction
+g2_except_addr336: .long group_2_exception
+bf_addr336: .long basefunction
 ! Opcodes 80D8 - 80DF
 S0D8:
 mov r2,r0
@@ -67384,10 +67422,10 @@ mov.l r4,@(r0,r14)
 mov.l @r13,r1
 mov r3,r8
 tst r8,r8
-bt/s ln335
+bt/s ln338
 shll16 r3
 cmp/hs r3,r1
-bt ov336
+bt ov339
 mov r1,r0
 div0u
 .rept 16
@@ -67405,23 +67443,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-110,r7
-ov336:
-mov #0x4,r8
+ov339:
+mov #0x2,r8
 jmp @r10
 add #-14,r7
-ln335:
-mov.l g2_except_addr335,r0
+ln338:
+mov.l g2_except_addr338,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr335,r0
+mov.l bf_addr338,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr335: .long group_2_exception
-bf_addr335: .long basefunction
+g2_except_addr338: .long group_2_exception
+bf_addr338: .long basefunction
 ! Opcodes 80E0 - 80E7
 S0E0:
 mov r2,r0
@@ -67435,10 +67473,10 @@ mov.l r4,@(r0,r14)
 mov.l @r13,r1
 mov r3,r8
 tst r8,r8
-bt/s ln337
+bt/s ln340
 shll16 r3
 cmp/hs r3,r1
-bt ov338
+bt ov341
 mov r1,r0
 div0u
 .rept 16
@@ -67456,23 +67494,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-112,r7
-ov338:
-mov #0x4,r8
+ov341:
+mov #0x2,r8
 jmp @r10
 add #-16,r7
-ln337:
-mov.l g2_except_addr337,r0
+ln340:
+mov.l g2_except_addr340,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr337,r0
+mov.l bf_addr340,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-44,r7
 .align 2
-g2_except_addr337: .long group_2_exception
-bf_addr337: .long basefunction
+g2_except_addr340: .long group_2_exception
+bf_addr340: .long basefunction
 ! Opcodes 80E8 - 80EF
 S0E8:
 mov.w @r6+,r4
@@ -67485,10 +67523,10 @@ nop
 mov.l @r13,r1
 mov r3,r8
 tst r8,r8
-bt/s ln339
+bt/s ln342
 shll16 r3
 cmp/hs r3,r1
-bt ov340
+bt ov343
 mov r1,r0
 div0u
 .rept 16
@@ -67506,23 +67544,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-114,r7
-ov340:
-mov #0x4,r8
+ov343:
+mov #0x2,r8
 jmp @r10
 add #-18,r7
-ln339:
-mov.l g2_except_addr339,r0
+ln342:
+mov.l g2_except_addr342,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr339,r0
+mov.l bf_addr342,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr339: .long group_2_exception
-bf_addr339: .long basefunction
+g2_except_addr342: .long group_2_exception
+bf_addr342: .long basefunction
 ! Opcodes 80F0 - 80F7
 S0F0:
 mov.l @(decode_extw_addr-fetch_idx,r11),r4
@@ -67535,10 +67573,10 @@ nop
 mov.l @r13,r1
 mov r3,r8
 tst r8,r8
-bt/s ln341
+bt/s ln344
 shll16 r3
 cmp/hs r3,r1
-bt ov342
+bt ov345
 mov r1,r0
 div0u
 .rept 16
@@ -67556,23 +67594,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-116,r7
-ov342:
-mov #0x4,r8
+ov345:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln341:
-mov.l g2_except_addr341,r0
+ln344:
+mov.l g2_except_addr344,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr341,r0
+mov.l bf_addr344,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-48,r7
 .align 2
-g2_except_addr341: .long group_2_exception
-bf_addr341: .long basefunction
+g2_except_addr344: .long group_2_exception
+bf_addr344: .long basefunction
 ! Opcode 80F8
 S0F8:
 mov.w @r6+,r4
@@ -67582,10 +67620,10 @@ nop
 mov.l @r13,r1
 mov r3,r8
 tst r8,r8
-bt/s ln343
+bt/s ln346
 shll16 r3
 cmp/hs r3,r1
-bt ov344
+bt ov347
 mov r1,r0
 div0u
 .rept 16
@@ -67603,23 +67641,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-114,r7
-ov344:
-mov #0x4,r8
+ov347:
+mov #0x2,r8
 jmp @r10
 add #-18,r7
-ln343:
-mov.l g2_except_addr343,r0
+ln346:
+mov.l g2_except_addr346,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr343,r0
+mov.l bf_addr346,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr343: .long group_2_exception
-bf_addr343: .long basefunction
+g2_except_addr346: .long group_2_exception
+bf_addr346: .long basefunction
 ! Opcode 80F9
 S0F9:
 mov.w @r6+,r0
@@ -67632,10 +67670,10 @@ nop
 mov.l @r13,r1
 mov r3,r8
 tst r8,r8
-bt/s ln345
+bt/s ln348
 shll16 r3
 cmp/hs r3,r1
-bt ov346
+bt ov349
 mov r1,r0
 div0u
 .rept 16
@@ -67653,23 +67691,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-118,r7
-ov346:
-mov #0x4,r8
+ov349:
+mov #0x2,r8
 jmp @r10
 add #-22,r7
-ln345:
-mov.l g2_except_addr345,r0
+ln348:
+mov.l g2_except_addr348,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr345,r0
+mov.l bf_addr348,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-50,r7
 .align 2
-g2_except_addr345: .long group_2_exception
-bf_addr345: .long basefunction
+g2_except_addr348: .long group_2_exception
+bf_addr348: .long basefunction
 ! Opcode 80FA
 S0FA:
 mov r6,r0
@@ -67682,10 +67720,10 @@ nop
 mov.l @r13,r1
 mov r3,r8
 tst r8,r8
-bt/s ln347
+bt/s ln350
 shll16 r3
 cmp/hs r3,r1
-bt ov348
+bt ov351
 mov r1,r0
 div0u
 .rept 16
@@ -67703,23 +67741,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-114,r7
-ov348:
-mov #0x4,r8
+ov351:
+mov #0x2,r8
 jmp @r10
 add #-18,r7
-ln347:
-mov.l g2_except_addr347,r0
+ln350:
+mov.l g2_except_addr350,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr347,r0
+mov.l bf_addr350,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr347: .long group_2_exception
-bf_addr347: .long basefunction
+g2_except_addr350: .long group_2_exception
+bf_addr350: .long basefunction
 ! Opcode 80FB
 S0FB:
 mov.l @(decode_extw_addr-fetch_idx,r11),r4
@@ -67732,10 +67770,10 @@ nop
 mov.l @r13,r1
 mov r3,r8
 tst r8,r8
-bt/s ln349
+bt/s ln352
 shll16 r3
 cmp/hs r3,r1
-bt ov350
+bt ov353
 mov r1,r0
 div0u
 .rept 16
@@ -67753,33 +67791,33 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-116,r7
-ov350:
-mov #0x4,r8
+ov353:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln349:
-mov.l g2_except_addr349,r0
+ln352:
+mov.l g2_except_addr352,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr349,r0
+mov.l bf_addr352,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-48,r7
 .align 2
-g2_except_addr349: .long group_2_exception
-bf_addr349: .long basefunction
+g2_except_addr352: .long group_2_exception
+bf_addr352: .long basefunction
 ! Opcode 80FC
 S0FC:
 mov.w @r6+,r3
 mov.l @r13,r1
 mov r3,r8
 tst r8,r8
-bt/s ln351
+bt/s ln354
 shll16 r3
 cmp/hs r3,r1
-bt ov352
+bt ov355
 mov r1,r0
 div0u
 .rept 16
@@ -67797,23 +67835,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-110,r7
-ov352:
-mov #0x4,r8
+ov355:
+mov #0x2,r8
 jmp @r10
 add #-14,r7
-ln351:
-mov.l g2_except_addr351,r0
+ln354:
+mov.l g2_except_addr354,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr351,r0
+mov.l bf_addr354,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr351: .long group_2_exception
-bf_addr351: .long basefunction
+g2_except_addr354: .long group_2_exception
+bf_addr354: .long basefunction
 ! Opcodes 8100 - 8107
 S100:
 mov r3,r4
@@ -67828,9 +67866,9 @@ cmp/pl r9
 subc r0,r8
 mov #9,r0
 cmp/hi r0,r8
-bf .nonibadd353
+bf .nonibadd356
 add #-6,r8
-.nonibadd353:
+.nonibadd356:
 mov r3,r0
 and #0xF0,r0
 mov r0,r3
@@ -67842,11 +67880,11 @@ mov #0x99,r0
 extu.b r0,r0
 cmp/hi r0,r3
 movt r9
-bf .endop353
+bf .endop356
 mov #0xA0,r0
 extu.b r0,r0
 add r0,r3
-.endop353:
+.endop356:
 exts.b r3,r3
 mov r9,r8
 mov.b r3,@r13
@@ -67882,9 +67920,9 @@ cmp/pl r9
 subc r0,r8
 mov #9,r0
 cmp/hi r0,r8
-bf .nonibadd354
+bf .nonibadd357
 add #-6,r8
-.nonibadd354:
+.nonibadd357:
 mov r3,r0
 and #0xF0,r0
 mov r0,r3
@@ -67896,11 +67934,11 @@ mov #0x99,r0
 extu.b r0,r0
 cmp/hi r0,r3
 movt r9
-bf .endop354
+bf .endop357
 mov #0xA0,r0
 extu.b r0,r0
 add r0,r3
-.endop354:
+.endop357:
 exts.b r3,r3
 mov r9,r8
 mov.l @(wb_addr-fetch_idx,r11),r0
@@ -68272,7 +68310,7 @@ mov.w @r2,r3
 mov.l @r13,r1
 mov r3,r8
 tst r8,r8
-bt/s ln355
+bt/s ln358
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -68280,7 +68318,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov356
+bt ov359
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -68305,23 +68343,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-11,r7
-ov356:
-mov #0x4,r8
+ov359:
+mov #0x2,r8
 jmp @r10
 add #-16,r7
-ln355:
-mov.l g2_except_addr355,r0
+ln358:
+mov.l g2_except_addr358,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr355,r0
+mov.l bf_addr358,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-38,r7
 .align 2
-g2_except_addr355: .long group_2_exception
-bf_addr355: .long basefunction
+g2_except_addr358: .long group_2_exception
+bf_addr358: .long basefunction
 ! Opcodes 81D0 - 81D7
 S1D0:
 mov r2,r0
@@ -68332,7 +68370,7 @@ nop
 mov.l @r13,r1
 mov r3,r8
 tst r8,r8
-bt/s ln357
+bt/s ln360
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -68340,7 +68378,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov358
+bt ov361
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -68365,23 +68403,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-15,r7
-ov358:
-mov #0x4,r8
+ov361:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln357:
-mov.l g2_except_addr357,r0
+ln360:
+mov.l g2_except_addr360,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr357,r0
+mov.l bf_addr360,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr357: .long group_2_exception
-bf_addr357: .long basefunction
+g2_except_addr360: .long group_2_exception
+bf_addr360: .long basefunction
 ! Opcodes 81D8 - 81DF
 S1D8:
 mov r2,r0
@@ -68395,7 +68433,7 @@ mov.l r4,@(r0,r14)
 mov.l @r13,r1
 mov r3,r8
 tst r8,r8
-bt/s ln359
+bt/s ln362
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -68403,7 +68441,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov360
+bt ov363
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -68428,23 +68466,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-15,r7
-ov360:
-mov #0x4,r8
+ov363:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln359:
-mov.l g2_except_addr359,r0
+ln362:
+mov.l g2_except_addr362,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr359,r0
+mov.l bf_addr362,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr359: .long group_2_exception
-bf_addr359: .long basefunction
+g2_except_addr362: .long group_2_exception
+bf_addr362: .long basefunction
 ! Opcodes 81E0 - 81E7
 S1E0:
 mov r2,r0
@@ -68458,7 +68496,7 @@ mov.l r4,@(r0,r14)
 mov.l @r13,r1
 mov r3,r8
 tst r8,r8
-bt/s ln361
+bt/s ln364
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -68466,7 +68504,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov362
+bt ov365
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -68491,23 +68529,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-17,r7
-ov362:
-mov #0x4,r8
+ov365:
+mov #0x2,r8
 jmp @r10
 add #-22,r7
-ln361:
-mov.l g2_except_addr361,r0
+ln364:
+mov.l g2_except_addr364,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr361,r0
+mov.l bf_addr364,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-44,r7
 .align 2
-g2_except_addr361: .long group_2_exception
-bf_addr361: .long basefunction
+g2_except_addr364: .long group_2_exception
+bf_addr364: .long basefunction
 ! Opcodes 81E8 - 81EF
 S1E8:
 mov.w @r6+,r4
@@ -68520,7 +68558,7 @@ nop
 mov.l @r13,r1
 mov r3,r8
 tst r8,r8
-bt/s ln363
+bt/s ln366
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -68528,7 +68566,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov364
+bt ov367
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -68553,23 +68591,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-19,r7
-ov364:
-mov #0x4,r8
+ov367:
+mov #0x2,r8
 jmp @r10
 add #-24,r7
-ln363:
-mov.l g2_except_addr363,r0
+ln366:
+mov.l g2_except_addr366,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr363,r0
+mov.l bf_addr366,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr363: .long group_2_exception
-bf_addr363: .long basefunction
+g2_except_addr366: .long group_2_exception
+bf_addr366: .long basefunction
 ! Opcodes 81F0 - 81F7
 S1F0:
 mov.l @(decode_extw_addr-fetch_idx,r11),r4
@@ -68582,7 +68620,7 @@ nop
 mov.l @r13,r1
 mov r3,r8
 tst r8,r8
-bt/s ln365
+bt/s ln368
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -68590,7 +68628,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov366
+bt ov369
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -68615,23 +68653,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-21,r7
-ov366:
-mov #0x4,r8
+ov369:
+mov #0x2,r8
 jmp @r10
 add #-26,r7
-ln365:
-mov.l g2_except_addr365,r0
+ln368:
+mov.l g2_except_addr368,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr365,r0
+mov.l bf_addr368,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-48,r7
 .align 2
-g2_except_addr365: .long group_2_exception
-bf_addr365: .long basefunction
+g2_except_addr368: .long group_2_exception
+bf_addr368: .long basefunction
 ! Opcode 81F8
 S1F8:
 mov.w @r6+,r4
@@ -68641,7 +68679,7 @@ nop
 mov.l @r13,r1
 mov r3,r8
 tst r8,r8
-bt/s ln367
+bt/s ln370
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -68649,7 +68687,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov368
+bt ov371
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -68674,23 +68712,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-19,r7
-ov368:
-mov #0x4,r8
+ov371:
+mov #0x2,r8
 jmp @r10
 add #-24,r7
-ln367:
-mov.l g2_except_addr367,r0
+ln370:
+mov.l g2_except_addr370,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr367,r0
+mov.l bf_addr370,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr367: .long group_2_exception
-bf_addr367: .long basefunction
+g2_except_addr370: .long group_2_exception
+bf_addr370: .long basefunction
 ! Opcode 81F9
 S1F9:
 mov.w @r6+,r0
@@ -68703,7 +68741,7 @@ nop
 mov.l @r13,r1
 mov r3,r8
 tst r8,r8
-bt/s ln369
+bt/s ln372
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -68711,7 +68749,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov370
+bt ov373
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -68736,23 +68774,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-23,r7
-ov370:
-mov #0x4,r8
+ov373:
+mov #0x2,r8
 jmp @r10
 add #-28,r7
-ln369:
-mov.l g2_except_addr369,r0
+ln372:
+mov.l g2_except_addr372,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr369,r0
+mov.l bf_addr372,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-50,r7
 .align 2
-g2_except_addr369: .long group_2_exception
-bf_addr369: .long basefunction
+g2_except_addr372: .long group_2_exception
+bf_addr372: .long basefunction
 ! Opcode 81FA
 S1FA:
 mov r6,r0
@@ -68765,7 +68803,7 @@ nop
 mov.l @r13,r1
 mov r3,r8
 tst r8,r8
-bt/s ln371
+bt/s ln374
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -68773,7 +68811,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov372
+bt ov375
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -68798,23 +68836,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-19,r7
-ov372:
-mov #0x4,r8
+ov375:
+mov #0x2,r8
 jmp @r10
 add #-24,r7
-ln371:
-mov.l g2_except_addr371,r0
+ln374:
+mov.l g2_except_addr374,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr371,r0
+mov.l bf_addr374,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr371: .long group_2_exception
-bf_addr371: .long basefunction
+g2_except_addr374: .long group_2_exception
+bf_addr374: .long basefunction
 ! Opcode 81FB
 S1FB:
 mov.l @(decode_extw_addr-fetch_idx,r11),r4
@@ -68827,7 +68865,7 @@ nop
 mov.l @r13,r1
 mov r3,r8
 tst r8,r8
-bt/s ln373
+bt/s ln376
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -68835,7 +68873,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov374
+bt ov377
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -68860,30 +68898,30 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-21,r7
-ov374:
-mov #0x4,r8
+ov377:
+mov #0x2,r8
 jmp @r10
 add #-26,r7
-ln373:
-mov.l g2_except_addr373,r0
+ln376:
+mov.l g2_except_addr376,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr373,r0
+mov.l bf_addr376,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-48,r7
 .align 2
-g2_except_addr373: .long group_2_exception
-bf_addr373: .long basefunction
+g2_except_addr376: .long group_2_exception
+bf_addr376: .long basefunction
 ! Opcode 81FC
 S1FC:
 mov.w @r6+,r3
 mov.l @r13,r1
 mov r3,r8
 tst r8,r8
-bt/s ln375
+bt/s ln378
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -68891,7 +68929,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov376
+bt ov379
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -68916,23 +68954,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-15,r7
-ov376:
-mov #0x4,r8
+ov379:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln375:
-mov.l g2_except_addr375,r0
+ln378:
+mov.l g2_except_addr378,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr375,r0
+mov.l bf_addr378,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr375: .long group_2_exception
-bf_addr375: .long basefunction
+g2_except_addr378: .long group_2_exception
+bf_addr378: .long basefunction
 ! Opcodes 8200 - 8207
 S200:
 add r13,r2
@@ -69447,10 +69485,10 @@ mov.w @r2,r3
 mov.l @(4,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln377
+bt/s ln380
 shll16 r3
 cmp/hs r3,r1
-bt ov378
+bt ov381
 mov r1,r0
 div0u
 .rept 16
@@ -69468,23 +69506,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-106,r7
-ov378:
-mov #0x4,r8
+ov381:
+mov #0x2,r8
 jmp @r10
 add #-10,r7
-ln377:
-mov.l g2_except_addr377,r0
+ln380:
+mov.l g2_except_addr380,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr377,r0
+mov.l bf_addr380,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-38,r7
 .align 2
-g2_except_addr377: .long group_2_exception
-bf_addr377: .long basefunction
+g2_except_addr380: .long group_2_exception
+bf_addr380: .long basefunction
 ! Opcodes 82D0 - 82D7
 S2D0:
 mov r2,r0
@@ -69495,10 +69533,10 @@ nop
 mov.l @(4,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln379
+bt/s ln382
 shll16 r3
 cmp/hs r3,r1
-bt ov380
+bt ov383
 mov r1,r0
 div0u
 .rept 16
@@ -69516,23 +69554,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-110,r7
-ov380:
-mov #0x4,r8
+ov383:
+mov #0x2,r8
 jmp @r10
 add #-14,r7
-ln379:
-mov.l g2_except_addr379,r0
+ln382:
+mov.l g2_except_addr382,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr379,r0
+mov.l bf_addr382,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr379: .long group_2_exception
-bf_addr379: .long basefunction
+g2_except_addr382: .long group_2_exception
+bf_addr382: .long basefunction
 ! Opcodes 82D8 - 82DF
 S2D8:
 mov r2,r0
@@ -69546,10 +69584,10 @@ mov.l r4,@(r0,r14)
 mov.l @(4,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln381
+bt/s ln384
 shll16 r3
 cmp/hs r3,r1
-bt ov382
+bt ov385
 mov r1,r0
 div0u
 .rept 16
@@ -69567,23 +69605,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-110,r7
-ov382:
-mov #0x4,r8
+ov385:
+mov #0x2,r8
 jmp @r10
 add #-14,r7
-ln381:
-mov.l g2_except_addr381,r0
+ln384:
+mov.l g2_except_addr384,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr381,r0
+mov.l bf_addr384,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr381: .long group_2_exception
-bf_addr381: .long basefunction
+g2_except_addr384: .long group_2_exception
+bf_addr384: .long basefunction
 ! Opcodes 82E0 - 82E7
 S2E0:
 mov r2,r0
@@ -69597,10 +69635,10 @@ mov.l r4,@(r0,r14)
 mov.l @(4,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln383
+bt/s ln386
 shll16 r3
 cmp/hs r3,r1
-bt ov384
+bt ov387
 mov r1,r0
 div0u
 .rept 16
@@ -69618,23 +69656,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-112,r7
-ov384:
-mov #0x4,r8
+ov387:
+mov #0x2,r8
 jmp @r10
 add #-16,r7
-ln383:
-mov.l g2_except_addr383,r0
+ln386:
+mov.l g2_except_addr386,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr383,r0
+mov.l bf_addr386,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-44,r7
 .align 2
-g2_except_addr383: .long group_2_exception
-bf_addr383: .long basefunction
+g2_except_addr386: .long group_2_exception
+bf_addr386: .long basefunction
 ! Opcodes 82E8 - 82EF
 S2E8:
 mov.w @r6+,r4
@@ -69647,10 +69685,10 @@ nop
 mov.l @(4,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln385
+bt/s ln388
 shll16 r3
 cmp/hs r3,r1
-bt ov386
+bt ov389
 mov r1,r0
 div0u
 .rept 16
@@ -69668,23 +69706,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-114,r7
-ov386:
-mov #0x4,r8
+ov389:
+mov #0x2,r8
 jmp @r10
 add #-18,r7
-ln385:
-mov.l g2_except_addr385,r0
+ln388:
+mov.l g2_except_addr388,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr385,r0
+mov.l bf_addr388,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr385: .long group_2_exception
-bf_addr385: .long basefunction
+g2_except_addr388: .long group_2_exception
+bf_addr388: .long basefunction
 ! Opcodes 82F0 - 82F7
 S2F0:
 mov.l @(decode_extw_addr-fetch_idx,r11),r4
@@ -69697,10 +69735,10 @@ nop
 mov.l @(4,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln387
+bt/s ln390
 shll16 r3
 cmp/hs r3,r1
-bt ov388
+bt ov391
 mov r1,r0
 div0u
 .rept 16
@@ -69718,23 +69756,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-116,r7
-ov388:
-mov #0x4,r8
+ov391:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln387:
-mov.l g2_except_addr387,r0
+ln390:
+mov.l g2_except_addr390,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr387,r0
+mov.l bf_addr390,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-48,r7
 .align 2
-g2_except_addr387: .long group_2_exception
-bf_addr387: .long basefunction
+g2_except_addr390: .long group_2_exception
+bf_addr390: .long basefunction
 ! Opcode 82F8
 S2F8:
 mov.w @r6+,r4
@@ -69744,10 +69782,10 @@ nop
 mov.l @(4,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln389
+bt/s ln392
 shll16 r3
 cmp/hs r3,r1
-bt ov390
+bt ov393
 mov r1,r0
 div0u
 .rept 16
@@ -69765,23 +69803,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-114,r7
-ov390:
-mov #0x4,r8
+ov393:
+mov #0x2,r8
 jmp @r10
 add #-18,r7
-ln389:
-mov.l g2_except_addr389,r0
+ln392:
+mov.l g2_except_addr392,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr389,r0
+mov.l bf_addr392,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr389: .long group_2_exception
-bf_addr389: .long basefunction
+g2_except_addr392: .long group_2_exception
+bf_addr392: .long basefunction
 ! Opcode 82F9
 S2F9:
 mov.w @r6+,r0
@@ -69794,10 +69832,10 @@ nop
 mov.l @(4,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln391
+bt/s ln394
 shll16 r3
 cmp/hs r3,r1
-bt ov392
+bt ov395
 mov r1,r0
 div0u
 .rept 16
@@ -69815,23 +69853,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-118,r7
-ov392:
-mov #0x4,r8
+ov395:
+mov #0x2,r8
 jmp @r10
 add #-22,r7
-ln391:
-mov.l g2_except_addr391,r0
+ln394:
+mov.l g2_except_addr394,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr391,r0
+mov.l bf_addr394,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-50,r7
 .align 2
-g2_except_addr391: .long group_2_exception
-bf_addr391: .long basefunction
+g2_except_addr394: .long group_2_exception
+bf_addr394: .long basefunction
 ! Opcode 82FA
 S2FA:
 mov r6,r0
@@ -69844,10 +69882,10 @@ nop
 mov.l @(4,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln393
+bt/s ln396
 shll16 r3
 cmp/hs r3,r1
-bt ov394
+bt ov397
 mov r1,r0
 div0u
 .rept 16
@@ -69865,23 +69903,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-114,r7
-ov394:
-mov #0x4,r8
+ov397:
+mov #0x2,r8
 jmp @r10
 add #-18,r7
-ln393:
-mov.l g2_except_addr393,r0
+ln396:
+mov.l g2_except_addr396,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr393,r0
+mov.l bf_addr396,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr393: .long group_2_exception
-bf_addr393: .long basefunction
+g2_except_addr396: .long group_2_exception
+bf_addr396: .long basefunction
 ! Opcode 82FB
 S2FB:
 mov.l @(decode_extw_addr-fetch_idx,r11),r4
@@ -69894,10 +69932,10 @@ nop
 mov.l @(4,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln395
+bt/s ln398
 shll16 r3
 cmp/hs r3,r1
-bt ov396
+bt ov399
 mov r1,r0
 div0u
 .rept 16
@@ -69915,33 +69953,33 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-116,r7
-ov396:
-mov #0x4,r8
+ov399:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln395:
-mov.l g2_except_addr395,r0
+ln398:
+mov.l g2_except_addr398,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr395,r0
+mov.l bf_addr398,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-48,r7
 .align 2
-g2_except_addr395: .long group_2_exception
-bf_addr395: .long basefunction
+g2_except_addr398: .long group_2_exception
+bf_addr398: .long basefunction
 ! Opcode 82FC
 S2FC:
 mov.w @r6+,r3
 mov.l @(4,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln397
+bt/s ln400
 shll16 r3
 cmp/hs r3,r1
-bt ov398
+bt ov401
 mov r1,r0
 div0u
 .rept 16
@@ -69959,23 +69997,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-110,r7
-ov398:
-mov #0x4,r8
+ov401:
+mov #0x2,r8
 jmp @r10
 add #-14,r7
-ln397:
-mov.l g2_except_addr397,r0
+ln400:
+mov.l g2_except_addr400,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr397,r0
+mov.l bf_addr400,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr397: .long group_2_exception
-bf_addr397: .long basefunction
+g2_except_addr400: .long group_2_exception
+bf_addr400: .long basefunction
 ! Opcodes 8300 - 8307
 S300:
 mov r3,r4
@@ -69991,9 +70029,9 @@ cmp/pl r9
 subc r0,r8
 mov #9,r0
 cmp/hi r0,r8
-bf .nonibadd399
+bf .nonibadd402
 add #-6,r8
-.nonibadd399:
+.nonibadd402:
 mov r3,r0
 and #0xF0,r0
 mov r0,r3
@@ -70005,11 +70043,11 @@ mov #0x99,r0
 extu.b r0,r0
 cmp/hi r0,r3
 movt r9
-bf .endop399
+bf .endop402
 mov #0xA0,r0
 extu.b r0,r0
 add r0,r3
-.endop399:
+.endop402:
 exts.b r3,r3
 mov r9,r8
 mov #4,r0
@@ -70046,9 +70084,9 @@ cmp/pl r9
 subc r0,r8
 mov #9,r0
 cmp/hi r0,r8
-bf .nonibadd400
+bf .nonibadd403
 add #-6,r8
-.nonibadd400:
+.nonibadd403:
 mov r3,r0
 and #0xF0,r0
 mov r0,r3
@@ -70060,11 +70098,11 @@ mov #0x99,r0
 extu.b r0,r0
 cmp/hi r0,r3
 movt r9
-bf .endop400
+bf .endop403
 mov #0xA0,r0
 extu.b r0,r0
 add r0,r3
-.endop400:
+.endop403:
 exts.b r3,r3
 mov r9,r8
 mov.l @(wb_addr-fetch_idx,r11),r0
@@ -70450,7 +70488,7 @@ mov.w @r2,r3
 mov.l @(4,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln401
+bt/s ln404
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -70458,7 +70496,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov402
+bt ov405
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -70483,23 +70521,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-11,r7
-ov402:
-mov #0x4,r8
+ov405:
+mov #0x2,r8
 jmp @r10
 add #-16,r7
-ln401:
-mov.l g2_except_addr401,r0
+ln404:
+mov.l g2_except_addr404,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr401,r0
+mov.l bf_addr404,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-38,r7
 .align 2
-g2_except_addr401: .long group_2_exception
-bf_addr401: .long basefunction
+g2_except_addr404: .long group_2_exception
+bf_addr404: .long basefunction
 ! Opcodes 83D0 - 83D7
 S3D0:
 mov r2,r0
@@ -70510,7 +70548,7 @@ nop
 mov.l @(4,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln403
+bt/s ln406
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -70518,7 +70556,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov404
+bt ov407
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -70543,23 +70581,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-15,r7
-ov404:
-mov #0x4,r8
+ov407:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln403:
-mov.l g2_except_addr403,r0
+ln406:
+mov.l g2_except_addr406,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr403,r0
+mov.l bf_addr406,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr403: .long group_2_exception
-bf_addr403: .long basefunction
+g2_except_addr406: .long group_2_exception
+bf_addr406: .long basefunction
 ! Opcodes 83D8 - 83DF
 S3D8:
 mov r2,r0
@@ -70573,7 +70611,7 @@ mov.l r4,@(r0,r14)
 mov.l @(4,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln405
+bt/s ln408
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -70581,7 +70619,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov406
+bt ov409
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -70606,23 +70644,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-15,r7
-ov406:
-mov #0x4,r8
+ov409:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln405:
-mov.l g2_except_addr405,r0
+ln408:
+mov.l g2_except_addr408,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr405,r0
+mov.l bf_addr408,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr405: .long group_2_exception
-bf_addr405: .long basefunction
+g2_except_addr408: .long group_2_exception
+bf_addr408: .long basefunction
 ! Opcodes 83E0 - 83E7
 S3E0:
 mov r2,r0
@@ -70636,7 +70674,7 @@ mov.l r4,@(r0,r14)
 mov.l @(4,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln407
+bt/s ln410
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -70644,7 +70682,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov408
+bt ov411
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -70669,23 +70707,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-17,r7
-ov408:
-mov #0x4,r8
+ov411:
+mov #0x2,r8
 jmp @r10
 add #-22,r7
-ln407:
-mov.l g2_except_addr407,r0
+ln410:
+mov.l g2_except_addr410,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr407,r0
+mov.l bf_addr410,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-44,r7
 .align 2
-g2_except_addr407: .long group_2_exception
-bf_addr407: .long basefunction
+g2_except_addr410: .long group_2_exception
+bf_addr410: .long basefunction
 ! Opcodes 83E8 - 83EF
 S3E8:
 mov.w @r6+,r4
@@ -70698,7 +70736,7 @@ nop
 mov.l @(4,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln409
+bt/s ln412
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -70706,7 +70744,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov410
+bt ov413
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -70731,23 +70769,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-19,r7
-ov410:
-mov #0x4,r8
+ov413:
+mov #0x2,r8
 jmp @r10
 add #-24,r7
-ln409:
-mov.l g2_except_addr409,r0
+ln412:
+mov.l g2_except_addr412,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr409,r0
+mov.l bf_addr412,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr409: .long group_2_exception
-bf_addr409: .long basefunction
+g2_except_addr412: .long group_2_exception
+bf_addr412: .long basefunction
 ! Opcodes 83F0 - 83F7
 S3F0:
 mov.l @(decode_extw_addr-fetch_idx,r11),r4
@@ -70760,7 +70798,7 @@ nop
 mov.l @(4,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln411
+bt/s ln414
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -70768,7 +70806,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov412
+bt ov415
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -70793,23 +70831,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-21,r7
-ov412:
-mov #0x4,r8
+ov415:
+mov #0x2,r8
 jmp @r10
 add #-26,r7
-ln411:
-mov.l g2_except_addr411,r0
+ln414:
+mov.l g2_except_addr414,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr411,r0
+mov.l bf_addr414,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-48,r7
 .align 2
-g2_except_addr411: .long group_2_exception
-bf_addr411: .long basefunction
+g2_except_addr414: .long group_2_exception
+bf_addr414: .long basefunction
 ! Opcode 83F8
 S3F8:
 mov.w @r6+,r4
@@ -70819,7 +70857,7 @@ nop
 mov.l @(4,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln413
+bt/s ln416
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -70827,7 +70865,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov414
+bt ov417
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -70852,23 +70890,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-19,r7
-ov414:
-mov #0x4,r8
+ov417:
+mov #0x2,r8
 jmp @r10
 add #-24,r7
-ln413:
-mov.l g2_except_addr413,r0
+ln416:
+mov.l g2_except_addr416,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr413,r0
+mov.l bf_addr416,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr413: .long group_2_exception
-bf_addr413: .long basefunction
+g2_except_addr416: .long group_2_exception
+bf_addr416: .long basefunction
 ! Opcode 83F9
 S3F9:
 mov.w @r6+,r0
@@ -70881,7 +70919,7 @@ nop
 mov.l @(4,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln415
+bt/s ln418
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -70889,7 +70927,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov416
+bt ov419
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -70914,23 +70952,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-23,r7
-ov416:
-mov #0x4,r8
+ov419:
+mov #0x2,r8
 jmp @r10
 add #-28,r7
-ln415:
-mov.l g2_except_addr415,r0
+ln418:
+mov.l g2_except_addr418,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr415,r0
+mov.l bf_addr418,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-50,r7
 .align 2
-g2_except_addr415: .long group_2_exception
-bf_addr415: .long basefunction
+g2_except_addr418: .long group_2_exception
+bf_addr418: .long basefunction
 ! Opcode 83FA
 S3FA:
 mov r6,r0
@@ -70943,7 +70981,7 @@ nop
 mov.l @(4,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln417
+bt/s ln420
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -70951,7 +70989,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov418
+bt ov421
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -70976,23 +71014,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-19,r7
-ov418:
-mov #0x4,r8
+ov421:
+mov #0x2,r8
 jmp @r10
 add #-24,r7
-ln417:
-mov.l g2_except_addr417,r0
+ln420:
+mov.l g2_except_addr420,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr417,r0
+mov.l bf_addr420,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr417: .long group_2_exception
-bf_addr417: .long basefunction
+g2_except_addr420: .long group_2_exception
+bf_addr420: .long basefunction
 ! Opcode 83FB
 S3FB:
 mov.l @(decode_extw_addr-fetch_idx,r11),r4
@@ -71005,7 +71043,7 @@ nop
 mov.l @(4,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln419
+bt/s ln422
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -71013,7 +71051,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov420
+bt ov423
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -71038,30 +71076,30 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-21,r7
-ov420:
-mov #0x4,r8
+ov423:
+mov #0x2,r8
 jmp @r10
 add #-26,r7
-ln419:
-mov.l g2_except_addr419,r0
+ln422:
+mov.l g2_except_addr422,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr419,r0
+mov.l bf_addr422,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-48,r7
 .align 2
-g2_except_addr419: .long group_2_exception
-bf_addr419: .long basefunction
+g2_except_addr422: .long group_2_exception
+bf_addr422: .long basefunction
 ! Opcode 83FC
 S3FC:
 mov.w @r6+,r3
 mov.l @(4,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln421
+bt/s ln424
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -71069,7 +71107,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov422
+bt ov425
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -71094,23 +71132,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-15,r7
-ov422:
-mov #0x4,r8
+ov425:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln421:
-mov.l g2_except_addr421,r0
+ln424:
+mov.l g2_except_addr424,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr421,r0
+mov.l bf_addr424,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr421: .long group_2_exception
-bf_addr421: .long basefunction
+g2_except_addr424: .long group_2_exception
+bf_addr424: .long basefunction
 ! Opcodes 8400 - 8407
 S400:
 add r13,r2
@@ -71625,10 +71663,10 @@ mov.w @r2,r3
 mov.l @(8,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln423
+bt/s ln426
 shll16 r3
 cmp/hs r3,r1
-bt ov424
+bt ov427
 mov r1,r0
 div0u
 .rept 16
@@ -71646,23 +71684,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-106,r7
-ov424:
-mov #0x4,r8
+ov427:
+mov #0x2,r8
 jmp @r10
 add #-10,r7
-ln423:
-mov.l g2_except_addr423,r0
+ln426:
+mov.l g2_except_addr426,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr423,r0
+mov.l bf_addr426,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-38,r7
 .align 2
-g2_except_addr423: .long group_2_exception
-bf_addr423: .long basefunction
+g2_except_addr426: .long group_2_exception
+bf_addr426: .long basefunction
 ! Opcodes 84D0 - 84D7
 S4D0:
 mov r2,r0
@@ -71673,10 +71711,10 @@ nop
 mov.l @(8,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln425
+bt/s ln428
 shll16 r3
 cmp/hs r3,r1
-bt ov426
+bt ov429
 mov r1,r0
 div0u
 .rept 16
@@ -71694,23 +71732,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-110,r7
-ov426:
-mov #0x4,r8
+ov429:
+mov #0x2,r8
 jmp @r10
 add #-14,r7
-ln425:
-mov.l g2_except_addr425,r0
+ln428:
+mov.l g2_except_addr428,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr425,r0
+mov.l bf_addr428,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr425: .long group_2_exception
-bf_addr425: .long basefunction
+g2_except_addr428: .long group_2_exception
+bf_addr428: .long basefunction
 ! Opcodes 84D8 - 84DF
 S4D8:
 mov r2,r0
@@ -71724,10 +71762,10 @@ mov.l r4,@(r0,r14)
 mov.l @(8,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln427
+bt/s ln430
 shll16 r3
 cmp/hs r3,r1
-bt ov428
+bt ov431
 mov r1,r0
 div0u
 .rept 16
@@ -71745,23 +71783,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-110,r7
-ov428:
-mov #0x4,r8
+ov431:
+mov #0x2,r8
 jmp @r10
 add #-14,r7
-ln427:
-mov.l g2_except_addr427,r0
+ln430:
+mov.l g2_except_addr430,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr427,r0
+mov.l bf_addr430,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr427: .long group_2_exception
-bf_addr427: .long basefunction
+g2_except_addr430: .long group_2_exception
+bf_addr430: .long basefunction
 ! Opcodes 84E0 - 84E7
 S4E0:
 mov r2,r0
@@ -71775,10 +71813,10 @@ mov.l r4,@(r0,r14)
 mov.l @(8,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln429
+bt/s ln432
 shll16 r3
 cmp/hs r3,r1
-bt ov430
+bt ov433
 mov r1,r0
 div0u
 .rept 16
@@ -71796,23 +71834,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-112,r7
-ov430:
-mov #0x4,r8
+ov433:
+mov #0x2,r8
 jmp @r10
 add #-16,r7
-ln429:
-mov.l g2_except_addr429,r0
+ln432:
+mov.l g2_except_addr432,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr429,r0
+mov.l bf_addr432,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-44,r7
 .align 2
-g2_except_addr429: .long group_2_exception
-bf_addr429: .long basefunction
+g2_except_addr432: .long group_2_exception
+bf_addr432: .long basefunction
 ! Opcodes 84E8 - 84EF
 S4E8:
 mov.w @r6+,r4
@@ -71825,10 +71863,10 @@ nop
 mov.l @(8,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln431
+bt/s ln434
 shll16 r3
 cmp/hs r3,r1
-bt ov432
+bt ov435
 mov r1,r0
 div0u
 .rept 16
@@ -71846,23 +71884,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-114,r7
-ov432:
-mov #0x4,r8
+ov435:
+mov #0x2,r8
 jmp @r10
 add #-18,r7
-ln431:
-mov.l g2_except_addr431,r0
+ln434:
+mov.l g2_except_addr434,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr431,r0
+mov.l bf_addr434,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr431: .long group_2_exception
-bf_addr431: .long basefunction
+g2_except_addr434: .long group_2_exception
+bf_addr434: .long basefunction
 ! Opcodes 84F0 - 84F7
 S4F0:
 mov.l @(decode_extw_addr-fetch_idx,r11),r4
@@ -71875,10 +71913,10 @@ nop
 mov.l @(8,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln433
+bt/s ln436
 shll16 r3
 cmp/hs r3,r1
-bt ov434
+bt ov437
 mov r1,r0
 div0u
 .rept 16
@@ -71896,23 +71934,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-116,r7
-ov434:
-mov #0x4,r8
+ov437:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln433:
-mov.l g2_except_addr433,r0
+ln436:
+mov.l g2_except_addr436,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr433,r0
+mov.l bf_addr436,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-48,r7
 .align 2
-g2_except_addr433: .long group_2_exception
-bf_addr433: .long basefunction
+g2_except_addr436: .long group_2_exception
+bf_addr436: .long basefunction
 ! Opcode 84F8
 S4F8:
 mov.w @r6+,r4
@@ -71922,10 +71960,10 @@ nop
 mov.l @(8,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln435
+bt/s ln438
 shll16 r3
 cmp/hs r3,r1
-bt ov436
+bt ov439
 mov r1,r0
 div0u
 .rept 16
@@ -71943,23 +71981,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-114,r7
-ov436:
-mov #0x4,r8
+ov439:
+mov #0x2,r8
 jmp @r10
 add #-18,r7
-ln435:
-mov.l g2_except_addr435,r0
+ln438:
+mov.l g2_except_addr438,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr435,r0
+mov.l bf_addr438,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr435: .long group_2_exception
-bf_addr435: .long basefunction
+g2_except_addr438: .long group_2_exception
+bf_addr438: .long basefunction
 ! Opcode 84F9
 S4F9:
 mov.w @r6+,r0
@@ -71972,10 +72010,10 @@ nop
 mov.l @(8,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln437
+bt/s ln440
 shll16 r3
 cmp/hs r3,r1
-bt ov438
+bt ov441
 mov r1,r0
 div0u
 .rept 16
@@ -71993,23 +72031,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-118,r7
-ov438:
-mov #0x4,r8
+ov441:
+mov #0x2,r8
 jmp @r10
 add #-22,r7
-ln437:
-mov.l g2_except_addr437,r0
+ln440:
+mov.l g2_except_addr440,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr437,r0
+mov.l bf_addr440,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-50,r7
 .align 2
-g2_except_addr437: .long group_2_exception
-bf_addr437: .long basefunction
+g2_except_addr440: .long group_2_exception
+bf_addr440: .long basefunction
 ! Opcode 84FA
 S4FA:
 mov r6,r0
@@ -72022,10 +72060,10 @@ nop
 mov.l @(8,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln439
+bt/s ln442
 shll16 r3
 cmp/hs r3,r1
-bt ov440
+bt ov443
 mov r1,r0
 div0u
 .rept 16
@@ -72043,23 +72081,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-114,r7
-ov440:
-mov #0x4,r8
+ov443:
+mov #0x2,r8
 jmp @r10
 add #-18,r7
-ln439:
-mov.l g2_except_addr439,r0
+ln442:
+mov.l g2_except_addr442,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr439,r0
+mov.l bf_addr442,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr439: .long group_2_exception
-bf_addr439: .long basefunction
+g2_except_addr442: .long group_2_exception
+bf_addr442: .long basefunction
 ! Opcode 84FB
 S4FB:
 mov.l @(decode_extw_addr-fetch_idx,r11),r4
@@ -72072,10 +72110,10 @@ nop
 mov.l @(8,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln441
+bt/s ln444
 shll16 r3
 cmp/hs r3,r1
-bt ov442
+bt ov445
 mov r1,r0
 div0u
 .rept 16
@@ -72093,33 +72131,33 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-116,r7
-ov442:
-mov #0x4,r8
+ov445:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln441:
-mov.l g2_except_addr441,r0
+ln444:
+mov.l g2_except_addr444,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr441,r0
+mov.l bf_addr444,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-48,r7
 .align 2
-g2_except_addr441: .long group_2_exception
-bf_addr441: .long basefunction
+g2_except_addr444: .long group_2_exception
+bf_addr444: .long basefunction
 ! Opcode 84FC
 S4FC:
 mov.w @r6+,r3
 mov.l @(8,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln443
+bt/s ln446
 shll16 r3
 cmp/hs r3,r1
-bt ov444
+bt ov447
 mov r1,r0
 div0u
 .rept 16
@@ -72137,23 +72175,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-110,r7
-ov444:
-mov #0x4,r8
+ov447:
+mov #0x2,r8
 jmp @r10
 add #-14,r7
-ln443:
-mov.l g2_except_addr443,r0
+ln446:
+mov.l g2_except_addr446,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr443,r0
+mov.l bf_addr446,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr443: .long group_2_exception
-bf_addr443: .long basefunction
+g2_except_addr446: .long group_2_exception
+bf_addr446: .long basefunction
 ! Opcodes 8500 - 8507
 S500:
 mov r3,r4
@@ -72169,9 +72207,9 @@ cmp/pl r9
 subc r0,r8
 mov #9,r0
 cmp/hi r0,r8
-bf .nonibadd445
+bf .nonibadd448
 add #-6,r8
-.nonibadd445:
+.nonibadd448:
 mov r3,r0
 and #0xF0,r0
 mov r0,r3
@@ -72183,11 +72221,11 @@ mov #0x99,r0
 extu.b r0,r0
 cmp/hi r0,r3
 movt r9
-bf .endop445
+bf .endop448
 mov #0xA0,r0
 extu.b r0,r0
 add r0,r3
-.endop445:
+.endop448:
 exts.b r3,r3
 mov r9,r8
 mov #8,r0
@@ -72224,9 +72262,9 @@ cmp/pl r9
 subc r0,r8
 mov #9,r0
 cmp/hi r0,r8
-bf .nonibadd446
+bf .nonibadd449
 add #-6,r8
-.nonibadd446:
+.nonibadd449:
 mov r3,r0
 and #0xF0,r0
 mov r0,r3
@@ -72238,11 +72276,11 @@ mov #0x99,r0
 extu.b r0,r0
 cmp/hi r0,r3
 movt r9
-bf .endop446
+bf .endop449
 mov #0xA0,r0
 extu.b r0,r0
 add r0,r3
-.endop446:
+.endop449:
 exts.b r3,r3
 mov r9,r8
 mov.l @(wb_addr-fetch_idx,r11),r0
@@ -72628,7 +72666,7 @@ mov.w @r2,r3
 mov.l @(8,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln447
+bt/s ln450
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -72636,7 +72674,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov448
+bt ov451
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -72661,23 +72699,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-11,r7
-ov448:
-mov #0x4,r8
+ov451:
+mov #0x2,r8
 jmp @r10
 add #-16,r7
-ln447:
-mov.l g2_except_addr447,r0
+ln450:
+mov.l g2_except_addr450,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr447,r0
+mov.l bf_addr450,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-38,r7
 .align 2
-g2_except_addr447: .long group_2_exception
-bf_addr447: .long basefunction
+g2_except_addr450: .long group_2_exception
+bf_addr450: .long basefunction
 ! Opcodes 85D0 - 85D7
 S5D0:
 mov r2,r0
@@ -72688,7 +72726,7 @@ nop
 mov.l @(8,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln449
+bt/s ln452
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -72696,7 +72734,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov450
+bt ov453
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -72721,23 +72759,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-15,r7
-ov450:
-mov #0x4,r8
+ov453:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln449:
-mov.l g2_except_addr449,r0
+ln452:
+mov.l g2_except_addr452,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr449,r0
+mov.l bf_addr452,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr449: .long group_2_exception
-bf_addr449: .long basefunction
+g2_except_addr452: .long group_2_exception
+bf_addr452: .long basefunction
 ! Opcodes 85D8 - 85DF
 S5D8:
 mov r2,r0
@@ -72751,7 +72789,7 @@ mov.l r4,@(r0,r14)
 mov.l @(8,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln451
+bt/s ln454
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -72759,7 +72797,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov452
+bt ov455
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -72784,23 +72822,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-15,r7
-ov452:
-mov #0x4,r8
+ov455:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln451:
-mov.l g2_except_addr451,r0
+ln454:
+mov.l g2_except_addr454,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr451,r0
+mov.l bf_addr454,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr451: .long group_2_exception
-bf_addr451: .long basefunction
+g2_except_addr454: .long group_2_exception
+bf_addr454: .long basefunction
 ! Opcodes 85E0 - 85E7
 S5E0:
 mov r2,r0
@@ -72814,7 +72852,7 @@ mov.l r4,@(r0,r14)
 mov.l @(8,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln453
+bt/s ln456
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -72822,7 +72860,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov454
+bt ov457
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -72847,23 +72885,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-17,r7
-ov454:
-mov #0x4,r8
+ov457:
+mov #0x2,r8
 jmp @r10
 add #-22,r7
-ln453:
-mov.l g2_except_addr453,r0
+ln456:
+mov.l g2_except_addr456,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr453,r0
+mov.l bf_addr456,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-44,r7
 .align 2
-g2_except_addr453: .long group_2_exception
-bf_addr453: .long basefunction
+g2_except_addr456: .long group_2_exception
+bf_addr456: .long basefunction
 ! Opcodes 85E8 - 85EF
 S5E8:
 mov.w @r6+,r4
@@ -72876,7 +72914,7 @@ nop
 mov.l @(8,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln455
+bt/s ln458
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -72884,7 +72922,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov456
+bt ov459
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -72909,23 +72947,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-19,r7
-ov456:
-mov #0x4,r8
+ov459:
+mov #0x2,r8
 jmp @r10
 add #-24,r7
-ln455:
-mov.l g2_except_addr455,r0
+ln458:
+mov.l g2_except_addr458,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr455,r0
+mov.l bf_addr458,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr455: .long group_2_exception
-bf_addr455: .long basefunction
+g2_except_addr458: .long group_2_exception
+bf_addr458: .long basefunction
 ! Opcodes 85F0 - 85F7
 S5F0:
 mov.l @(decode_extw_addr-fetch_idx,r11),r4
@@ -72938,7 +72976,7 @@ nop
 mov.l @(8,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln457
+bt/s ln460
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -72946,7 +72984,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov458
+bt ov461
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -72971,23 +73009,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-21,r7
-ov458:
-mov #0x4,r8
+ov461:
+mov #0x2,r8
 jmp @r10
 add #-26,r7
-ln457:
-mov.l g2_except_addr457,r0
+ln460:
+mov.l g2_except_addr460,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr457,r0
+mov.l bf_addr460,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-48,r7
 .align 2
-g2_except_addr457: .long group_2_exception
-bf_addr457: .long basefunction
+g2_except_addr460: .long group_2_exception
+bf_addr460: .long basefunction
 ! Opcode 85F8
 S5F8:
 mov.w @r6+,r4
@@ -72997,7 +73035,7 @@ nop
 mov.l @(8,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln459
+bt/s ln462
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -73005,7 +73043,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov460
+bt ov463
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -73030,23 +73068,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-19,r7
-ov460:
-mov #0x4,r8
+ov463:
+mov #0x2,r8
 jmp @r10
 add #-24,r7
-ln459:
-mov.l g2_except_addr459,r0
+ln462:
+mov.l g2_except_addr462,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr459,r0
+mov.l bf_addr462,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr459: .long group_2_exception
-bf_addr459: .long basefunction
+g2_except_addr462: .long group_2_exception
+bf_addr462: .long basefunction
 ! Opcode 85F9
 S5F9:
 mov.w @r6+,r0
@@ -73059,7 +73097,7 @@ nop
 mov.l @(8,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln461
+bt/s ln464
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -73067,7 +73105,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov462
+bt ov465
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -73092,23 +73130,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-23,r7
-ov462:
-mov #0x4,r8
+ov465:
+mov #0x2,r8
 jmp @r10
 add #-28,r7
-ln461:
-mov.l g2_except_addr461,r0
+ln464:
+mov.l g2_except_addr464,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr461,r0
+mov.l bf_addr464,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-50,r7
 .align 2
-g2_except_addr461: .long group_2_exception
-bf_addr461: .long basefunction
+g2_except_addr464: .long group_2_exception
+bf_addr464: .long basefunction
 ! Opcode 85FA
 S5FA:
 mov r6,r0
@@ -73121,7 +73159,7 @@ nop
 mov.l @(8,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln463
+bt/s ln466
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -73129,7 +73167,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov464
+bt ov467
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -73154,23 +73192,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-19,r7
-ov464:
-mov #0x4,r8
+ov467:
+mov #0x2,r8
 jmp @r10
 add #-24,r7
-ln463:
-mov.l g2_except_addr463,r0
+ln466:
+mov.l g2_except_addr466,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr463,r0
+mov.l bf_addr466,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr463: .long group_2_exception
-bf_addr463: .long basefunction
+g2_except_addr466: .long group_2_exception
+bf_addr466: .long basefunction
 ! Opcode 85FB
 S5FB:
 mov.l @(decode_extw_addr-fetch_idx,r11),r4
@@ -73183,7 +73221,7 @@ nop
 mov.l @(8,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln465
+bt/s ln468
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -73191,7 +73229,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov466
+bt ov469
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -73216,30 +73254,30 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-21,r7
-ov466:
-mov #0x4,r8
+ov469:
+mov #0x2,r8
 jmp @r10
 add #-26,r7
-ln465:
-mov.l g2_except_addr465,r0
+ln468:
+mov.l g2_except_addr468,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr465,r0
+mov.l bf_addr468,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-48,r7
 .align 2
-g2_except_addr465: .long group_2_exception
-bf_addr465: .long basefunction
+g2_except_addr468: .long group_2_exception
+bf_addr468: .long basefunction
 ! Opcode 85FC
 S5FC:
 mov.w @r6+,r3
 mov.l @(8,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln467
+bt/s ln470
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -73247,7 +73285,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov468
+bt ov471
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -73272,23 +73310,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-15,r7
-ov468:
-mov #0x4,r8
+ov471:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln467:
-mov.l g2_except_addr467,r0
+ln470:
+mov.l g2_except_addr470,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr467,r0
+mov.l bf_addr470,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr467: .long group_2_exception
-bf_addr467: .long basefunction
+g2_except_addr470: .long group_2_exception
+bf_addr470: .long basefunction
 ! Opcodes 8600 - 8607
 S600:
 add r13,r2
@@ -73803,10 +73841,10 @@ mov.w @r2,r3
 mov.l @(12,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln469
+bt/s ln472
 shll16 r3
 cmp/hs r3,r1
-bt ov470
+bt ov473
 mov r1,r0
 div0u
 .rept 16
@@ -73824,23 +73862,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-106,r7
-ov470:
-mov #0x4,r8
+ov473:
+mov #0x2,r8
 jmp @r10
 add #-10,r7
-ln469:
-mov.l g2_except_addr469,r0
+ln472:
+mov.l g2_except_addr472,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr469,r0
+mov.l bf_addr472,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-38,r7
 .align 2
-g2_except_addr469: .long group_2_exception
-bf_addr469: .long basefunction
+g2_except_addr472: .long group_2_exception
+bf_addr472: .long basefunction
 ! Opcodes 86D0 - 86D7
 S6D0:
 mov r2,r0
@@ -73851,10 +73889,10 @@ nop
 mov.l @(12,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln471
+bt/s ln474
 shll16 r3
 cmp/hs r3,r1
-bt ov472
+bt ov475
 mov r1,r0
 div0u
 .rept 16
@@ -73872,23 +73910,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-110,r7
-ov472:
-mov #0x4,r8
+ov475:
+mov #0x2,r8
 jmp @r10
 add #-14,r7
-ln471:
-mov.l g2_except_addr471,r0
+ln474:
+mov.l g2_except_addr474,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr471,r0
+mov.l bf_addr474,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr471: .long group_2_exception
-bf_addr471: .long basefunction
+g2_except_addr474: .long group_2_exception
+bf_addr474: .long basefunction
 ! Opcodes 86D8 - 86DF
 S6D8:
 mov r2,r0
@@ -73902,10 +73940,10 @@ mov.l r4,@(r0,r14)
 mov.l @(12,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln473
+bt/s ln476
 shll16 r3
 cmp/hs r3,r1
-bt ov474
+bt ov477
 mov r1,r0
 div0u
 .rept 16
@@ -73923,23 +73961,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-110,r7
-ov474:
-mov #0x4,r8
+ov477:
+mov #0x2,r8
 jmp @r10
 add #-14,r7
-ln473:
-mov.l g2_except_addr473,r0
+ln476:
+mov.l g2_except_addr476,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr473,r0
+mov.l bf_addr476,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr473: .long group_2_exception
-bf_addr473: .long basefunction
+g2_except_addr476: .long group_2_exception
+bf_addr476: .long basefunction
 ! Opcodes 86E0 - 86E7
 S6E0:
 mov r2,r0
@@ -73953,10 +73991,10 @@ mov.l r4,@(r0,r14)
 mov.l @(12,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln475
+bt/s ln478
 shll16 r3
 cmp/hs r3,r1
-bt ov476
+bt ov479
 mov r1,r0
 div0u
 .rept 16
@@ -73974,23 +74012,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-112,r7
-ov476:
-mov #0x4,r8
+ov479:
+mov #0x2,r8
 jmp @r10
 add #-16,r7
-ln475:
-mov.l g2_except_addr475,r0
+ln478:
+mov.l g2_except_addr478,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr475,r0
+mov.l bf_addr478,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-44,r7
 .align 2
-g2_except_addr475: .long group_2_exception
-bf_addr475: .long basefunction
+g2_except_addr478: .long group_2_exception
+bf_addr478: .long basefunction
 ! Opcodes 86E8 - 86EF
 S6E8:
 mov.w @r6+,r4
@@ -74003,10 +74041,10 @@ nop
 mov.l @(12,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln477
+bt/s ln480
 shll16 r3
 cmp/hs r3,r1
-bt ov478
+bt ov481
 mov r1,r0
 div0u
 .rept 16
@@ -74024,23 +74062,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-114,r7
-ov478:
-mov #0x4,r8
+ov481:
+mov #0x2,r8
 jmp @r10
 add #-18,r7
-ln477:
-mov.l g2_except_addr477,r0
+ln480:
+mov.l g2_except_addr480,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr477,r0
+mov.l bf_addr480,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr477: .long group_2_exception
-bf_addr477: .long basefunction
+g2_except_addr480: .long group_2_exception
+bf_addr480: .long basefunction
 ! Opcodes 86F0 - 86F7
 S6F0:
 mov.l @(decode_extw_addr-fetch_idx,r11),r4
@@ -74053,10 +74091,10 @@ nop
 mov.l @(12,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln479
+bt/s ln482
 shll16 r3
 cmp/hs r3,r1
-bt ov480
+bt ov483
 mov r1,r0
 div0u
 .rept 16
@@ -74074,23 +74112,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-116,r7
-ov480:
-mov #0x4,r8
+ov483:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln479:
-mov.l g2_except_addr479,r0
+ln482:
+mov.l g2_except_addr482,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr479,r0
+mov.l bf_addr482,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-48,r7
 .align 2
-g2_except_addr479: .long group_2_exception
-bf_addr479: .long basefunction
+g2_except_addr482: .long group_2_exception
+bf_addr482: .long basefunction
 ! Opcode 86F8
 S6F8:
 mov.w @r6+,r4
@@ -74100,10 +74138,10 @@ nop
 mov.l @(12,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln481
+bt/s ln484
 shll16 r3
 cmp/hs r3,r1
-bt ov482
+bt ov485
 mov r1,r0
 div0u
 .rept 16
@@ -74121,23 +74159,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-114,r7
-ov482:
-mov #0x4,r8
+ov485:
+mov #0x2,r8
 jmp @r10
 add #-18,r7
-ln481:
-mov.l g2_except_addr481,r0
+ln484:
+mov.l g2_except_addr484,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr481,r0
+mov.l bf_addr484,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr481: .long group_2_exception
-bf_addr481: .long basefunction
+g2_except_addr484: .long group_2_exception
+bf_addr484: .long basefunction
 ! Opcode 86F9
 S6F9:
 mov.w @r6+,r0
@@ -74150,10 +74188,10 @@ nop
 mov.l @(12,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln483
+bt/s ln486
 shll16 r3
 cmp/hs r3,r1
-bt ov484
+bt ov487
 mov r1,r0
 div0u
 .rept 16
@@ -74171,23 +74209,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-118,r7
-ov484:
-mov #0x4,r8
+ov487:
+mov #0x2,r8
 jmp @r10
 add #-22,r7
-ln483:
-mov.l g2_except_addr483,r0
+ln486:
+mov.l g2_except_addr486,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr483,r0
+mov.l bf_addr486,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-50,r7
 .align 2
-g2_except_addr483: .long group_2_exception
-bf_addr483: .long basefunction
+g2_except_addr486: .long group_2_exception
+bf_addr486: .long basefunction
 ! Opcode 86FA
 S6FA:
 mov r6,r0
@@ -74200,10 +74238,10 @@ nop
 mov.l @(12,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln485
+bt/s ln488
 shll16 r3
 cmp/hs r3,r1
-bt ov486
+bt ov489
 mov r1,r0
 div0u
 .rept 16
@@ -74221,23 +74259,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-114,r7
-ov486:
-mov #0x4,r8
+ov489:
+mov #0x2,r8
 jmp @r10
 add #-18,r7
-ln485:
-mov.l g2_except_addr485,r0
+ln488:
+mov.l g2_except_addr488,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr485,r0
+mov.l bf_addr488,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr485: .long group_2_exception
-bf_addr485: .long basefunction
+g2_except_addr488: .long group_2_exception
+bf_addr488: .long basefunction
 ! Opcode 86FB
 S6FB:
 mov.l @(decode_extw_addr-fetch_idx,r11),r4
@@ -74250,10 +74288,10 @@ nop
 mov.l @(12,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln487
+bt/s ln490
 shll16 r3
 cmp/hs r3,r1
-bt ov488
+bt ov491
 mov r1,r0
 div0u
 .rept 16
@@ -74271,33 +74309,33 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-116,r7
-ov488:
-mov #0x4,r8
+ov491:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln487:
-mov.l g2_except_addr487,r0
+ln490:
+mov.l g2_except_addr490,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr487,r0
+mov.l bf_addr490,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-48,r7
 .align 2
-g2_except_addr487: .long group_2_exception
-bf_addr487: .long basefunction
+g2_except_addr490: .long group_2_exception
+bf_addr490: .long basefunction
 ! Opcode 86FC
 S6FC:
 mov.w @r6+,r3
 mov.l @(12,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln489
+bt/s ln492
 shll16 r3
 cmp/hs r3,r1
-bt ov490
+bt ov493
 mov r1,r0
 div0u
 .rept 16
@@ -74315,23 +74353,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-110,r7
-ov490:
-mov #0x4,r8
+ov493:
+mov #0x2,r8
 jmp @r10
 add #-14,r7
-ln489:
-mov.l g2_except_addr489,r0
+ln492:
+mov.l g2_except_addr492,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr489,r0
+mov.l bf_addr492,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr489: .long group_2_exception
-bf_addr489: .long basefunction
+g2_except_addr492: .long group_2_exception
+bf_addr492: .long basefunction
 ! Opcodes 8700 - 8707
 S700:
 mov r3,r4
@@ -74347,9 +74385,9 @@ cmp/pl r9
 subc r0,r8
 mov #9,r0
 cmp/hi r0,r8
-bf .nonibadd491
+bf .nonibadd494
 add #-6,r8
-.nonibadd491:
+.nonibadd494:
 mov r3,r0
 and #0xF0,r0
 mov r0,r3
@@ -74361,11 +74399,11 @@ mov #0x99,r0
 extu.b r0,r0
 cmp/hi r0,r3
 movt r9
-bf .endop491
+bf .endop494
 mov #0xA0,r0
 extu.b r0,r0
 add r0,r3
-.endop491:
+.endop494:
 exts.b r3,r3
 mov r9,r8
 mov #12,r0
@@ -74402,9 +74440,9 @@ cmp/pl r9
 subc r0,r8
 mov #9,r0
 cmp/hi r0,r8
-bf .nonibadd492
+bf .nonibadd495
 add #-6,r8
-.nonibadd492:
+.nonibadd495:
 mov r3,r0
 and #0xF0,r0
 mov r0,r3
@@ -74416,11 +74454,11 @@ mov #0x99,r0
 extu.b r0,r0
 cmp/hi r0,r3
 movt r9
-bf .endop492
+bf .endop495
 mov #0xA0,r0
 extu.b r0,r0
 add r0,r3
-.endop492:
+.endop495:
 exts.b r3,r3
 mov r9,r8
 mov.l @(wb_addr-fetch_idx,r11),r0
@@ -74806,7 +74844,7 @@ mov.w @r2,r3
 mov.l @(12,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln493
+bt/s ln496
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -74814,7 +74852,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov494
+bt ov497
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -74839,23 +74877,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-11,r7
-ov494:
-mov #0x4,r8
+ov497:
+mov #0x2,r8
 jmp @r10
 add #-16,r7
-ln493:
-mov.l g2_except_addr493,r0
+ln496:
+mov.l g2_except_addr496,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr493,r0
+mov.l bf_addr496,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-38,r7
 .align 2
-g2_except_addr493: .long group_2_exception
-bf_addr493: .long basefunction
+g2_except_addr496: .long group_2_exception
+bf_addr496: .long basefunction
 ! Opcodes 87D0 - 87D7
 S7D0:
 mov r2,r0
@@ -74866,7 +74904,7 @@ nop
 mov.l @(12,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln495
+bt/s ln498
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -74874,7 +74912,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov496
+bt ov499
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -74899,23 +74937,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-15,r7
-ov496:
-mov #0x4,r8
+ov499:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln495:
-mov.l g2_except_addr495,r0
+ln498:
+mov.l g2_except_addr498,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr495,r0
+mov.l bf_addr498,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr495: .long group_2_exception
-bf_addr495: .long basefunction
+g2_except_addr498: .long group_2_exception
+bf_addr498: .long basefunction
 ! Opcodes 87D8 - 87DF
 S7D8:
 mov r2,r0
@@ -74929,7 +74967,7 @@ mov.l r4,@(r0,r14)
 mov.l @(12,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln497
+bt/s ln500
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -74937,7 +74975,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov498
+bt ov501
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -74962,23 +75000,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-15,r7
-ov498:
-mov #0x4,r8
+ov501:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln497:
-mov.l g2_except_addr497,r0
+ln500:
+mov.l g2_except_addr500,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr497,r0
+mov.l bf_addr500,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr497: .long group_2_exception
-bf_addr497: .long basefunction
+g2_except_addr500: .long group_2_exception
+bf_addr500: .long basefunction
 ! Opcodes 87E0 - 87E7
 S7E0:
 mov r2,r0
@@ -74992,7 +75030,7 @@ mov.l r4,@(r0,r14)
 mov.l @(12,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln499
+bt/s ln502
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -75000,7 +75038,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov500
+bt ov503
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -75025,23 +75063,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-17,r7
-ov500:
-mov #0x4,r8
+ov503:
+mov #0x2,r8
 jmp @r10
 add #-22,r7
-ln499:
-mov.l g2_except_addr499,r0
+ln502:
+mov.l g2_except_addr502,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr499,r0
+mov.l bf_addr502,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-44,r7
 .align 2
-g2_except_addr499: .long group_2_exception
-bf_addr499: .long basefunction
+g2_except_addr502: .long group_2_exception
+bf_addr502: .long basefunction
 ! Opcodes 87E8 - 87EF
 S7E8:
 mov.w @r6+,r4
@@ -75054,7 +75092,7 @@ nop
 mov.l @(12,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln501
+bt/s ln504
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -75062,7 +75100,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov502
+bt ov505
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -75087,23 +75125,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-19,r7
-ov502:
-mov #0x4,r8
+ov505:
+mov #0x2,r8
 jmp @r10
 add #-24,r7
-ln501:
-mov.l g2_except_addr501,r0
+ln504:
+mov.l g2_except_addr504,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr501,r0
+mov.l bf_addr504,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr501: .long group_2_exception
-bf_addr501: .long basefunction
+g2_except_addr504: .long group_2_exception
+bf_addr504: .long basefunction
 ! Opcodes 87F0 - 87F7
 S7F0:
 mov.l @(decode_extw_addr-fetch_idx,r11),r4
@@ -75116,7 +75154,7 @@ nop
 mov.l @(12,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln503
+bt/s ln506
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -75124,7 +75162,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov504
+bt ov507
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -75149,23 +75187,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-21,r7
-ov504:
-mov #0x4,r8
+ov507:
+mov #0x2,r8
 jmp @r10
 add #-26,r7
-ln503:
-mov.l g2_except_addr503,r0
+ln506:
+mov.l g2_except_addr506,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr503,r0
+mov.l bf_addr506,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-48,r7
 .align 2
-g2_except_addr503: .long group_2_exception
-bf_addr503: .long basefunction
+g2_except_addr506: .long group_2_exception
+bf_addr506: .long basefunction
 ! Opcode 87F8
 S7F8:
 mov.w @r6+,r4
@@ -75175,7 +75213,7 @@ nop
 mov.l @(12,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln505
+bt/s ln508
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -75183,7 +75221,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov506
+bt ov509
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -75208,23 +75246,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-19,r7
-ov506:
-mov #0x4,r8
+ov509:
+mov #0x2,r8
 jmp @r10
 add #-24,r7
-ln505:
-mov.l g2_except_addr505,r0
+ln508:
+mov.l g2_except_addr508,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr505,r0
+mov.l bf_addr508,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr505: .long group_2_exception
-bf_addr505: .long basefunction
+g2_except_addr508: .long group_2_exception
+bf_addr508: .long basefunction
 ! Opcode 87F9
 S7F9:
 mov.w @r6+,r0
@@ -75237,7 +75275,7 @@ nop
 mov.l @(12,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln507
+bt/s ln510
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -75245,7 +75283,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov508
+bt ov511
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -75270,23 +75308,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-23,r7
-ov508:
-mov #0x4,r8
+ov511:
+mov #0x2,r8
 jmp @r10
 add #-28,r7
-ln507:
-mov.l g2_except_addr507,r0
+ln510:
+mov.l g2_except_addr510,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr507,r0
+mov.l bf_addr510,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-50,r7
 .align 2
-g2_except_addr507: .long group_2_exception
-bf_addr507: .long basefunction
+g2_except_addr510: .long group_2_exception
+bf_addr510: .long basefunction
 ! Opcode 87FA
 S7FA:
 mov r6,r0
@@ -75299,7 +75337,7 @@ nop
 mov.l @(12,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln509
+bt/s ln512
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -75307,7 +75345,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov510
+bt ov513
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -75332,23 +75370,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-19,r7
-ov510:
-mov #0x4,r8
+ov513:
+mov #0x2,r8
 jmp @r10
 add #-24,r7
-ln509:
-mov.l g2_except_addr509,r0
+ln512:
+mov.l g2_except_addr512,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr509,r0
+mov.l bf_addr512,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr509: .long group_2_exception
-bf_addr509: .long basefunction
+g2_except_addr512: .long group_2_exception
+bf_addr512: .long basefunction
 ! Opcode 87FB
 S7FB:
 mov.l @(decode_extw_addr-fetch_idx,r11),r4
@@ -75361,7 +75399,7 @@ nop
 mov.l @(12,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln511
+bt/s ln514
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -75369,7 +75407,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov512
+bt ov515
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -75394,30 +75432,30 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-21,r7
-ov512:
-mov #0x4,r8
+ov515:
+mov #0x2,r8
 jmp @r10
 add #-26,r7
-ln511:
-mov.l g2_except_addr511,r0
+ln514:
+mov.l g2_except_addr514,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr511,r0
+mov.l bf_addr514,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-48,r7
 .align 2
-g2_except_addr511: .long group_2_exception
-bf_addr511: .long basefunction
+g2_except_addr514: .long group_2_exception
+bf_addr514: .long basefunction
 ! Opcode 87FC
 S7FC:
 mov.w @r6+,r3
 mov.l @(12,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln513
+bt/s ln516
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -75425,7 +75463,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov514
+bt ov517
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -75450,23 +75488,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-15,r7
-ov514:
-mov #0x4,r8
+ov517:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln513:
-mov.l g2_except_addr513,r0
+ln516:
+mov.l g2_except_addr516,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr513,r0
+mov.l bf_addr516,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr513: .long group_2_exception
-bf_addr513: .long basefunction
+g2_except_addr516: .long group_2_exception
+bf_addr516: .long basefunction
 ! Opcodes 8800 - 8807
 S800:
 add r13,r2
@@ -75981,10 +76019,10 @@ mov.w @r2,r3
 mov.l @(16,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln515
+bt/s ln518
 shll16 r3
 cmp/hs r3,r1
-bt ov516
+bt ov519
 mov r1,r0
 div0u
 .rept 16
@@ -76002,23 +76040,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-106,r7
-ov516:
-mov #0x4,r8
+ov519:
+mov #0x2,r8
 jmp @r10
 add #-10,r7
-ln515:
-mov.l g2_except_addr515,r0
+ln518:
+mov.l g2_except_addr518,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr515,r0
+mov.l bf_addr518,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-38,r7
 .align 2
-g2_except_addr515: .long group_2_exception
-bf_addr515: .long basefunction
+g2_except_addr518: .long group_2_exception
+bf_addr518: .long basefunction
 ! Opcodes 88D0 - 88D7
 S8D0:
 mov r2,r0
@@ -76029,10 +76067,10 @@ nop
 mov.l @(16,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln517
+bt/s ln520
 shll16 r3
 cmp/hs r3,r1
-bt ov518
+bt ov521
 mov r1,r0
 div0u
 .rept 16
@@ -76050,23 +76088,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-110,r7
-ov518:
-mov #0x4,r8
+ov521:
+mov #0x2,r8
 jmp @r10
 add #-14,r7
-ln517:
-mov.l g2_except_addr517,r0
+ln520:
+mov.l g2_except_addr520,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr517,r0
+mov.l bf_addr520,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr517: .long group_2_exception
-bf_addr517: .long basefunction
+g2_except_addr520: .long group_2_exception
+bf_addr520: .long basefunction
 ! Opcodes 88D8 - 88DF
 S8D8:
 mov r2,r0
@@ -76080,10 +76118,10 @@ mov.l r4,@(r0,r14)
 mov.l @(16,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln519
+bt/s ln522
 shll16 r3
 cmp/hs r3,r1
-bt ov520
+bt ov523
 mov r1,r0
 div0u
 .rept 16
@@ -76101,23 +76139,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-110,r7
-ov520:
-mov #0x4,r8
+ov523:
+mov #0x2,r8
 jmp @r10
 add #-14,r7
-ln519:
-mov.l g2_except_addr519,r0
+ln522:
+mov.l g2_except_addr522,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr519,r0
+mov.l bf_addr522,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr519: .long group_2_exception
-bf_addr519: .long basefunction
+g2_except_addr522: .long group_2_exception
+bf_addr522: .long basefunction
 ! Opcodes 88E0 - 88E7
 S8E0:
 mov r2,r0
@@ -76131,10 +76169,10 @@ mov.l r4,@(r0,r14)
 mov.l @(16,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln521
+bt/s ln524
 shll16 r3
 cmp/hs r3,r1
-bt ov522
+bt ov525
 mov r1,r0
 div0u
 .rept 16
@@ -76152,23 +76190,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-112,r7
-ov522:
-mov #0x4,r8
+ov525:
+mov #0x2,r8
 jmp @r10
 add #-16,r7
-ln521:
-mov.l g2_except_addr521,r0
+ln524:
+mov.l g2_except_addr524,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr521,r0
+mov.l bf_addr524,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-44,r7
 .align 2
-g2_except_addr521: .long group_2_exception
-bf_addr521: .long basefunction
+g2_except_addr524: .long group_2_exception
+bf_addr524: .long basefunction
 ! Opcodes 88E8 - 88EF
 S8E8:
 mov.w @r6+,r4
@@ -76181,10 +76219,10 @@ nop
 mov.l @(16,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln523
+bt/s ln526
 shll16 r3
 cmp/hs r3,r1
-bt ov524
+bt ov527
 mov r1,r0
 div0u
 .rept 16
@@ -76202,23 +76240,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-114,r7
-ov524:
-mov #0x4,r8
+ov527:
+mov #0x2,r8
 jmp @r10
 add #-18,r7
-ln523:
-mov.l g2_except_addr523,r0
+ln526:
+mov.l g2_except_addr526,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr523,r0
+mov.l bf_addr526,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr523: .long group_2_exception
-bf_addr523: .long basefunction
+g2_except_addr526: .long group_2_exception
+bf_addr526: .long basefunction
 ! Opcodes 88F0 - 88F7
 S8F0:
 mov.l @(decode_extw_addr-fetch_idx,r11),r4
@@ -76231,10 +76269,10 @@ nop
 mov.l @(16,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln525
+bt/s ln528
 shll16 r3
 cmp/hs r3,r1
-bt ov526
+bt ov529
 mov r1,r0
 div0u
 .rept 16
@@ -76252,23 +76290,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-116,r7
-ov526:
-mov #0x4,r8
+ov529:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln525:
-mov.l g2_except_addr525,r0
+ln528:
+mov.l g2_except_addr528,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr525,r0
+mov.l bf_addr528,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-48,r7
 .align 2
-g2_except_addr525: .long group_2_exception
-bf_addr525: .long basefunction
+g2_except_addr528: .long group_2_exception
+bf_addr528: .long basefunction
 ! Opcode 88F8
 S8F8:
 mov.w @r6+,r4
@@ -76278,10 +76316,10 @@ nop
 mov.l @(16,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln527
+bt/s ln530
 shll16 r3
 cmp/hs r3,r1
-bt ov528
+bt ov531
 mov r1,r0
 div0u
 .rept 16
@@ -76299,23 +76337,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-114,r7
-ov528:
-mov #0x4,r8
+ov531:
+mov #0x2,r8
 jmp @r10
 add #-18,r7
-ln527:
-mov.l g2_except_addr527,r0
+ln530:
+mov.l g2_except_addr530,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr527,r0
+mov.l bf_addr530,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr527: .long group_2_exception
-bf_addr527: .long basefunction
+g2_except_addr530: .long group_2_exception
+bf_addr530: .long basefunction
 ! Opcode 88F9
 S8F9:
 mov.w @r6+,r0
@@ -76328,10 +76366,10 @@ nop
 mov.l @(16,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln529
+bt/s ln532
 shll16 r3
 cmp/hs r3,r1
-bt ov530
+bt ov533
 mov r1,r0
 div0u
 .rept 16
@@ -76349,23 +76387,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-118,r7
-ov530:
-mov #0x4,r8
+ov533:
+mov #0x2,r8
 jmp @r10
 add #-22,r7
-ln529:
-mov.l g2_except_addr529,r0
+ln532:
+mov.l g2_except_addr532,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr529,r0
+mov.l bf_addr532,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-50,r7
 .align 2
-g2_except_addr529: .long group_2_exception
-bf_addr529: .long basefunction
+g2_except_addr532: .long group_2_exception
+bf_addr532: .long basefunction
 ! Opcode 88FA
 S8FA:
 mov r6,r0
@@ -76378,10 +76416,10 @@ nop
 mov.l @(16,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln531
+bt/s ln534
 shll16 r3
 cmp/hs r3,r1
-bt ov532
+bt ov535
 mov r1,r0
 div0u
 .rept 16
@@ -76399,23 +76437,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-114,r7
-ov532:
-mov #0x4,r8
+ov535:
+mov #0x2,r8
 jmp @r10
 add #-18,r7
-ln531:
-mov.l g2_except_addr531,r0
+ln534:
+mov.l g2_except_addr534,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr531,r0
+mov.l bf_addr534,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr531: .long group_2_exception
-bf_addr531: .long basefunction
+g2_except_addr534: .long group_2_exception
+bf_addr534: .long basefunction
 ! Opcode 88FB
 S8FB:
 mov.l @(decode_extw_addr-fetch_idx,r11),r4
@@ -76428,10 +76466,10 @@ nop
 mov.l @(16,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln533
+bt/s ln536
 shll16 r3
 cmp/hs r3,r1
-bt ov534
+bt ov537
 mov r1,r0
 div0u
 .rept 16
@@ -76449,33 +76487,33 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-116,r7
-ov534:
-mov #0x4,r8
+ov537:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln533:
-mov.l g2_except_addr533,r0
+ln536:
+mov.l g2_except_addr536,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr533,r0
+mov.l bf_addr536,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-48,r7
 .align 2
-g2_except_addr533: .long group_2_exception
-bf_addr533: .long basefunction
+g2_except_addr536: .long group_2_exception
+bf_addr536: .long basefunction
 ! Opcode 88FC
 S8FC:
 mov.w @r6+,r3
 mov.l @(16,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln535
+bt/s ln538
 shll16 r3
 cmp/hs r3,r1
-bt ov536
+bt ov539
 mov r1,r0
 div0u
 .rept 16
@@ -76493,23 +76531,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-110,r7
-ov536:
-mov #0x4,r8
+ov539:
+mov #0x2,r8
 jmp @r10
 add #-14,r7
-ln535:
-mov.l g2_except_addr535,r0
+ln538:
+mov.l g2_except_addr538,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr535,r0
+mov.l bf_addr538,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr535: .long group_2_exception
-bf_addr535: .long basefunction
+g2_except_addr538: .long group_2_exception
+bf_addr538: .long basefunction
 ! Opcodes 8900 - 8907
 S900:
 mov r3,r4
@@ -76525,9 +76563,9 @@ cmp/pl r9
 subc r0,r8
 mov #9,r0
 cmp/hi r0,r8
-bf .nonibadd537
+bf .nonibadd540
 add #-6,r8
-.nonibadd537:
+.nonibadd540:
 mov r3,r0
 and #0xF0,r0
 mov r0,r3
@@ -76539,11 +76577,11 @@ mov #0x99,r0
 extu.b r0,r0
 cmp/hi r0,r3
 movt r9
-bf .endop537
+bf .endop540
 mov #0xA0,r0
 extu.b r0,r0
 add r0,r3
-.endop537:
+.endop540:
 exts.b r3,r3
 mov r9,r8
 mov #16,r0
@@ -76580,9 +76618,9 @@ cmp/pl r9
 subc r0,r8
 mov #9,r0
 cmp/hi r0,r8
-bf .nonibadd538
+bf .nonibadd541
 add #-6,r8
-.nonibadd538:
+.nonibadd541:
 mov r3,r0
 and #0xF0,r0
 mov r0,r3
@@ -76594,11 +76632,11 @@ mov #0x99,r0
 extu.b r0,r0
 cmp/hi r0,r3
 movt r9
-bf .endop538
+bf .endop541
 mov #0xA0,r0
 extu.b r0,r0
 add r0,r3
-.endop538:
+.endop541:
 exts.b r3,r3
 mov r9,r8
 mov.l @(wb_addr-fetch_idx,r11),r0
@@ -76984,7 +77022,7 @@ mov.w @r2,r3
 mov.l @(16,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln539
+bt/s ln542
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -76992,7 +77030,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov540
+bt ov543
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -77017,23 +77055,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-11,r7
-ov540:
-mov #0x4,r8
+ov543:
+mov #0x2,r8
 jmp @r10
 add #-16,r7
-ln539:
-mov.l g2_except_addr539,r0
+ln542:
+mov.l g2_except_addr542,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr539,r0
+mov.l bf_addr542,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-38,r7
 .align 2
-g2_except_addr539: .long group_2_exception
-bf_addr539: .long basefunction
+g2_except_addr542: .long group_2_exception
+bf_addr542: .long basefunction
 ! Opcodes 89D0 - 89D7
 S9D0:
 mov r2,r0
@@ -77044,7 +77082,7 @@ nop
 mov.l @(16,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln541
+bt/s ln544
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -77052,7 +77090,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov542
+bt ov545
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -77077,23 +77115,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-15,r7
-ov542:
-mov #0x4,r8
+ov545:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln541:
-mov.l g2_except_addr541,r0
+ln544:
+mov.l g2_except_addr544,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr541,r0
+mov.l bf_addr544,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr541: .long group_2_exception
-bf_addr541: .long basefunction
+g2_except_addr544: .long group_2_exception
+bf_addr544: .long basefunction
 ! Opcodes 89D8 - 89DF
 S9D8:
 mov r2,r0
@@ -77107,7 +77145,7 @@ mov.l r4,@(r0,r14)
 mov.l @(16,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln543
+bt/s ln546
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -77115,7 +77153,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov544
+bt ov547
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -77140,23 +77178,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-15,r7
-ov544:
-mov #0x4,r8
+ov547:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln543:
-mov.l g2_except_addr543,r0
+ln546:
+mov.l g2_except_addr546,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr543,r0
+mov.l bf_addr546,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr543: .long group_2_exception
-bf_addr543: .long basefunction
+g2_except_addr546: .long group_2_exception
+bf_addr546: .long basefunction
 ! Opcodes 89E0 - 89E7
 S9E0:
 mov r2,r0
@@ -77170,7 +77208,7 @@ mov.l r4,@(r0,r14)
 mov.l @(16,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln545
+bt/s ln548
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -77178,7 +77216,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov546
+bt ov549
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -77203,23 +77241,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-17,r7
-ov546:
-mov #0x4,r8
+ov549:
+mov #0x2,r8
 jmp @r10
 add #-22,r7
-ln545:
-mov.l g2_except_addr545,r0
+ln548:
+mov.l g2_except_addr548,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr545,r0
+mov.l bf_addr548,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-44,r7
 .align 2
-g2_except_addr545: .long group_2_exception
-bf_addr545: .long basefunction
+g2_except_addr548: .long group_2_exception
+bf_addr548: .long basefunction
 ! Opcodes 89E8 - 89EF
 S9E8:
 mov.w @r6+,r4
@@ -77232,7 +77270,7 @@ nop
 mov.l @(16,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln547
+bt/s ln550
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -77240,7 +77278,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov548
+bt ov551
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -77265,23 +77303,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-19,r7
-ov548:
-mov #0x4,r8
+ov551:
+mov #0x2,r8
 jmp @r10
 add #-24,r7
-ln547:
-mov.l g2_except_addr547,r0
+ln550:
+mov.l g2_except_addr550,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr547,r0
+mov.l bf_addr550,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr547: .long group_2_exception
-bf_addr547: .long basefunction
+g2_except_addr550: .long group_2_exception
+bf_addr550: .long basefunction
 ! Opcodes 89F0 - 89F7
 S9F0:
 mov.l @(decode_extw_addr-fetch_idx,r11),r4
@@ -77294,7 +77332,7 @@ nop
 mov.l @(16,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln549
+bt/s ln552
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -77302,7 +77340,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov550
+bt ov553
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -77327,23 +77365,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-21,r7
-ov550:
-mov #0x4,r8
+ov553:
+mov #0x2,r8
 jmp @r10
 add #-26,r7
-ln549:
-mov.l g2_except_addr549,r0
+ln552:
+mov.l g2_except_addr552,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr549,r0
+mov.l bf_addr552,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-48,r7
 .align 2
-g2_except_addr549: .long group_2_exception
-bf_addr549: .long basefunction
+g2_except_addr552: .long group_2_exception
+bf_addr552: .long basefunction
 ! Opcode 89F8
 S9F8:
 mov.w @r6+,r4
@@ -77353,7 +77391,7 @@ nop
 mov.l @(16,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln551
+bt/s ln554
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -77361,7 +77399,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov552
+bt ov555
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -77386,23 +77424,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-19,r7
-ov552:
-mov #0x4,r8
+ov555:
+mov #0x2,r8
 jmp @r10
 add #-24,r7
-ln551:
-mov.l g2_except_addr551,r0
+ln554:
+mov.l g2_except_addr554,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr551,r0
+mov.l bf_addr554,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr551: .long group_2_exception
-bf_addr551: .long basefunction
+g2_except_addr554: .long group_2_exception
+bf_addr554: .long basefunction
 ! Opcode 89F9
 S9F9:
 mov.w @r6+,r0
@@ -77415,7 +77453,7 @@ nop
 mov.l @(16,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln553
+bt/s ln556
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -77423,7 +77461,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov554
+bt ov557
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -77448,23 +77486,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-23,r7
-ov554:
-mov #0x4,r8
+ov557:
+mov #0x2,r8
 jmp @r10
 add #-28,r7
-ln553:
-mov.l g2_except_addr553,r0
+ln556:
+mov.l g2_except_addr556,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr553,r0
+mov.l bf_addr556,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-50,r7
 .align 2
-g2_except_addr553: .long group_2_exception
-bf_addr553: .long basefunction
+g2_except_addr556: .long group_2_exception
+bf_addr556: .long basefunction
 ! Opcode 89FA
 S9FA:
 mov r6,r0
@@ -77477,7 +77515,7 @@ nop
 mov.l @(16,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln555
+bt/s ln558
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -77485,7 +77523,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov556
+bt ov559
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -77510,23 +77548,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-19,r7
-ov556:
-mov #0x4,r8
+ov559:
+mov #0x2,r8
 jmp @r10
 add #-24,r7
-ln555:
-mov.l g2_except_addr555,r0
+ln558:
+mov.l g2_except_addr558,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr555,r0
+mov.l bf_addr558,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr555: .long group_2_exception
-bf_addr555: .long basefunction
+g2_except_addr558: .long group_2_exception
+bf_addr558: .long basefunction
 ! Opcode 89FB
 S9FB:
 mov.l @(decode_extw_addr-fetch_idx,r11),r4
@@ -77539,7 +77577,7 @@ nop
 mov.l @(16,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln557
+bt/s ln560
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -77547,7 +77585,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov558
+bt ov561
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -77572,30 +77610,30 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-21,r7
-ov558:
-mov #0x4,r8
+ov561:
+mov #0x2,r8
 jmp @r10
 add #-26,r7
-ln557:
-mov.l g2_except_addr557,r0
+ln560:
+mov.l g2_except_addr560,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr557,r0
+mov.l bf_addr560,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-48,r7
 .align 2
-g2_except_addr557: .long group_2_exception
-bf_addr557: .long basefunction
+g2_except_addr560: .long group_2_exception
+bf_addr560: .long basefunction
 ! Opcode 89FC
 S9FC:
 mov.w @r6+,r3
 mov.l @(16,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln559
+bt/s ln562
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -77603,7 +77641,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov560
+bt ov563
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -77628,23 +77666,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-15,r7
-ov560:
-mov #0x4,r8
+ov563:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln559:
-mov.l g2_except_addr559,r0
+ln562:
+mov.l g2_except_addr562,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr559,r0
+mov.l bf_addr562,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr559: .long group_2_exception
-bf_addr559: .long basefunction
+g2_except_addr562: .long group_2_exception
+bf_addr562: .long basefunction
 ! Opcodes 8A00 - 8A07
 SA00:
 add r13,r2
@@ -78159,10 +78197,10 @@ mov.w @r2,r3
 mov.l @(20,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln561
+bt/s ln564
 shll16 r3
 cmp/hs r3,r1
-bt ov562
+bt ov565
 mov r1,r0
 div0u
 .rept 16
@@ -78180,23 +78218,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-106,r7
-ov562:
-mov #0x4,r8
+ov565:
+mov #0x2,r8
 jmp @r10
 add #-10,r7
-ln561:
-mov.l g2_except_addr561,r0
+ln564:
+mov.l g2_except_addr564,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr561,r0
+mov.l bf_addr564,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-38,r7
 .align 2
-g2_except_addr561: .long group_2_exception
-bf_addr561: .long basefunction
+g2_except_addr564: .long group_2_exception
+bf_addr564: .long basefunction
 ! Opcodes 8AD0 - 8AD7
 SAD0:
 mov r2,r0
@@ -78207,10 +78245,10 @@ nop
 mov.l @(20,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln563
+bt/s ln566
 shll16 r3
 cmp/hs r3,r1
-bt ov564
+bt ov567
 mov r1,r0
 div0u
 .rept 16
@@ -78228,23 +78266,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-110,r7
-ov564:
-mov #0x4,r8
+ov567:
+mov #0x2,r8
 jmp @r10
 add #-14,r7
-ln563:
-mov.l g2_except_addr563,r0
+ln566:
+mov.l g2_except_addr566,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr563,r0
+mov.l bf_addr566,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr563: .long group_2_exception
-bf_addr563: .long basefunction
+g2_except_addr566: .long group_2_exception
+bf_addr566: .long basefunction
 ! Opcodes 8AD8 - 8ADF
 SAD8:
 mov r2,r0
@@ -78258,10 +78296,10 @@ mov.l r4,@(r0,r14)
 mov.l @(20,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln565
+bt/s ln568
 shll16 r3
 cmp/hs r3,r1
-bt ov566
+bt ov569
 mov r1,r0
 div0u
 .rept 16
@@ -78279,23 +78317,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-110,r7
-ov566:
-mov #0x4,r8
+ov569:
+mov #0x2,r8
 jmp @r10
 add #-14,r7
-ln565:
-mov.l g2_except_addr565,r0
+ln568:
+mov.l g2_except_addr568,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr565,r0
+mov.l bf_addr568,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr565: .long group_2_exception
-bf_addr565: .long basefunction
+g2_except_addr568: .long group_2_exception
+bf_addr568: .long basefunction
 ! Opcodes 8AE0 - 8AE7
 SAE0:
 mov r2,r0
@@ -78309,10 +78347,10 @@ mov.l r4,@(r0,r14)
 mov.l @(20,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln567
+bt/s ln570
 shll16 r3
 cmp/hs r3,r1
-bt ov568
+bt ov571
 mov r1,r0
 div0u
 .rept 16
@@ -78330,23 +78368,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-112,r7
-ov568:
-mov #0x4,r8
+ov571:
+mov #0x2,r8
 jmp @r10
 add #-16,r7
-ln567:
-mov.l g2_except_addr567,r0
+ln570:
+mov.l g2_except_addr570,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr567,r0
+mov.l bf_addr570,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-44,r7
 .align 2
-g2_except_addr567: .long group_2_exception
-bf_addr567: .long basefunction
+g2_except_addr570: .long group_2_exception
+bf_addr570: .long basefunction
 ! Opcodes 8AE8 - 8AEF
 SAE8:
 mov.w @r6+,r4
@@ -78359,10 +78397,10 @@ nop
 mov.l @(20,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln569
+bt/s ln572
 shll16 r3
 cmp/hs r3,r1
-bt ov570
+bt ov573
 mov r1,r0
 div0u
 .rept 16
@@ -78380,23 +78418,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-114,r7
-ov570:
-mov #0x4,r8
+ov573:
+mov #0x2,r8
 jmp @r10
 add #-18,r7
-ln569:
-mov.l g2_except_addr569,r0
+ln572:
+mov.l g2_except_addr572,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr569,r0
+mov.l bf_addr572,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr569: .long group_2_exception
-bf_addr569: .long basefunction
+g2_except_addr572: .long group_2_exception
+bf_addr572: .long basefunction
 ! Opcodes 8AF0 - 8AF7
 SAF0:
 mov.l @(decode_extw_addr-fetch_idx,r11),r4
@@ -78409,10 +78447,10 @@ nop
 mov.l @(20,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln571
+bt/s ln574
 shll16 r3
 cmp/hs r3,r1
-bt ov572
+bt ov575
 mov r1,r0
 div0u
 .rept 16
@@ -78430,23 +78468,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-116,r7
-ov572:
-mov #0x4,r8
+ov575:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln571:
-mov.l g2_except_addr571,r0
+ln574:
+mov.l g2_except_addr574,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr571,r0
+mov.l bf_addr574,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-48,r7
 .align 2
-g2_except_addr571: .long group_2_exception
-bf_addr571: .long basefunction
+g2_except_addr574: .long group_2_exception
+bf_addr574: .long basefunction
 ! Opcode 8AF8
 SAF8:
 mov.w @r6+,r4
@@ -78456,10 +78494,10 @@ nop
 mov.l @(20,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln573
+bt/s ln576
 shll16 r3
 cmp/hs r3,r1
-bt ov574
+bt ov577
 mov r1,r0
 div0u
 .rept 16
@@ -78477,23 +78515,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-114,r7
-ov574:
-mov #0x4,r8
+ov577:
+mov #0x2,r8
 jmp @r10
 add #-18,r7
-ln573:
-mov.l g2_except_addr573,r0
+ln576:
+mov.l g2_except_addr576,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr573,r0
+mov.l bf_addr576,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr573: .long group_2_exception
-bf_addr573: .long basefunction
+g2_except_addr576: .long group_2_exception
+bf_addr576: .long basefunction
 ! Opcode 8AF9
 SAF9:
 mov.w @r6+,r0
@@ -78506,10 +78544,10 @@ nop
 mov.l @(20,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln575
+bt/s ln578
 shll16 r3
 cmp/hs r3,r1
-bt ov576
+bt ov579
 mov r1,r0
 div0u
 .rept 16
@@ -78527,23 +78565,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-118,r7
-ov576:
-mov #0x4,r8
+ov579:
+mov #0x2,r8
 jmp @r10
 add #-22,r7
-ln575:
-mov.l g2_except_addr575,r0
+ln578:
+mov.l g2_except_addr578,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr575,r0
+mov.l bf_addr578,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-50,r7
 .align 2
-g2_except_addr575: .long group_2_exception
-bf_addr575: .long basefunction
+g2_except_addr578: .long group_2_exception
+bf_addr578: .long basefunction
 ! Opcode 8AFA
 SAFA:
 mov r6,r0
@@ -78556,10 +78594,10 @@ nop
 mov.l @(20,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln577
+bt/s ln580
 shll16 r3
 cmp/hs r3,r1
-bt ov578
+bt ov581
 mov r1,r0
 div0u
 .rept 16
@@ -78577,23 +78615,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-114,r7
-ov578:
-mov #0x4,r8
+ov581:
+mov #0x2,r8
 jmp @r10
 add #-18,r7
-ln577:
-mov.l g2_except_addr577,r0
+ln580:
+mov.l g2_except_addr580,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr577,r0
+mov.l bf_addr580,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr577: .long group_2_exception
-bf_addr577: .long basefunction
+g2_except_addr580: .long group_2_exception
+bf_addr580: .long basefunction
 ! Opcode 8AFB
 SAFB:
 mov.l @(decode_extw_addr-fetch_idx,r11),r4
@@ -78606,10 +78644,10 @@ nop
 mov.l @(20,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln579
+bt/s ln582
 shll16 r3
 cmp/hs r3,r1
-bt ov580
+bt ov583
 mov r1,r0
 div0u
 .rept 16
@@ -78627,33 +78665,33 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-116,r7
-ov580:
-mov #0x4,r8
+ov583:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln579:
-mov.l g2_except_addr579,r0
+ln582:
+mov.l g2_except_addr582,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr579,r0
+mov.l bf_addr582,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-48,r7
 .align 2
-g2_except_addr579: .long group_2_exception
-bf_addr579: .long basefunction
+g2_except_addr582: .long group_2_exception
+bf_addr582: .long basefunction
 ! Opcode 8AFC
 SAFC:
 mov.w @r6+,r3
 mov.l @(20,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln581
+bt/s ln584
 shll16 r3
 cmp/hs r3,r1
-bt ov582
+bt ov585
 mov r1,r0
 div0u
 .rept 16
@@ -78671,23 +78709,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-110,r7
-ov582:
-mov #0x4,r8
+ov585:
+mov #0x2,r8
 jmp @r10
 add #-14,r7
-ln581:
-mov.l g2_except_addr581,r0
+ln584:
+mov.l g2_except_addr584,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr581,r0
+mov.l bf_addr584,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr581: .long group_2_exception
-bf_addr581: .long basefunction
+g2_except_addr584: .long group_2_exception
+bf_addr584: .long basefunction
 ! Opcodes 8B00 - 8B07
 SB00:
 mov r3,r4
@@ -78703,9 +78741,9 @@ cmp/pl r9
 subc r0,r8
 mov #9,r0
 cmp/hi r0,r8
-bf .nonibadd583
+bf .nonibadd586
 add #-6,r8
-.nonibadd583:
+.nonibadd586:
 mov r3,r0
 and #0xF0,r0
 mov r0,r3
@@ -78717,11 +78755,11 @@ mov #0x99,r0
 extu.b r0,r0
 cmp/hi r0,r3
 movt r9
-bf .endop583
+bf .endop586
 mov #0xA0,r0
 extu.b r0,r0
 add r0,r3
-.endop583:
+.endop586:
 exts.b r3,r3
 mov r9,r8
 mov #20,r0
@@ -78758,9 +78796,9 @@ cmp/pl r9
 subc r0,r8
 mov #9,r0
 cmp/hi r0,r8
-bf .nonibadd584
+bf .nonibadd587
 add #-6,r8
-.nonibadd584:
+.nonibadd587:
 mov r3,r0
 and #0xF0,r0
 mov r0,r3
@@ -78772,11 +78810,11 @@ mov #0x99,r0
 extu.b r0,r0
 cmp/hi r0,r3
 movt r9
-bf .endop584
+bf .endop587
 mov #0xA0,r0
 extu.b r0,r0
 add r0,r3
-.endop584:
+.endop587:
 exts.b r3,r3
 mov r9,r8
 mov.l @(wb_addr-fetch_idx,r11),r0
@@ -79162,7 +79200,7 @@ mov.w @r2,r3
 mov.l @(20,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln585
+bt/s ln588
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -79170,7 +79208,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov586
+bt ov589
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -79195,23 +79233,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-11,r7
-ov586:
-mov #0x4,r8
+ov589:
+mov #0x2,r8
 jmp @r10
 add #-16,r7
-ln585:
-mov.l g2_except_addr585,r0
+ln588:
+mov.l g2_except_addr588,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr585,r0
+mov.l bf_addr588,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-38,r7
 .align 2
-g2_except_addr585: .long group_2_exception
-bf_addr585: .long basefunction
+g2_except_addr588: .long group_2_exception
+bf_addr588: .long basefunction
 ! Opcodes 8BD0 - 8BD7
 SBD0:
 mov r2,r0
@@ -79222,7 +79260,7 @@ nop
 mov.l @(20,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln587
+bt/s ln590
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -79230,7 +79268,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov588
+bt ov591
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -79255,23 +79293,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-15,r7
-ov588:
-mov #0x4,r8
+ov591:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln587:
-mov.l g2_except_addr587,r0
+ln590:
+mov.l g2_except_addr590,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr587,r0
+mov.l bf_addr590,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr587: .long group_2_exception
-bf_addr587: .long basefunction
+g2_except_addr590: .long group_2_exception
+bf_addr590: .long basefunction
 ! Opcodes 8BD8 - 8BDF
 SBD8:
 mov r2,r0
@@ -79285,7 +79323,7 @@ mov.l r4,@(r0,r14)
 mov.l @(20,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln589
+bt/s ln592
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -79293,7 +79331,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov590
+bt ov593
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -79318,23 +79356,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-15,r7
-ov590:
-mov #0x4,r8
+ov593:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln589:
-mov.l g2_except_addr589,r0
+ln592:
+mov.l g2_except_addr592,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr589,r0
+mov.l bf_addr592,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr589: .long group_2_exception
-bf_addr589: .long basefunction
+g2_except_addr592: .long group_2_exception
+bf_addr592: .long basefunction
 ! Opcodes 8BE0 - 8BE7
 SBE0:
 mov r2,r0
@@ -79348,7 +79386,7 @@ mov.l r4,@(r0,r14)
 mov.l @(20,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln591
+bt/s ln594
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -79356,7 +79394,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov592
+bt ov595
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -79381,23 +79419,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-17,r7
-ov592:
-mov #0x4,r8
+ov595:
+mov #0x2,r8
 jmp @r10
 add #-22,r7
-ln591:
-mov.l g2_except_addr591,r0
+ln594:
+mov.l g2_except_addr594,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr591,r0
+mov.l bf_addr594,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-44,r7
 .align 2
-g2_except_addr591: .long group_2_exception
-bf_addr591: .long basefunction
+g2_except_addr594: .long group_2_exception
+bf_addr594: .long basefunction
 ! Opcodes 8BE8 - 8BEF
 SBE8:
 mov.w @r6+,r4
@@ -79410,7 +79448,7 @@ nop
 mov.l @(20,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln593
+bt/s ln596
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -79418,7 +79456,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov594
+bt ov597
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -79443,23 +79481,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-19,r7
-ov594:
-mov #0x4,r8
+ov597:
+mov #0x2,r8
 jmp @r10
 add #-24,r7
-ln593:
-mov.l g2_except_addr593,r0
+ln596:
+mov.l g2_except_addr596,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr593,r0
+mov.l bf_addr596,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr593: .long group_2_exception
-bf_addr593: .long basefunction
+g2_except_addr596: .long group_2_exception
+bf_addr596: .long basefunction
 ! Opcodes 8BF0 - 8BF7
 SBF0:
 mov.l @(decode_extw_addr-fetch_idx,r11),r4
@@ -79472,7 +79510,7 @@ nop
 mov.l @(20,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln595
+bt/s ln598
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -79480,7 +79518,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov596
+bt ov599
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -79505,23 +79543,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-21,r7
-ov596:
-mov #0x4,r8
+ov599:
+mov #0x2,r8
 jmp @r10
 add #-26,r7
-ln595:
-mov.l g2_except_addr595,r0
+ln598:
+mov.l g2_except_addr598,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr595,r0
+mov.l bf_addr598,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-48,r7
 .align 2
-g2_except_addr595: .long group_2_exception
-bf_addr595: .long basefunction
+g2_except_addr598: .long group_2_exception
+bf_addr598: .long basefunction
 ! Opcode 8BF8
 SBF8:
 mov.w @r6+,r4
@@ -79531,7 +79569,7 @@ nop
 mov.l @(20,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln597
+bt/s ln600
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -79539,7 +79577,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov598
+bt ov601
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -79564,23 +79602,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-19,r7
-ov598:
-mov #0x4,r8
+ov601:
+mov #0x2,r8
 jmp @r10
 add #-24,r7
-ln597:
-mov.l g2_except_addr597,r0
+ln600:
+mov.l g2_except_addr600,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr597,r0
+mov.l bf_addr600,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr597: .long group_2_exception
-bf_addr597: .long basefunction
+g2_except_addr600: .long group_2_exception
+bf_addr600: .long basefunction
 ! Opcode 8BF9
 SBF9:
 mov.w @r6+,r0
@@ -79593,7 +79631,7 @@ nop
 mov.l @(20,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln599
+bt/s ln602
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -79601,7 +79639,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov600
+bt ov603
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -79626,23 +79664,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-23,r7
-ov600:
-mov #0x4,r8
+ov603:
+mov #0x2,r8
 jmp @r10
 add #-28,r7
-ln599:
-mov.l g2_except_addr599,r0
+ln602:
+mov.l g2_except_addr602,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr599,r0
+mov.l bf_addr602,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-50,r7
 .align 2
-g2_except_addr599: .long group_2_exception
-bf_addr599: .long basefunction
+g2_except_addr602: .long group_2_exception
+bf_addr602: .long basefunction
 ! Opcode 8BFA
 SBFA:
 mov r6,r0
@@ -79655,7 +79693,7 @@ nop
 mov.l @(20,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln601
+bt/s ln604
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -79663,7 +79701,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov602
+bt ov605
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -79688,23 +79726,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-19,r7
-ov602:
-mov #0x4,r8
+ov605:
+mov #0x2,r8
 jmp @r10
 add #-24,r7
-ln601:
-mov.l g2_except_addr601,r0
+ln604:
+mov.l g2_except_addr604,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr601,r0
+mov.l bf_addr604,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr601: .long group_2_exception
-bf_addr601: .long basefunction
+g2_except_addr604: .long group_2_exception
+bf_addr604: .long basefunction
 ! Opcode 8BFB
 SBFB:
 mov.l @(decode_extw_addr-fetch_idx,r11),r4
@@ -79717,7 +79755,7 @@ nop
 mov.l @(20,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln603
+bt/s ln606
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -79725,7 +79763,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov604
+bt ov607
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -79750,30 +79788,30 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-21,r7
-ov604:
-mov #0x4,r8
+ov607:
+mov #0x2,r8
 jmp @r10
 add #-26,r7
-ln603:
-mov.l g2_except_addr603,r0
+ln606:
+mov.l g2_except_addr606,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr603,r0
+mov.l bf_addr606,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-48,r7
 .align 2
-g2_except_addr603: .long group_2_exception
-bf_addr603: .long basefunction
+g2_except_addr606: .long group_2_exception
+bf_addr606: .long basefunction
 ! Opcode 8BFC
 SBFC:
 mov.w @r6+,r3
 mov.l @(20,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln605
+bt/s ln608
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -79781,7 +79819,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov606
+bt ov609
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -79806,23 +79844,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-15,r7
-ov606:
-mov #0x4,r8
+ov609:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln605:
-mov.l g2_except_addr605,r0
+ln608:
+mov.l g2_except_addr608,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr605,r0
+mov.l bf_addr608,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr605: .long group_2_exception
-bf_addr605: .long basefunction
+g2_except_addr608: .long group_2_exception
+bf_addr608: .long basefunction
 ! Opcodes 8C00 - 8C07
 SC00:
 add r13,r2
@@ -80337,10 +80375,10 @@ mov.w @r2,r3
 mov.l @(24,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln607
+bt/s ln610
 shll16 r3
 cmp/hs r3,r1
-bt ov608
+bt ov611
 mov r1,r0
 div0u
 .rept 16
@@ -80358,23 +80396,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-106,r7
-ov608:
-mov #0x4,r8
+ov611:
+mov #0x2,r8
 jmp @r10
 add #-10,r7
-ln607:
-mov.l g2_except_addr607,r0
+ln610:
+mov.l g2_except_addr610,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr607,r0
+mov.l bf_addr610,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-38,r7
 .align 2
-g2_except_addr607: .long group_2_exception
-bf_addr607: .long basefunction
+g2_except_addr610: .long group_2_exception
+bf_addr610: .long basefunction
 ! Opcodes 8CD0 - 8CD7
 SCD0:
 mov r2,r0
@@ -80385,10 +80423,10 @@ nop
 mov.l @(24,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln609
+bt/s ln612
 shll16 r3
 cmp/hs r3,r1
-bt ov610
+bt ov613
 mov r1,r0
 div0u
 .rept 16
@@ -80406,23 +80444,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-110,r7
-ov610:
-mov #0x4,r8
+ov613:
+mov #0x2,r8
 jmp @r10
 add #-14,r7
-ln609:
-mov.l g2_except_addr609,r0
+ln612:
+mov.l g2_except_addr612,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr609,r0
+mov.l bf_addr612,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr609: .long group_2_exception
-bf_addr609: .long basefunction
+g2_except_addr612: .long group_2_exception
+bf_addr612: .long basefunction
 ! Opcodes 8CD8 - 8CDF
 SCD8:
 mov r2,r0
@@ -80436,10 +80474,10 @@ mov.l r4,@(r0,r14)
 mov.l @(24,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln611
+bt/s ln614
 shll16 r3
 cmp/hs r3,r1
-bt ov612
+bt ov615
 mov r1,r0
 div0u
 .rept 16
@@ -80457,23 +80495,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-110,r7
-ov612:
-mov #0x4,r8
+ov615:
+mov #0x2,r8
 jmp @r10
 add #-14,r7
-ln611:
-mov.l g2_except_addr611,r0
+ln614:
+mov.l g2_except_addr614,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr611,r0
+mov.l bf_addr614,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr611: .long group_2_exception
-bf_addr611: .long basefunction
+g2_except_addr614: .long group_2_exception
+bf_addr614: .long basefunction
 ! Opcodes 8CE0 - 8CE7
 SCE0:
 mov r2,r0
@@ -80487,10 +80525,10 @@ mov.l r4,@(r0,r14)
 mov.l @(24,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln613
+bt/s ln616
 shll16 r3
 cmp/hs r3,r1
-bt ov614
+bt ov617
 mov r1,r0
 div0u
 .rept 16
@@ -80508,23 +80546,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-112,r7
-ov614:
-mov #0x4,r8
+ov617:
+mov #0x2,r8
 jmp @r10
 add #-16,r7
-ln613:
-mov.l g2_except_addr613,r0
+ln616:
+mov.l g2_except_addr616,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr613,r0
+mov.l bf_addr616,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-44,r7
 .align 2
-g2_except_addr613: .long group_2_exception
-bf_addr613: .long basefunction
+g2_except_addr616: .long group_2_exception
+bf_addr616: .long basefunction
 ! Opcodes 8CE8 - 8CEF
 SCE8:
 mov.w @r6+,r4
@@ -80537,10 +80575,10 @@ nop
 mov.l @(24,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln615
+bt/s ln618
 shll16 r3
 cmp/hs r3,r1
-bt ov616
+bt ov619
 mov r1,r0
 div0u
 .rept 16
@@ -80558,23 +80596,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-114,r7
-ov616:
-mov #0x4,r8
+ov619:
+mov #0x2,r8
 jmp @r10
 add #-18,r7
-ln615:
-mov.l g2_except_addr615,r0
+ln618:
+mov.l g2_except_addr618,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr615,r0
+mov.l bf_addr618,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr615: .long group_2_exception
-bf_addr615: .long basefunction
+g2_except_addr618: .long group_2_exception
+bf_addr618: .long basefunction
 ! Opcodes 8CF0 - 8CF7
 SCF0:
 mov.l @(decode_extw_addr-fetch_idx,r11),r4
@@ -80587,10 +80625,10 @@ nop
 mov.l @(24,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln617
+bt/s ln620
 shll16 r3
 cmp/hs r3,r1
-bt ov618
+bt ov621
 mov r1,r0
 div0u
 .rept 16
@@ -80608,23 +80646,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-116,r7
-ov618:
-mov #0x4,r8
+ov621:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln617:
-mov.l g2_except_addr617,r0
+ln620:
+mov.l g2_except_addr620,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr617,r0
+mov.l bf_addr620,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-48,r7
 .align 2
-g2_except_addr617: .long group_2_exception
-bf_addr617: .long basefunction
+g2_except_addr620: .long group_2_exception
+bf_addr620: .long basefunction
 ! Opcode 8CF8
 SCF8:
 mov.w @r6+,r4
@@ -80634,10 +80672,10 @@ nop
 mov.l @(24,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln619
+bt/s ln622
 shll16 r3
 cmp/hs r3,r1
-bt ov620
+bt ov623
 mov r1,r0
 div0u
 .rept 16
@@ -80655,23 +80693,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-114,r7
-ov620:
-mov #0x4,r8
+ov623:
+mov #0x2,r8
 jmp @r10
 add #-18,r7
-ln619:
-mov.l g2_except_addr619,r0
+ln622:
+mov.l g2_except_addr622,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr619,r0
+mov.l bf_addr622,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr619: .long group_2_exception
-bf_addr619: .long basefunction
+g2_except_addr622: .long group_2_exception
+bf_addr622: .long basefunction
 ! Opcode 8CF9
 SCF9:
 mov.w @r6+,r0
@@ -80684,10 +80722,10 @@ nop
 mov.l @(24,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln621
+bt/s ln624
 shll16 r3
 cmp/hs r3,r1
-bt ov622
+bt ov625
 mov r1,r0
 div0u
 .rept 16
@@ -80705,23 +80743,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-118,r7
-ov622:
-mov #0x4,r8
+ov625:
+mov #0x2,r8
 jmp @r10
 add #-22,r7
-ln621:
-mov.l g2_except_addr621,r0
+ln624:
+mov.l g2_except_addr624,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr621,r0
+mov.l bf_addr624,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-50,r7
 .align 2
-g2_except_addr621: .long group_2_exception
-bf_addr621: .long basefunction
+g2_except_addr624: .long group_2_exception
+bf_addr624: .long basefunction
 ! Opcode 8CFA
 SCFA:
 mov r6,r0
@@ -80734,10 +80772,10 @@ nop
 mov.l @(24,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln623
+bt/s ln626
 shll16 r3
 cmp/hs r3,r1
-bt ov624
+bt ov627
 mov r1,r0
 div0u
 .rept 16
@@ -80755,23 +80793,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-114,r7
-ov624:
-mov #0x4,r8
+ov627:
+mov #0x2,r8
 jmp @r10
 add #-18,r7
-ln623:
-mov.l g2_except_addr623,r0
+ln626:
+mov.l g2_except_addr626,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr623,r0
+mov.l bf_addr626,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr623: .long group_2_exception
-bf_addr623: .long basefunction
+g2_except_addr626: .long group_2_exception
+bf_addr626: .long basefunction
 ! Opcode 8CFB
 SCFB:
 mov.l @(decode_extw_addr-fetch_idx,r11),r4
@@ -80784,10 +80822,10 @@ nop
 mov.l @(24,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln625
+bt/s ln628
 shll16 r3
 cmp/hs r3,r1
-bt ov626
+bt ov629
 mov r1,r0
 div0u
 .rept 16
@@ -80805,33 +80843,33 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-116,r7
-ov626:
-mov #0x4,r8
+ov629:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln625:
-mov.l g2_except_addr625,r0
+ln628:
+mov.l g2_except_addr628,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr625,r0
+mov.l bf_addr628,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-48,r7
 .align 2
-g2_except_addr625: .long group_2_exception
-bf_addr625: .long basefunction
+g2_except_addr628: .long group_2_exception
+bf_addr628: .long basefunction
 ! Opcode 8CFC
 SCFC:
 mov.w @r6+,r3
 mov.l @(24,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln627
+bt/s ln630
 shll16 r3
 cmp/hs r3,r1
-bt ov628
+bt ov631
 mov r1,r0
 div0u
 .rept 16
@@ -80849,23 +80887,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-110,r7
-ov628:
-mov #0x4,r8
+ov631:
+mov #0x2,r8
 jmp @r10
 add #-14,r7
-ln627:
-mov.l g2_except_addr627,r0
+ln630:
+mov.l g2_except_addr630,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr627,r0
+mov.l bf_addr630,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr627: .long group_2_exception
-bf_addr627: .long basefunction
+g2_except_addr630: .long group_2_exception
+bf_addr630: .long basefunction
 ! Opcodes 8D00 - 8D07
 SD00:
 mov r3,r4
@@ -80881,9 +80919,9 @@ cmp/pl r9
 subc r0,r8
 mov #9,r0
 cmp/hi r0,r8
-bf .nonibadd629
+bf .nonibadd632
 add #-6,r8
-.nonibadd629:
+.nonibadd632:
 mov r3,r0
 and #0xF0,r0
 mov r0,r3
@@ -80895,11 +80933,11 @@ mov #0x99,r0
 extu.b r0,r0
 cmp/hi r0,r3
 movt r9
-bf .endop629
+bf .endop632
 mov #0xA0,r0
 extu.b r0,r0
 add r0,r3
-.endop629:
+.endop632:
 exts.b r3,r3
 mov r9,r8
 mov #24,r0
@@ -80936,9 +80974,9 @@ cmp/pl r9
 subc r0,r8
 mov #9,r0
 cmp/hi r0,r8
-bf .nonibadd630
+bf .nonibadd633
 add #-6,r8
-.nonibadd630:
+.nonibadd633:
 mov r3,r0
 and #0xF0,r0
 mov r0,r3
@@ -80950,11 +80988,11 @@ mov #0x99,r0
 extu.b r0,r0
 cmp/hi r0,r3
 movt r9
-bf .endop630
+bf .endop633
 mov #0xA0,r0
 extu.b r0,r0
 add r0,r3
-.endop630:
+.endop633:
 exts.b r3,r3
 mov r9,r8
 mov.l @(wb_addr-fetch_idx,r11),r0
@@ -81340,7 +81378,7 @@ mov.w @r2,r3
 mov.l @(24,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln631
+bt/s ln634
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -81348,7 +81386,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov632
+bt ov635
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -81373,23 +81411,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-11,r7
-ov632:
-mov #0x4,r8
+ov635:
+mov #0x2,r8
 jmp @r10
 add #-16,r7
-ln631:
-mov.l g2_except_addr631,r0
+ln634:
+mov.l g2_except_addr634,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr631,r0
+mov.l bf_addr634,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-38,r7
 .align 2
-g2_except_addr631: .long group_2_exception
-bf_addr631: .long basefunction
+g2_except_addr634: .long group_2_exception
+bf_addr634: .long basefunction
 ! Opcodes 8DD0 - 8DD7
 SDD0:
 mov r2,r0
@@ -81400,7 +81438,7 @@ nop
 mov.l @(24,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln633
+bt/s ln636
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -81408,7 +81446,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov634
+bt ov637
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -81433,23 +81471,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-15,r7
-ov634:
-mov #0x4,r8
+ov637:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln633:
-mov.l g2_except_addr633,r0
+ln636:
+mov.l g2_except_addr636,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr633,r0
+mov.l bf_addr636,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr633: .long group_2_exception
-bf_addr633: .long basefunction
+g2_except_addr636: .long group_2_exception
+bf_addr636: .long basefunction
 ! Opcodes 8DD8 - 8DDF
 SDD8:
 mov r2,r0
@@ -81463,7 +81501,7 @@ mov.l r4,@(r0,r14)
 mov.l @(24,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln635
+bt/s ln638
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -81471,7 +81509,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov636
+bt ov639
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -81496,23 +81534,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-15,r7
-ov636:
-mov #0x4,r8
+ov639:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln635:
-mov.l g2_except_addr635,r0
+ln638:
+mov.l g2_except_addr638,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr635,r0
+mov.l bf_addr638,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr635: .long group_2_exception
-bf_addr635: .long basefunction
+g2_except_addr638: .long group_2_exception
+bf_addr638: .long basefunction
 ! Opcodes 8DE0 - 8DE7
 SDE0:
 mov r2,r0
@@ -81526,7 +81564,7 @@ mov.l r4,@(r0,r14)
 mov.l @(24,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln637
+bt/s ln640
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -81534,7 +81572,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov638
+bt ov641
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -81559,23 +81597,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-17,r7
-ov638:
-mov #0x4,r8
+ov641:
+mov #0x2,r8
 jmp @r10
 add #-22,r7
-ln637:
-mov.l g2_except_addr637,r0
+ln640:
+mov.l g2_except_addr640,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr637,r0
+mov.l bf_addr640,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-44,r7
 .align 2
-g2_except_addr637: .long group_2_exception
-bf_addr637: .long basefunction
+g2_except_addr640: .long group_2_exception
+bf_addr640: .long basefunction
 ! Opcodes 8DE8 - 8DEF
 SDE8:
 mov.w @r6+,r4
@@ -81588,7 +81626,7 @@ nop
 mov.l @(24,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln639
+bt/s ln642
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -81596,7 +81634,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov640
+bt ov643
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -81621,23 +81659,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-19,r7
-ov640:
-mov #0x4,r8
+ov643:
+mov #0x2,r8
 jmp @r10
 add #-24,r7
-ln639:
-mov.l g2_except_addr639,r0
+ln642:
+mov.l g2_except_addr642,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr639,r0
+mov.l bf_addr642,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr639: .long group_2_exception
-bf_addr639: .long basefunction
+g2_except_addr642: .long group_2_exception
+bf_addr642: .long basefunction
 ! Opcodes 8DF0 - 8DF7
 SDF0:
 mov.l @(decode_extw_addr-fetch_idx,r11),r4
@@ -81650,7 +81688,7 @@ nop
 mov.l @(24,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln641
+bt/s ln644
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -81658,7 +81696,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov642
+bt ov645
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -81683,23 +81721,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-21,r7
-ov642:
-mov #0x4,r8
+ov645:
+mov #0x2,r8
 jmp @r10
 add #-26,r7
-ln641:
-mov.l g2_except_addr641,r0
+ln644:
+mov.l g2_except_addr644,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr641,r0
+mov.l bf_addr644,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-48,r7
 .align 2
-g2_except_addr641: .long group_2_exception
-bf_addr641: .long basefunction
+g2_except_addr644: .long group_2_exception
+bf_addr644: .long basefunction
 ! Opcode 8DF8
 SDF8:
 mov.w @r6+,r4
@@ -81709,7 +81747,7 @@ nop
 mov.l @(24,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln643
+bt/s ln646
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -81717,7 +81755,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov644
+bt ov647
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -81742,23 +81780,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-19,r7
-ov644:
-mov #0x4,r8
+ov647:
+mov #0x2,r8
 jmp @r10
 add #-24,r7
-ln643:
-mov.l g2_except_addr643,r0
+ln646:
+mov.l g2_except_addr646,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr643,r0
+mov.l bf_addr646,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr643: .long group_2_exception
-bf_addr643: .long basefunction
+g2_except_addr646: .long group_2_exception
+bf_addr646: .long basefunction
 ! Opcode 8DF9
 SDF9:
 mov.w @r6+,r0
@@ -81771,7 +81809,7 @@ nop
 mov.l @(24,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln645
+bt/s ln648
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -81779,7 +81817,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov646
+bt ov649
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -81804,23 +81842,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-23,r7
-ov646:
-mov #0x4,r8
+ov649:
+mov #0x2,r8
 jmp @r10
 add #-28,r7
-ln645:
-mov.l g2_except_addr645,r0
+ln648:
+mov.l g2_except_addr648,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr645,r0
+mov.l bf_addr648,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-50,r7
 .align 2
-g2_except_addr645: .long group_2_exception
-bf_addr645: .long basefunction
+g2_except_addr648: .long group_2_exception
+bf_addr648: .long basefunction
 ! Opcode 8DFA
 SDFA:
 mov r6,r0
@@ -81833,7 +81871,7 @@ nop
 mov.l @(24,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln647
+bt/s ln650
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -81841,7 +81879,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov648
+bt ov651
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -81866,23 +81904,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-19,r7
-ov648:
-mov #0x4,r8
+ov651:
+mov #0x2,r8
 jmp @r10
 add #-24,r7
-ln647:
-mov.l g2_except_addr647,r0
+ln650:
+mov.l g2_except_addr650,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr647,r0
+mov.l bf_addr650,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr647: .long group_2_exception
-bf_addr647: .long basefunction
+g2_except_addr650: .long group_2_exception
+bf_addr650: .long basefunction
 ! Opcode 8DFB
 SDFB:
 mov.l @(decode_extw_addr-fetch_idx,r11),r4
@@ -81895,7 +81933,7 @@ nop
 mov.l @(24,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln649
+bt/s ln652
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -81903,7 +81941,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov650
+bt ov653
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -81928,30 +81966,30 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-21,r7
-ov650:
-mov #0x4,r8
+ov653:
+mov #0x2,r8
 jmp @r10
 add #-26,r7
-ln649:
-mov.l g2_except_addr649,r0
+ln652:
+mov.l g2_except_addr652,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr649,r0
+mov.l bf_addr652,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-48,r7
 .align 2
-g2_except_addr649: .long group_2_exception
-bf_addr649: .long basefunction
+g2_except_addr652: .long group_2_exception
+bf_addr652: .long basefunction
 ! Opcode 8DFC
 SDFC:
 mov.w @r6+,r3
 mov.l @(24,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln651
+bt/s ln654
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -81959,7 +81997,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov652
+bt ov655
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -81984,23 +82022,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-15,r7
-ov652:
-mov #0x4,r8
+ov655:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln651:
-mov.l g2_except_addr651,r0
+ln654:
+mov.l g2_except_addr654,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr651,r0
+mov.l bf_addr654,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr651: .long group_2_exception
-bf_addr651: .long basefunction
+g2_except_addr654: .long group_2_exception
+bf_addr654: .long basefunction
 ! Opcodes 8E00 - 8E07
 SE00:
 add r13,r2
@@ -82515,10 +82553,10 @@ mov.w @r2,r3
 mov.l @(28,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln653
+bt/s ln656
 shll16 r3
 cmp/hs r3,r1
-bt ov654
+bt ov657
 mov r1,r0
 div0u
 .rept 16
@@ -82536,23 +82574,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-106,r7
-ov654:
-mov #0x4,r8
+ov657:
+mov #0x2,r8
 jmp @r10
 add #-10,r7
-ln653:
-mov.l g2_except_addr653,r0
+ln656:
+mov.l g2_except_addr656,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr653,r0
+mov.l bf_addr656,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-38,r7
 .align 2
-g2_except_addr653: .long group_2_exception
-bf_addr653: .long basefunction
+g2_except_addr656: .long group_2_exception
+bf_addr656: .long basefunction
 ! Opcodes 8ED0 - 8ED7
 SED0:
 mov r2,r0
@@ -82563,10 +82601,10 @@ nop
 mov.l @(28,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln655
+bt/s ln658
 shll16 r3
 cmp/hs r3,r1
-bt ov656
+bt ov659
 mov r1,r0
 div0u
 .rept 16
@@ -82584,23 +82622,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-110,r7
-ov656:
-mov #0x4,r8
+ov659:
+mov #0x2,r8
 jmp @r10
 add #-14,r7
-ln655:
-mov.l g2_except_addr655,r0
+ln658:
+mov.l g2_except_addr658,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr655,r0
+mov.l bf_addr658,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr655: .long group_2_exception
-bf_addr655: .long basefunction
+g2_except_addr658: .long group_2_exception
+bf_addr658: .long basefunction
 ! Opcodes 8ED8 - 8EDF
 SED8:
 mov r2,r0
@@ -82614,10 +82652,10 @@ mov.l r4,@(r0,r14)
 mov.l @(28,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln657
+bt/s ln660
 shll16 r3
 cmp/hs r3,r1
-bt ov658
+bt ov661
 mov r1,r0
 div0u
 .rept 16
@@ -82635,23 +82673,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-110,r7
-ov658:
-mov #0x4,r8
+ov661:
+mov #0x2,r8
 jmp @r10
 add #-14,r7
-ln657:
-mov.l g2_except_addr657,r0
+ln660:
+mov.l g2_except_addr660,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr657,r0
+mov.l bf_addr660,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr657: .long group_2_exception
-bf_addr657: .long basefunction
+g2_except_addr660: .long group_2_exception
+bf_addr660: .long basefunction
 ! Opcodes 8EE0 - 8EE7
 SEE0:
 mov r2,r0
@@ -82665,10 +82703,10 @@ mov.l r4,@(r0,r14)
 mov.l @(28,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln659
+bt/s ln662
 shll16 r3
 cmp/hs r3,r1
-bt ov660
+bt ov663
 mov r1,r0
 div0u
 .rept 16
@@ -82686,23 +82724,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-112,r7
-ov660:
-mov #0x4,r8
+ov663:
+mov #0x2,r8
 jmp @r10
 add #-16,r7
-ln659:
-mov.l g2_except_addr659,r0
+ln662:
+mov.l g2_except_addr662,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr659,r0
+mov.l bf_addr662,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-44,r7
 .align 2
-g2_except_addr659: .long group_2_exception
-bf_addr659: .long basefunction
+g2_except_addr662: .long group_2_exception
+bf_addr662: .long basefunction
 ! Opcodes 8EE8 - 8EEF
 SEE8:
 mov.w @r6+,r4
@@ -82715,10 +82753,10 @@ nop
 mov.l @(28,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln661
+bt/s ln664
 shll16 r3
 cmp/hs r3,r1
-bt ov662
+bt ov665
 mov r1,r0
 div0u
 .rept 16
@@ -82736,23 +82774,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-114,r7
-ov662:
-mov #0x4,r8
+ov665:
+mov #0x2,r8
 jmp @r10
 add #-18,r7
-ln661:
-mov.l g2_except_addr661,r0
+ln664:
+mov.l g2_except_addr664,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr661,r0
+mov.l bf_addr664,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr661: .long group_2_exception
-bf_addr661: .long basefunction
+g2_except_addr664: .long group_2_exception
+bf_addr664: .long basefunction
 ! Opcodes 8EF0 - 8EF7
 SEF0:
 mov.l @(decode_extw_addr-fetch_idx,r11),r4
@@ -82765,10 +82803,10 @@ nop
 mov.l @(28,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln663
+bt/s ln666
 shll16 r3
 cmp/hs r3,r1
-bt ov664
+bt ov667
 mov r1,r0
 div0u
 .rept 16
@@ -82786,23 +82824,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-116,r7
-ov664:
-mov #0x4,r8
+ov667:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln663:
-mov.l g2_except_addr663,r0
+ln666:
+mov.l g2_except_addr666,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr663,r0
+mov.l bf_addr666,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-48,r7
 .align 2
-g2_except_addr663: .long group_2_exception
-bf_addr663: .long basefunction
+g2_except_addr666: .long group_2_exception
+bf_addr666: .long basefunction
 ! Opcode 8EF8
 SEF8:
 mov.w @r6+,r4
@@ -82812,10 +82850,10 @@ nop
 mov.l @(28,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln665
+bt/s ln668
 shll16 r3
 cmp/hs r3,r1
-bt ov666
+bt ov669
 mov r1,r0
 div0u
 .rept 16
@@ -82833,23 +82871,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-114,r7
-ov666:
-mov #0x4,r8
+ov669:
+mov #0x2,r8
 jmp @r10
 add #-18,r7
-ln665:
-mov.l g2_except_addr665,r0
+ln668:
+mov.l g2_except_addr668,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr665,r0
+mov.l bf_addr668,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr665: .long group_2_exception
-bf_addr665: .long basefunction
+g2_except_addr668: .long group_2_exception
+bf_addr668: .long basefunction
 ! Opcode 8EF9
 SEF9:
 mov.w @r6+,r0
@@ -82862,10 +82900,10 @@ nop
 mov.l @(28,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln667
+bt/s ln670
 shll16 r3
 cmp/hs r3,r1
-bt ov668
+bt ov671
 mov r1,r0
 div0u
 .rept 16
@@ -82883,23 +82921,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-118,r7
-ov668:
-mov #0x4,r8
+ov671:
+mov #0x2,r8
 jmp @r10
 add #-22,r7
-ln667:
-mov.l g2_except_addr667,r0
+ln670:
+mov.l g2_except_addr670,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr667,r0
+mov.l bf_addr670,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-50,r7
 .align 2
-g2_except_addr667: .long group_2_exception
-bf_addr667: .long basefunction
+g2_except_addr670: .long group_2_exception
+bf_addr670: .long basefunction
 ! Opcode 8EFA
 SEFA:
 mov r6,r0
@@ -82912,10 +82950,10 @@ nop
 mov.l @(28,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln669
+bt/s ln672
 shll16 r3
 cmp/hs r3,r1
-bt ov670
+bt ov673
 mov r1,r0
 div0u
 .rept 16
@@ -82933,23 +82971,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-114,r7
-ov670:
-mov #0x4,r8
+ov673:
+mov #0x2,r8
 jmp @r10
 add #-18,r7
-ln669:
-mov.l g2_except_addr669,r0
+ln672:
+mov.l g2_except_addr672,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr669,r0
+mov.l bf_addr672,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr669: .long group_2_exception
-bf_addr669: .long basefunction
+g2_except_addr672: .long group_2_exception
+bf_addr672: .long basefunction
 ! Opcode 8EFB
 SEFB:
 mov.l @(decode_extw_addr-fetch_idx,r11),r4
@@ -82962,10 +83000,10 @@ nop
 mov.l @(28,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln671
+bt/s ln674
 shll16 r3
 cmp/hs r3,r1
-bt ov672
+bt ov675
 mov r1,r0
 div0u
 .rept 16
@@ -82983,33 +83021,33 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-116,r7
-ov672:
-mov #0x4,r8
+ov675:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln671:
-mov.l g2_except_addr671,r0
+ln674:
+mov.l g2_except_addr674,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr671,r0
+mov.l bf_addr674,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-48,r7
 .align 2
-g2_except_addr671: .long group_2_exception
-bf_addr671: .long basefunction
+g2_except_addr674: .long group_2_exception
+bf_addr674: .long basefunction
 ! Opcode 8EFC
 SEFC:
 mov.w @r6+,r3
 mov.l @(28,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln673
+bt/s ln676
 shll16 r3
 cmp/hs r3,r1
-bt ov674
+bt ov677
 mov r1,r0
 div0u
 .rept 16
@@ -83027,23 +83065,23 @@ exts.w r3,r3
 mov #0,r8
 jmp @r10
 add #-110,r7
-ov674:
-mov #0x4,r8
+ov677:
+mov #0x2,r8
 jmp @r10
 add #-14,r7
-ln673:
-mov.l g2_except_addr673,r0
+ln676:
+mov.l g2_except_addr676,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr673,r0
+mov.l bf_addr676,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr673: .long group_2_exception
-bf_addr673: .long basefunction
+g2_except_addr676: .long group_2_exception
+bf_addr676: .long basefunction
 ! Opcodes 8F00 - 8F07
 SF00:
 mov r3,r4
@@ -83059,9 +83097,9 @@ cmp/pl r9
 subc r0,r8
 mov #9,r0
 cmp/hi r0,r8
-bf .nonibadd675
+bf .nonibadd678
 add #-6,r8
-.nonibadd675:
+.nonibadd678:
 mov r3,r0
 and #0xF0,r0
 mov r0,r3
@@ -83073,11 +83111,11 @@ mov #0x99,r0
 extu.b r0,r0
 cmp/hi r0,r3
 movt r9
-bf .endop675
+bf .endop678
 mov #0xA0,r0
 extu.b r0,r0
 add r0,r3
-.endop675:
+.endop678:
 exts.b r3,r3
 mov r9,r8
 mov #28,r0
@@ -83114,9 +83152,9 @@ cmp/pl r9
 subc r0,r8
 mov #9,r0
 cmp/hi r0,r8
-bf .nonibadd676
+bf .nonibadd679
 add #-6,r8
-.nonibadd676:
+.nonibadd679:
 mov r3,r0
 and #0xF0,r0
 mov r0,r3
@@ -83128,11 +83166,11 @@ mov #0x99,r0
 extu.b r0,r0
 cmp/hi r0,r3
 movt r9
-bf .endop676
+bf .endop679
 mov #0xA0,r0
 extu.b r0,r0
 add r0,r3
-.endop676:
+.endop679:
 exts.b r3,r3
 mov r9,r8
 mov.l @(wb_addr-fetch_idx,r11),r0
@@ -83518,7 +83556,7 @@ mov.w @r2,r3
 mov.l @(28,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln677
+bt/s ln680
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -83526,7 +83564,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov678
+bt ov681
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -83551,23 +83589,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-11,r7
-ov678:
-mov #0x4,r8
+ov681:
+mov #0x2,r8
 jmp @r10
 add #-16,r7
-ln677:
-mov.l g2_except_addr677,r0
+ln680:
+mov.l g2_except_addr680,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr677,r0
+mov.l bf_addr680,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-38,r7
 .align 2
-g2_except_addr677: .long group_2_exception
-bf_addr677: .long basefunction
+g2_except_addr680: .long group_2_exception
+bf_addr680: .long basefunction
 ! Opcodes 8FD0 - 8FD7
 SFD0:
 mov r2,r0
@@ -83578,7 +83616,7 @@ nop
 mov.l @(28,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln679
+bt/s ln682
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -83586,7 +83624,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov680
+bt ov683
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -83611,23 +83649,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-15,r7
-ov680:
-mov #0x4,r8
+ov683:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln679:
-mov.l g2_except_addr679,r0
+ln682:
+mov.l g2_except_addr682,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr679,r0
+mov.l bf_addr682,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr679: .long group_2_exception
-bf_addr679: .long basefunction
+g2_except_addr682: .long group_2_exception
+bf_addr682: .long basefunction
 ! Opcodes 8FD8 - 8FDF
 SFD8:
 mov r2,r0
@@ -83641,7 +83679,7 @@ mov.l r4,@(r0,r14)
 mov.l @(28,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln681
+bt/s ln684
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -83649,7 +83687,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov682
+bt ov685
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -83674,23 +83712,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-15,r7
-ov682:
-mov #0x4,r8
+ov685:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln681:
-mov.l g2_except_addr681,r0
+ln684:
+mov.l g2_except_addr684,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr681,r0
+mov.l bf_addr684,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr681: .long group_2_exception
-bf_addr681: .long basefunction
+g2_except_addr684: .long group_2_exception
+bf_addr684: .long basefunction
 ! Opcodes 8FE0 - 8FE7
 SFE0:
 mov r2,r0
@@ -83704,7 +83742,7 @@ mov.l r4,@(r0,r14)
 mov.l @(28,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln683
+bt/s ln686
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -83712,7 +83750,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov684
+bt ov687
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -83737,23 +83775,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-17,r7
-ov684:
-mov #0x4,r8
+ov687:
+mov #0x2,r8
 jmp @r10
 add #-22,r7
-ln683:
-mov.l g2_except_addr683,r0
+ln686:
+mov.l g2_except_addr686,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr683,r0
+mov.l bf_addr686,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-44,r7
 .align 2
-g2_except_addr683: .long group_2_exception
-bf_addr683: .long basefunction
+g2_except_addr686: .long group_2_exception
+bf_addr686: .long basefunction
 ! Opcodes 8FE8 - 8FEF
 SFE8:
 mov.w @r6+,r4
@@ -83766,7 +83804,7 @@ nop
 mov.l @(28,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln685
+bt/s ln688
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -83774,7 +83812,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov686
+bt ov689
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -83799,23 +83837,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-19,r7
-ov686:
-mov #0x4,r8
+ov689:
+mov #0x2,r8
 jmp @r10
 add #-24,r7
-ln685:
-mov.l g2_except_addr685,r0
+ln688:
+mov.l g2_except_addr688,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr685,r0
+mov.l bf_addr688,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr685: .long group_2_exception
-bf_addr685: .long basefunction
+g2_except_addr688: .long group_2_exception
+bf_addr688: .long basefunction
 ! Opcodes 8FF0 - 8FF7
 SFF0:
 mov.l @(decode_extw_addr-fetch_idx,r11),r4
@@ -83828,7 +83866,7 @@ nop
 mov.l @(28,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln687
+bt/s ln690
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -83836,7 +83874,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov688
+bt ov691
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -83861,23 +83899,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-21,r7
-ov688:
-mov #0x4,r8
+ov691:
+mov #0x2,r8
 jmp @r10
 add #-26,r7
-ln687:
-mov.l g2_except_addr687,r0
+ln690:
+mov.l g2_except_addr690,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr687,r0
+mov.l bf_addr690,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-48,r7
 .align 2
-g2_except_addr687: .long group_2_exception
-bf_addr687: .long basefunction
+g2_except_addr690: .long group_2_exception
+bf_addr690: .long basefunction
 ! Opcode 8FF8
 SFF8:
 mov.w @r6+,r4
@@ -83887,7 +83925,7 @@ nop
 mov.l @(28,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln689
+bt/s ln692
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -83895,7 +83933,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov690
+bt ov693
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -83920,23 +83958,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-19,r7
-ov690:
-mov #0x4,r8
+ov693:
+mov #0x2,r8
 jmp @r10
 add #-24,r7
-ln689:
-mov.l g2_except_addr689,r0
+ln692:
+mov.l g2_except_addr692,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr689,r0
+mov.l bf_addr692,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr689: .long group_2_exception
-bf_addr689: .long basefunction
+g2_except_addr692: .long group_2_exception
+bf_addr692: .long basefunction
 ! Opcode 8FF9
 SFF9:
 mov.w @r6+,r0
@@ -83949,7 +83987,7 @@ nop
 mov.l @(28,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln691
+bt/s ln694
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -83957,7 +83995,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov692
+bt ov695
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -83982,23 +84020,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-23,r7
-ov692:
-mov #0x4,r8
+ov695:
+mov #0x2,r8
 jmp @r10
 add #-28,r7
-ln691:
-mov.l g2_except_addr691,r0
+ln694:
+mov.l g2_except_addr694,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr691,r0
+mov.l bf_addr694,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-50,r7
 .align 2
-g2_except_addr691: .long group_2_exception
-bf_addr691: .long basefunction
+g2_except_addr694: .long group_2_exception
+bf_addr694: .long basefunction
 ! Opcode 8FFA
 SFFA:
 mov r6,r0
@@ -84011,7 +84049,7 @@ nop
 mov.l @(28,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln693
+bt/s ln696
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -84019,7 +84057,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov694
+bt ov697
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -84044,23 +84082,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-19,r7
-ov694:
-mov #0x4,r8
+ov697:
+mov #0x2,r8
 jmp @r10
 add #-24,r7
-ln693:
-mov.l g2_except_addr693,r0
+ln696:
+mov.l g2_except_addr696,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr693,r0
+mov.l bf_addr696,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-46,r7
 .align 2
-g2_except_addr693: .long group_2_exception
-bf_addr693: .long basefunction
+g2_except_addr696: .long group_2_exception
+bf_addr696: .long basefunction
 ! Opcode 8FFB
 SFFB:
 mov.l @(decode_extw_addr-fetch_idx,r11),r4
@@ -84073,7 +84111,7 @@ nop
 mov.l @(28,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln695
+bt/s ln698
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -84081,7 +84119,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov696
+bt ov699
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -84106,30 +84144,30 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-21,r7
-ov696:
-mov #0x4,r8
+ov699:
+mov #0x2,r8
 jmp @r10
 add #-26,r7
-ln695:
-mov.l g2_except_addr695,r0
+ln698:
+mov.l g2_except_addr698,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr695,r0
+mov.l bf_addr698,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-48,r7
 .align 2
-g2_except_addr695: .long group_2_exception
-bf_addr695: .long basefunction
+g2_except_addr698: .long group_2_exception
+bf_addr698: .long basefunction
 ! Opcode 8FFC
 SFFC:
 mov.w @r6+,r3
 mov.l @(28,r13),r1
 mov r3,r8
 tst r8,r8
-bt/s ln697
+bt/s ln700
 shll16 r3
 cmp/gt r1,r3
 movt r2
@@ -84137,7 +84175,7 @@ neg r3,r0
 cmp/gt r1,r0
 movt r0
 cmp/eq r0,r2
-bt ov698
+bt ov701
 mov r1,r0
 mov #0,r2
 rotl r0
@@ -84162,23 +84200,23 @@ mov #0,r8
 add #-128,r7
 jmp @r10
 add #-15,r7
-ov698:
-mov #0x4,r8
+ov701:
+mov #0x2,r8
 jmp @r10
 add #-20,r7
-ln697:
-mov.l g2_except_addr697,r0
+ln700:
+mov.l g2_except_addr700,r0
 jsr @r0
 mov #0x14,r4
-mov.l bf_addr697,r0
+mov.l bf_addr700,r0
 jsr @r0
 nop
 add r5,r6
 jmp @r10
 add #-42,r7
 .align 2
-g2_except_addr697: .long group_2_exception
-bf_addr697: .long basefunction
+g2_except_addr700: .long group_2_exception
+bf_addr700: .long basefunction
 ! Opcodes 9000 - 9007
 T000:
 add r13,r2
@@ -99620,11 +99658,11 @@ add #-16,r7
 ! Opcodes A000 - AFFF
 U000:
 mov.l r3,@-r15
-mov.l g1_except_addr747,r0
+mov.l g1_except_addr750,r0
 add #-2,r6
 jsr @r0
 mov #0x28,r4
-mov.l bf_addr747,r0
+mov.l bf_addr750,r0
 jsr @r0
 nop
 add r5,r6
@@ -99632,8 +99670,8 @@ mov.l @r15+,r3
 jmp @r10
 add #-34,r7
 .align 2
-g1_except_addr747: .long group_1_exception
-bf_addr747: .long basefunction
+g1_except_addr750: .long group_1_exception
+bf_addr750: .long basefunction
 ! Opcodes B000 - B007
 V000:
 add r13,r2
@@ -113372,9 +113410,9 @@ cmp/pl r9
 addc r0,r8
 mov #9,r0
 cmp/hi r0,r8
-bf .nonibadd759
+bf .nonibadd762
 add #6,r8
-.nonibadd759:
+.nonibadd762:
 mov r3,r0
 and #0xF0,r0
 mov r0,r3
@@ -113386,11 +113424,11 @@ mov #0x99,r0
 extu.b r0,r0
 cmp/hi r0,r3
 movt r9
-bf .endop759
+bf .endop762
 mov #0xA0,r0
 extu.b r0,r0
 sub r0,r3
-.endop759:
+.endop762:
 exts.b r3,r3
 mov r9,r8
 mov.b r3,@r13
@@ -113426,9 +113464,9 @@ cmp/pl r9
 addc r0,r8
 mov #9,r0
 cmp/hi r0,r8
-bf .nonibadd760
+bf .nonibadd763
 add #6,r8
-.nonibadd760:
+.nonibadd763:
 mov r3,r0
 and #0xF0,r0
 mov r0,r3
@@ -113440,11 +113478,11 @@ mov #0x99,r0
 extu.b r0,r0
 cmp/hi r0,r3
 movt r9
-bf .endop760
+bf .endop763
 mov #0xA0,r0
 extu.b r0,r0
 sub r0,r3
-.endop760:
+.endop763:
 exts.b r3,r3
 mov r9,r8
 mov.l @(wb_addr-fetch_idx,r11),r0
@@ -114721,9 +114759,9 @@ cmp/pl r9
 addc r0,r8
 mov #9,r0
 cmp/hi r0,r8
-bf .nonibadd783
+bf .nonibadd786
 add #6,r8
-.nonibadd783:
+.nonibadd786:
 mov r3,r0
 and #0xF0,r0
 mov r0,r3
@@ -114735,11 +114773,11 @@ mov #0x99,r0
 extu.b r0,r0
 cmp/hi r0,r3
 movt r9
-bf .endop783
+bf .endop786
 mov #0xA0,r0
 extu.b r0,r0
 sub r0,r3
-.endop783:
+.endop786:
 exts.b r3,r3
 mov r9,r8
 mov #4,r0
@@ -114776,9 +114814,9 @@ cmp/pl r9
 addc r0,r8
 mov #9,r0
 cmp/hi r0,r8
-bf .nonibadd784
+bf .nonibadd787
 add #6,r8
-.nonibadd784:
+.nonibadd787:
 mov r3,r0
 and #0xF0,r0
 mov r0,r3
@@ -114790,11 +114828,11 @@ mov #0x99,r0
 extu.b r0,r0
 cmp/hi r0,r3
 movt r9
-bf .endop784
+bf .endop787
 mov #0xA0,r0
 extu.b r0,r0
 sub r0,r3
-.endop784:
+.endop787:
 exts.b r3,r3
 mov r9,r8
 mov.l @(wb_addr-fetch_idx,r11),r0
@@ -116096,9 +116134,9 @@ cmp/pl r9
 addc r0,r8
 mov #9,r0
 cmp/hi r0,r8
-bf .nonibadd807
+bf .nonibadd810
 add #6,r8
-.nonibadd807:
+.nonibadd810:
 mov r3,r0
 and #0xF0,r0
 mov r0,r3
@@ -116110,11 +116148,11 @@ mov #0x99,r0
 extu.b r0,r0
 cmp/hi r0,r3
 movt r9
-bf .endop807
+bf .endop810
 mov #0xA0,r0
 extu.b r0,r0
 sub r0,r3
-.endop807:
+.endop810:
 exts.b r3,r3
 mov r9,r8
 mov #8,r0
@@ -116151,9 +116189,9 @@ cmp/pl r9
 addc r0,r8
 mov #9,r0
 cmp/hi r0,r8
-bf .nonibadd808
+bf .nonibadd811
 add #6,r8
-.nonibadd808:
+.nonibadd811:
 mov r3,r0
 and #0xF0,r0
 mov r0,r3
@@ -116165,11 +116203,11 @@ mov #0x99,r0
 extu.b r0,r0
 cmp/hi r0,r3
 movt r9
-bf .endop808
+bf .endop811
 mov #0xA0,r0
 extu.b r0,r0
 sub r0,r3
-.endop808:
+.endop811:
 exts.b r3,r3
 mov r9,r8
 mov.l @(wb_addr-fetch_idx,r11),r0
@@ -117471,9 +117509,9 @@ cmp/pl r9
 addc r0,r8
 mov #9,r0
 cmp/hi r0,r8
-bf .nonibadd831
+bf .nonibadd834
 add #6,r8
-.nonibadd831:
+.nonibadd834:
 mov r3,r0
 and #0xF0,r0
 mov r0,r3
@@ -117485,11 +117523,11 @@ mov #0x99,r0
 extu.b r0,r0
 cmp/hi r0,r3
 movt r9
-bf .endop831
+bf .endop834
 mov #0xA0,r0
 extu.b r0,r0
 sub r0,r3
-.endop831:
+.endop834:
 exts.b r3,r3
 mov r9,r8
 mov #12,r0
@@ -117526,9 +117564,9 @@ cmp/pl r9
 addc r0,r8
 mov #9,r0
 cmp/hi r0,r8
-bf .nonibadd832
+bf .nonibadd835
 add #6,r8
-.nonibadd832:
+.nonibadd835:
 mov r3,r0
 and #0xF0,r0
 mov r0,r3
@@ -117540,11 +117578,11 @@ mov #0x99,r0
 extu.b r0,r0
 cmp/hi r0,r3
 movt r9
-bf .endop832
+bf .endop835
 mov #0xA0,r0
 extu.b r0,r0
 sub r0,r3
-.endop832:
+.endop835:
 exts.b r3,r3
 mov r9,r8
 mov.l @(wb_addr-fetch_idx,r11),r0
@@ -118846,9 +118884,9 @@ cmp/pl r9
 addc r0,r8
 mov #9,r0
 cmp/hi r0,r8
-bf .nonibadd855
+bf .nonibadd858
 add #6,r8
-.nonibadd855:
+.nonibadd858:
 mov r3,r0
 and #0xF0,r0
 mov r0,r3
@@ -118860,11 +118898,11 @@ mov #0x99,r0
 extu.b r0,r0
 cmp/hi r0,r3
 movt r9
-bf .endop855
+bf .endop858
 mov #0xA0,r0
 extu.b r0,r0
 sub r0,r3
-.endop855:
+.endop858:
 exts.b r3,r3
 mov r9,r8
 mov #16,r0
@@ -118901,9 +118939,9 @@ cmp/pl r9
 addc r0,r8
 mov #9,r0
 cmp/hi r0,r8
-bf .nonibadd856
+bf .nonibadd859
 add #6,r8
-.nonibadd856:
+.nonibadd859:
 mov r3,r0
 and #0xF0,r0
 mov r0,r3
@@ -118915,11 +118953,11 @@ mov #0x99,r0
 extu.b r0,r0
 cmp/hi r0,r3
 movt r9
-bf .endop856
+bf .endop859
 mov #0xA0,r0
 extu.b r0,r0
 sub r0,r3
-.endop856:
+.endop859:
 exts.b r3,r3
 mov r9,r8
 mov.l @(wb_addr-fetch_idx,r11),r0
@@ -120221,9 +120259,9 @@ cmp/pl r9
 addc r0,r8
 mov #9,r0
 cmp/hi r0,r8
-bf .nonibadd879
+bf .nonibadd882
 add #6,r8
-.nonibadd879:
+.nonibadd882:
 mov r3,r0
 and #0xF0,r0
 mov r0,r3
@@ -120235,11 +120273,11 @@ mov #0x99,r0
 extu.b r0,r0
 cmp/hi r0,r3
 movt r9
-bf .endop879
+bf .endop882
 mov #0xA0,r0
 extu.b r0,r0
 sub r0,r3
-.endop879:
+.endop882:
 exts.b r3,r3
 mov r9,r8
 mov #20,r0
@@ -120276,9 +120314,9 @@ cmp/pl r9
 addc r0,r8
 mov #9,r0
 cmp/hi r0,r8
-bf .nonibadd880
+bf .nonibadd883
 add #6,r8
-.nonibadd880:
+.nonibadd883:
 mov r3,r0
 and #0xF0,r0
 mov r0,r3
@@ -120290,11 +120328,11 @@ mov #0x99,r0
 extu.b r0,r0
 cmp/hi r0,r3
 movt r9
-bf .endop880
+bf .endop883
 mov #0xA0,r0
 extu.b r0,r0
 sub r0,r3
-.endop880:
+.endop883:
 exts.b r3,r3
 mov r9,r8
 mov.l @(wb_addr-fetch_idx,r11),r0
@@ -121596,9 +121634,9 @@ cmp/pl r9
 addc r0,r8
 mov #9,r0
 cmp/hi r0,r8
-bf .nonibadd903
+bf .nonibadd906
 add #6,r8
-.nonibadd903:
+.nonibadd906:
 mov r3,r0
 and #0xF0,r0
 mov r0,r3
@@ -121610,11 +121648,11 @@ mov #0x99,r0
 extu.b r0,r0
 cmp/hi r0,r3
 movt r9
-bf .endop903
+bf .endop906
 mov #0xA0,r0
 extu.b r0,r0
 sub r0,r3
-.endop903:
+.endop906:
 exts.b r3,r3
 mov r9,r8
 mov #24,r0
@@ -121651,9 +121689,9 @@ cmp/pl r9
 addc r0,r8
 mov #9,r0
 cmp/hi r0,r8
-bf .nonibadd904
+bf .nonibadd907
 add #6,r8
-.nonibadd904:
+.nonibadd907:
 mov r3,r0
 and #0xF0,r0
 mov r0,r3
@@ -121665,11 +121703,11 @@ mov #0x99,r0
 extu.b r0,r0
 cmp/hi r0,r3
 movt r9
-bf .endop904
+bf .endop907
 mov #0xA0,r0
 extu.b r0,r0
 sub r0,r3
-.endop904:
+.endop907:
 exts.b r3,r3
 mov r9,r8
 mov.l @(wb_addr-fetch_idx,r11),r0
@@ -122971,9 +123009,9 @@ cmp/pl r9
 addc r0,r8
 mov #9,r0
 cmp/hi r0,r8
-bf .nonibadd927
+bf .nonibadd930
 add #6,r8
-.nonibadd927:
+.nonibadd930:
 mov r3,r0
 and #0xF0,r0
 mov r0,r3
@@ -122985,11 +123023,11 @@ mov #0x99,r0
 extu.b r0,r0
 cmp/hi r0,r3
 movt r9
-bf .endop927
+bf .endop930
 mov #0xA0,r0
 extu.b r0,r0
 sub r0,r3
-.endop927:
+.endop930:
 exts.b r3,r3
 mov r9,r8
 mov #28,r0
@@ -123026,9 +123064,9 @@ cmp/pl r9
 addc r0,r8
 mov #9,r0
 cmp/hi r0,r8
-bf .nonibadd928
+bf .nonibadd931
 add #6,r8
-.nonibadd928:
+.nonibadd931:
 mov r3,r0
 and #0xF0,r0
 mov r0,r3
@@ -123040,11 +123078,11 @@ mov #0x99,r0
 extu.b r0,r0
 cmp/hi r0,r3
 movt r9
-bf .endop928
+bf .endop931
 mov #0xA0,r0
 extu.b r0,r0
 sub r0,r3
-.endop928:
+.endop931:
 exts.b r3,r3
 mov r9,r8
 mov.l @(wb_addr-fetch_idx,r11),r0
@@ -139112,7 +139150,7 @@ mov.b @r2,r3
 cmp/pl r9
 mov #8,r0
 extu.b r3,r3
-ln993:
+ln996:
 rotcr r3
 movt r8
 dt r0
@@ -139121,7 +139159,7 @@ shlr16 r1
 shlr8 r1
 or r1,r3
 extu.b r3,r3
-bf/s ln993
+bf/s ln996
 cmp/pl r8
 mov r8,r9
 exts.b r3,r3
@@ -139135,7 +139173,7 @@ mov.b @r2,r3
 clrt
 mov #8,r0
 extu.b r3,r3
-ln995:
+ln998:
 rotr r3
 movt r8
 dt r0
@@ -139144,7 +139182,7 @@ shlr16 r1
 shlr8 r1
 or r1,r3
 extu.b r3,r3
-bf ln995
+bf ln998
 exts.b r3,r3
 mov.b r3,@r2
 jmp @r10
@@ -139154,24 +139192,24 @@ Y020:
 mov.l @r13,r0
 and #0x3F,r0
 tst r0,r0
-bf ln996
+bf ln999
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln996:
+ln999:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover997
+bf nobitover1000
 add #-31,r0
 mov #-31,r1
 shad r1,r3
-nobitover997:
+nobitover1000:
 dt r0
 neg r0,r0
 shad r0,r3
@@ -139187,13 +139225,13 @@ Y028:
 mov.l @r13,r0
 and #0x3F,r0
 tst r0,r0
-bf ln998
+bf ln1001
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln998:
+ln1001:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -139201,11 +139239,11 @@ mov.b @r2,r3
 extu.b r3,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover999
+bf nobitover1002
 add #-31,r0
 mov #-31,r1
 shld r1,r3
-nobitover999:
+nobitover1002:
 dt r0
 neg r0,r0
 shld r0,r3
@@ -139221,20 +139259,20 @@ Y030:
 mov.l @r13,r0
 and #0x3F,r0
 tst r0,r0
-bf ln1000
+bf ln1003
 mov r2,r0
 mov.b @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-6,r7
-ln1000:
+ln1003:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 cmp/pl r9
 extu.b r3,r3
-ln1001:
+ln1004:
 rotcr r3
 movt r8
 dt r0
@@ -139243,7 +139281,7 @@ shlr16 r1
 shlr8 r1
 or r1,r3
 extu.b r3,r3
-bf/s ln1001
+bf/s ln1004
 cmp/pl r8
 mov r8,r9
 exts.b r3,r3
@@ -139255,20 +139293,20 @@ Y038:
 mov.l @r13,r0
 and #0x3F,r0
 tst r0,r0
-bf ln1002
+bf ln1005
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1002:
+ln1005:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 clrt
 extu.b r3,r3
-ln1003:
+ln1006:
 rotr r3
 movt r8
 dt r0
@@ -139277,7 +139315,7 @@ shlr16 r1
 shlr8 r1
 or r1,r3
 extu.b r3,r3
-bf ln1003
+bf ln1006
 exts.b r3,r3
 mov.b r3,@r2
 jmp @r10
@@ -139316,7 +139354,7 @@ mov.w @r2,r3
 cmp/pl r9
 mov #8,r0
 extu.w r3,r3
-ln1009:
+ln1012:
 rotcr r3
 movt r8
 dt r0
@@ -139324,7 +139362,7 @@ mov r3,r1
 shlr16 r1
 or r1,r3
 extu.w r3,r3
-bf/s ln1009
+bf/s ln1012
 cmp/pl r8
 mov r8,r9
 exts.w r3,r3
@@ -139338,7 +139376,7 @@ mov.w @r2,r3
 clrt
 mov #8,r0
 extu.w r3,r3
-ln1011:
+ln1014:
 rotr r3
 movt r8
 dt r0
@@ -139346,7 +139384,7 @@ mov r3,r1
 shlr16 r1
 or r1,r3
 extu.w r3,r3
-bf ln1011
+bf ln1014
 exts.w r3,r3
 mov.w r3,@r2
 jmp @r10
@@ -139356,24 +139394,24 @@ Y060:
 mov.l @r13,r0
 and #0x3F,r0
 tst r0,r0
-bf ln1012
+bf ln1015
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1012:
+ln1015:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1013
+bf nobitover1016
 add #-31,r0
 mov #-31,r1
 shad r1,r3
-nobitover1013:
+nobitover1016:
 dt r0
 neg r0,r0
 shad r0,r3
@@ -139389,13 +139427,13 @@ Y068:
 mov.l @r13,r0
 and #0x3F,r0
 tst r0,r0
-bf ln1014
+bf ln1017
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1014:
+ln1017:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -139403,11 +139441,11 @@ mov.w @r2,r3
 extu.w r3,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1015
+bf nobitover1018
 add #-31,r0
 mov #-31,r1
 shld r1,r3
-nobitover1015:
+nobitover1018:
 dt r0
 neg r0,r0
 shld r0,r3
@@ -139423,20 +139461,20 @@ Y070:
 mov.l @r13,r0
 and #0x3F,r0
 tst r0,r0
-bf ln1016
+bf ln1019
 mov r2,r0
 mov.w @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-6,r7
-ln1016:
+ln1019:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 cmp/pl r9
 extu.w r3,r3
-ln1017:
+ln1020:
 rotcr r3
 movt r8
 dt r0
@@ -139444,7 +139482,7 @@ mov r3,r1
 shlr16 r1
 or r1,r3
 extu.w r3,r3
-bf/s ln1017
+bf/s ln1020
 cmp/pl r8
 mov r8,r9
 exts.w r3,r3
@@ -139456,20 +139494,20 @@ Y078:
 mov.l @r13,r0
 and #0x3F,r0
 tst r0,r0
-bf ln1018
+bf ln1021
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1018:
+ln1021:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 clrt
 extu.w r3,r3
-ln1019:
+ln1022:
 rotr r3
 movt r8
 dt r0
@@ -139477,7 +139515,7 @@ mov r3,r1
 shlr16 r1
 or r1,r3
 extu.w r3,r3
-bf ln1019
+bf ln1022
 exts.w r3,r3
 mov.w r3,@r2
 jmp @r10
@@ -139512,11 +139550,11 @@ add r13,r2
 mov.l @r2,r3
 cmp/pl r9
 mov #8,r0
-ln1025:
+ln1028:
 rotcr r3
 movt r8
 dt r0
-bf/s ln1025
+bf/s ln1028
 cmp/pl r8
 mov r8,r9
 mov.l r3,@r2
@@ -139528,11 +139566,11 @@ add r13,r2
 mov.l @r2,r3
 clrt
 mov #8,r0
-ln1027:
+ln1030:
 rotr r3
 movt r8
 dt r0
-bf ln1027
+bf ln1030
 mov.l r3,@r2
 jmp @r10
 add #-24,r7
@@ -139541,24 +139579,24 @@ Y0A0:
 mov.l @r13,r0
 and #0x3F,r0
 tst r0,r0
-bf ln1028
+bf ln1031
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1028:
+ln1031:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1029
+bf nobitover1032
 add #-31,r0
 mov #-31,r1
 shad r1,r3
-nobitover1029:
+nobitover1032:
 dt r0
 neg r0,r0
 shad r0,r3
@@ -139573,24 +139611,24 @@ Y0A8:
 mov.l @r13,r0
 and #0x3F,r0
 tst r0,r0
-bf ln1030
+bf ln1033
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1030:
+ln1033:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1031
+bf nobitover1034
 add #-31,r0
 mov #-31,r1
 shld r1,r3
-nobitover1031:
+nobitover1034:
 dt r0
 neg r0,r0
 shld r0,r3
@@ -139605,23 +139643,23 @@ Y0B0:
 mov.l @r13,r0
 and #0x3F,r0
 tst r0,r0
-bf ln1032
+bf ln1035
 mov r2,r0
 mov.l @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-8,r7
-ln1032:
+ln1035:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 cmp/pl r9
-ln1033:
+ln1036:
 rotcr r3
 movt r8
 dt r0
-bf/s ln1033
+bf/s ln1036
 cmp/pl r8
 mov r8,r9
 mov.l r3,@r2
@@ -139632,23 +139670,23 @@ Y0B8:
 mov.l @r13,r0
 and #0x3F,r0
 tst r0,r0
-bf ln1034
+bf ln1037
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1034:
+ln1037:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 clrt
-ln1035:
+ln1038:
 rotr r3
 movt r8
 dt r0
-bf ln1035
+bf ln1038
 mov.l r3,@r2
 jmp @r10
 add #-8,r7
@@ -139837,12 +139875,12 @@ add r13,r2
 mov.b @r2,r3
 cmp/pl r9
 mov #8,r0
-ln1041:
+ln1044:
 rotcl r3
 movt r8
 dt r0
 exts.b r3,r3
-bf/s ln1041
+bf/s ln1044
 cmp/pl r8
 mov r8,r9
 exts.b r3,r3
@@ -139855,12 +139893,12 @@ add r13,r2
 mov.b @r2,r3
 clrt
 mov #8,r0
-ln1043:
+ln1046:
 rotl r3
 movt r8
 dt r0
 exts.b r3,r3
-bf ln1043
+bf ln1046
 exts.b r3,r3
 mov.b r3,@r2
 jmp @r10
@@ -139870,13 +139908,13 @@ Y120:
 mov.l @r13,r0
 and #0x3F,r0
 tst r0,r0
-bf ln1044
+bf ln1047
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1044:
+ln1047:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -139885,14 +139923,14 @@ shll16 r3
 shll8 r3
 mov r3,r1
 mov #0,r8
-ln1045:
+ln1048:
 addv r3,r3
 movt r9
 or r9,r8
 shal r1
 movt r9
 dt r0
-bf ln1045
+bf ln1048
 cmp/pl r9
 rotcl r8
 mov #-24,r0
@@ -139905,13 +139943,13 @@ Y128:
 mov.l @r13,r0
 and #0x3F,r0
 tst r0,r0
-bf ln1046
+bf ln1049
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1046:
+ln1049:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -139920,11 +139958,11 @@ shll16 r3
 shll8 r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1047
+bf nobitover1050
 add #-31,r0
 mov #31,r1
 shld r1,r3
-nobitover1047:
+nobitover1050:
 dt r0
 shld r0,r3
 shll r3
@@ -139940,24 +139978,24 @@ Y130:
 mov.l @r13,r0
 and #0x3F,r0
 tst r0,r0
-bf ln1048
+bf ln1051
 mov r2,r0
 mov.b @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-6,r7
-ln1048:
+ln1051:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 cmp/pl r9
-ln1049:
+ln1052:
 rotcl r3
 movt r8
 dt r0
 exts.b r3,r3
-bf/s ln1049
+bf/s ln1052
 cmp/pl r8
 mov r8,r9
 exts.b r3,r3
@@ -139969,24 +140007,24 @@ Y138:
 mov.l @r13,r0
 and #0x3F,r0
 tst r0,r0
-bf ln1050
+bf ln1053
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1050:
+ln1053:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 clrt
-ln1051:
+ln1054:
 rotl r3
 movt r8
 dt r0
 exts.b r3,r3
-bf ln1051
+bf ln1054
 exts.b r3,r3
 mov.b r3,@r2
 jmp @r10
@@ -140051,12 +140089,12 @@ add r13,r2
 mov.w @r2,r3
 cmp/pl r9
 mov #8,r0
-ln1057:
+ln1060:
 rotcl r3
 movt r8
 dt r0
 exts.w r3,r3
-bf/s ln1057
+bf/s ln1060
 cmp/pl r8
 mov r8,r9
 exts.w r3,r3
@@ -140069,12 +140107,12 @@ add r13,r2
 mov.w @r2,r3
 clrt
 mov #8,r0
-ln1059:
+ln1062:
 rotl r3
 movt r8
 dt r0
 exts.w r3,r3
-bf ln1059
+bf ln1062
 exts.w r3,r3
 mov.w r3,@r2
 jmp @r10
@@ -140084,13 +140122,13 @@ Y160:
 mov.l @r13,r0
 and #0x3F,r0
 tst r0,r0
-bf ln1060
+bf ln1063
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1060:
+ln1063:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -140098,14 +140136,14 @@ mov.w @r2,r3
 shll16 r3
 mov r3,r1
 mov #0,r8
-ln1061:
+ln1064:
 addv r3,r3
 movt r9
 or r9,r8
 shal r1
 movt r9
 dt r0
-bf ln1061
+bf ln1064
 cmp/pl r9
 rotcl r8
 mov #-16,r0
@@ -140118,13 +140156,13 @@ Y168:
 mov.l @r13,r0
 and #0x3F,r0
 tst r0,r0
-bf ln1062
+bf ln1065
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1062:
+ln1065:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -140132,11 +140170,11 @@ mov.w @r2,r3
 shll16 r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1063
+bf nobitover1066
 add #-31,r0
 mov #31,r1
 shld r1,r3
-nobitover1063:
+nobitover1066:
 dt r0
 shld r0,r3
 shll r3
@@ -140152,24 +140190,24 @@ Y170:
 mov.l @r13,r0
 and #0x3F,r0
 tst r0,r0
-bf ln1064
+bf ln1067
 mov r2,r0
 mov.w @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-6,r7
-ln1064:
+ln1067:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 cmp/pl r9
-ln1065:
+ln1068:
 rotcl r3
 movt r8
 dt r0
 exts.w r3,r3
-bf/s ln1065
+bf/s ln1068
 cmp/pl r8
 mov r8,r9
 exts.w r3,r3
@@ -140181,24 +140219,24 @@ Y178:
 mov.l @r13,r0
 and #0x3F,r0
 tst r0,r0
-bf ln1066
+bf ln1069
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1066:
+ln1069:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 clrt
-ln1067:
+ln1070:
 rotl r3
 movt r8
 dt r0
 exts.w r3,r3
-bf ln1067
+bf ln1070
 exts.w r3,r3
 mov.w r3,@r2
 jmp @r10
@@ -140257,11 +140295,11 @@ add r13,r2
 mov.l @r2,r3
 cmp/pl r9
 mov #8,r0
-ln1073:
+ln1076:
 rotcl r3
 movt r8
 dt r0
-bf/s ln1073
+bf/s ln1076
 cmp/pl r8
 mov r8,r9
 mov.l r3,@r2
@@ -140273,11 +140311,11 @@ add r13,r2
 mov.l @r2,r3
 clrt
 mov #8,r0
-ln1075:
+ln1078:
 rotl r3
 movt r8
 dt r0
-bf ln1075
+bf ln1078
 mov.l r3,@r2
 jmp @r10
 add #-24,r7
@@ -140286,27 +140324,27 @@ Y1A0:
 mov.l @r13,r0
 and #0x3F,r0
 tst r0,r0
-bf ln1076
+bf ln1079
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1076:
+ln1079:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 mov r3,r1
 mov #0,r8
-ln1077:
+ln1080:
 addv r3,r3
 movt r9
 or r9,r8
 shal r1
 movt r9
 dt r0
-bf ln1077
+bf ln1080
 cmp/pl r9
 rotcl r8
 mov.l r3,@r2
@@ -140317,24 +140355,24 @@ Y1A8:
 mov.l @r13,r0
 and #0x3F,r0
 tst r0,r0
-bf ln1078
+bf ln1081
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1078:
+ln1081:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1079
+bf nobitover1082
 add #-31,r0
 mov #31,r1
 shld r1,r3
-nobitover1079:
+nobitover1082:
 dt r0
 shld r0,r3
 shll r3
@@ -140348,23 +140386,23 @@ Y1B0:
 mov.l @r13,r0
 and #0x3F,r0
 tst r0,r0
-bf ln1080
+bf ln1083
 mov r2,r0
 mov.l @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-8,r7
-ln1080:
+ln1083:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 cmp/pl r9
-ln1081:
+ln1084:
 rotcl r3
 movt r8
 dt r0
-bf/s ln1081
+bf/s ln1084
 cmp/pl r8
 mov r8,r9
 mov.l r3,@r2
@@ -140375,23 +140413,23 @@ Y1B8:
 mov.l @r13,r0
 and #0x3F,r0
 tst r0,r0
-bf ln1082
+bf ln1085
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1082:
+ln1085:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 clrt
-ln1083:
+ln1086:
 rotl r3
 movt r8
 dt r0
-bf ln1083
+bf ln1086
 mov.l r3,@r2
 jmp @r10
 add #-8,r7
@@ -140594,7 +140632,7 @@ mov.b @r2,r3
 cmp/pl r9
 mov #1,r0
 extu.b r3,r3
-ln1089:
+ln1092:
 rotcr r3
 movt r8
 dt r0
@@ -140603,7 +140641,7 @@ shlr16 r1
 shlr8 r1
 or r1,r3
 extu.b r3,r3
-bf/s ln1089
+bf/s ln1092
 cmp/pl r8
 mov r8,r9
 exts.b r3,r3
@@ -140617,7 +140655,7 @@ mov.b @r2,r3
 clrt
 mov #1,r0
 extu.b r3,r3
-ln1091:
+ln1094:
 rotr r3
 movt r8
 dt r0
@@ -140626,7 +140664,7 @@ shlr16 r1
 shlr8 r1
 or r1,r3
 extu.b r3,r3
-bf ln1091
+bf ln1094
 exts.b r3,r3
 mov.b r3,@r2
 jmp @r10
@@ -140636,24 +140674,24 @@ Y220:
 mov.l @(4,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1092
+bf ln1095
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1092:
+ln1095:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1093
+bf nobitover1096
 add #-31,r0
 mov #-31,r1
 shad r1,r3
-nobitover1093:
+nobitover1096:
 dt r0
 neg r0,r0
 shad r0,r3
@@ -140669,13 +140707,13 @@ Y228:
 mov.l @(4,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1094
+bf ln1097
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1094:
+ln1097:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -140683,11 +140721,11 @@ mov.b @r2,r3
 extu.b r3,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1095
+bf nobitover1098
 add #-31,r0
 mov #-31,r1
 shld r1,r3
-nobitover1095:
+nobitover1098:
 dt r0
 neg r0,r0
 shld r0,r3
@@ -140703,20 +140741,20 @@ Y230:
 mov.l @(4,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1096
+bf ln1099
 mov r2,r0
 mov.b @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-6,r7
-ln1096:
+ln1099:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 cmp/pl r9
 extu.b r3,r3
-ln1097:
+ln1100:
 rotcr r3
 movt r8
 dt r0
@@ -140725,7 +140763,7 @@ shlr16 r1
 shlr8 r1
 or r1,r3
 extu.b r3,r3
-bf/s ln1097
+bf/s ln1100
 cmp/pl r8
 mov r8,r9
 exts.b r3,r3
@@ -140737,20 +140775,20 @@ Y238:
 mov.l @(4,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1098
+bf ln1101
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1098:
+ln1101:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 clrt
 extu.b r3,r3
-ln1099:
+ln1102:
 rotr r3
 movt r8
 dt r0
@@ -140759,7 +140797,7 @@ shlr16 r1
 shlr8 r1
 or r1,r3
 extu.b r3,r3
-bf ln1099
+bf ln1102
 exts.b r3,r3
 mov.b r3,@r2
 jmp @r10
@@ -140798,7 +140836,7 @@ mov.w @r2,r3
 cmp/pl r9
 mov #1,r0
 extu.w r3,r3
-ln1105:
+ln1108:
 rotcr r3
 movt r8
 dt r0
@@ -140806,7 +140844,7 @@ mov r3,r1
 shlr16 r1
 or r1,r3
 extu.w r3,r3
-bf/s ln1105
+bf/s ln1108
 cmp/pl r8
 mov r8,r9
 exts.w r3,r3
@@ -140820,7 +140858,7 @@ mov.w @r2,r3
 clrt
 mov #1,r0
 extu.w r3,r3
-ln1107:
+ln1110:
 rotr r3
 movt r8
 dt r0
@@ -140828,7 +140866,7 @@ mov r3,r1
 shlr16 r1
 or r1,r3
 extu.w r3,r3
-bf ln1107
+bf ln1110
 exts.w r3,r3
 mov.w r3,@r2
 jmp @r10
@@ -140838,24 +140876,24 @@ Y260:
 mov.l @(4,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1108
+bf ln1111
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1108:
+ln1111:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1109
+bf nobitover1112
 add #-31,r0
 mov #-31,r1
 shad r1,r3
-nobitover1109:
+nobitover1112:
 dt r0
 neg r0,r0
 shad r0,r3
@@ -140871,13 +140909,13 @@ Y268:
 mov.l @(4,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1110
+bf ln1113
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1110:
+ln1113:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -140885,11 +140923,11 @@ mov.w @r2,r3
 extu.w r3,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1111
+bf nobitover1114
 add #-31,r0
 mov #-31,r1
 shld r1,r3
-nobitover1111:
+nobitover1114:
 dt r0
 neg r0,r0
 shld r0,r3
@@ -140905,20 +140943,20 @@ Y270:
 mov.l @(4,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1112
+bf ln1115
 mov r2,r0
 mov.w @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-6,r7
-ln1112:
+ln1115:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 cmp/pl r9
 extu.w r3,r3
-ln1113:
+ln1116:
 rotcr r3
 movt r8
 dt r0
@@ -140926,7 +140964,7 @@ mov r3,r1
 shlr16 r1
 or r1,r3
 extu.w r3,r3
-bf/s ln1113
+bf/s ln1116
 cmp/pl r8
 mov r8,r9
 exts.w r3,r3
@@ -140938,20 +140976,20 @@ Y278:
 mov.l @(4,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1114
+bf ln1117
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1114:
+ln1117:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 clrt
 extu.w r3,r3
-ln1115:
+ln1118:
 rotr r3
 movt r8
 dt r0
@@ -140959,7 +140997,7 @@ mov r3,r1
 shlr16 r1
 or r1,r3
 extu.w r3,r3
-bf ln1115
+bf ln1118
 exts.w r3,r3
 mov.w r3,@r2
 jmp @r10
@@ -140994,11 +141032,11 @@ add r13,r2
 mov.l @r2,r3
 cmp/pl r9
 mov #1,r0
-ln1121:
+ln1124:
 rotcr r3
 movt r8
 dt r0
-bf/s ln1121
+bf/s ln1124
 cmp/pl r8
 mov r8,r9
 mov.l r3,@r2
@@ -141010,11 +141048,11 @@ add r13,r2
 mov.l @r2,r3
 clrt
 mov #1,r0
-ln1123:
+ln1126:
 rotr r3
 movt r8
 dt r0
-bf ln1123
+bf ln1126
 mov.l r3,@r2
 jmp @r10
 add #-10,r7
@@ -141023,24 +141061,24 @@ Y2A0:
 mov.l @(4,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1124
+bf ln1127
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1124:
+ln1127:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1125
+bf nobitover1128
 add #-31,r0
 mov #-31,r1
 shad r1,r3
-nobitover1125:
+nobitover1128:
 dt r0
 neg r0,r0
 shad r0,r3
@@ -141055,24 +141093,24 @@ Y2A8:
 mov.l @(4,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1126
+bf ln1129
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1126:
+ln1129:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1127
+bf nobitover1130
 add #-31,r0
 mov #-31,r1
 shld r1,r3
-nobitover1127:
+nobitover1130:
 dt r0
 neg r0,r0
 shld r0,r3
@@ -141087,23 +141125,23 @@ Y2B0:
 mov.l @(4,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1128
+bf ln1131
 mov r2,r0
 mov.l @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-8,r7
-ln1128:
+ln1131:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 cmp/pl r9
-ln1129:
+ln1132:
 rotcr r3
 movt r8
 dt r0
-bf/s ln1129
+bf/s ln1132
 cmp/pl r8
 mov r8,r9
 mov.l r3,@r2
@@ -141114,23 +141152,23 @@ Y2B8:
 mov.l @(4,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1130
+bf ln1133
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1130:
+ln1133:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 clrt
-ln1131:
+ln1134:
 rotr r3
 movt r8
 dt r0
-bf ln1131
+bf ln1134
 mov.l r3,@r2
 jmp @r10
 add #-8,r7
@@ -141303,12 +141341,12 @@ add r13,r2
 mov.b @r2,r3
 cmp/pl r9
 mov #1,r0
-ln1137:
+ln1140:
 rotcl r3
 movt r8
 dt r0
 exts.b r3,r3
-bf/s ln1137
+bf/s ln1140
 cmp/pl r8
 mov r8,r9
 exts.b r3,r3
@@ -141321,12 +141359,12 @@ add r13,r2
 mov.b @r2,r3
 clrt
 mov #1,r0
-ln1139:
+ln1142:
 rotl r3
 movt r8
 dt r0
 exts.b r3,r3
-bf ln1139
+bf ln1142
 exts.b r3,r3
 mov.b r3,@r2
 jmp @r10
@@ -141336,13 +141374,13 @@ Y320:
 mov.l @(4,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1140
+bf ln1143
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1140:
+ln1143:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -141351,14 +141389,14 @@ shll16 r3
 shll8 r3
 mov r3,r1
 mov #0,r8
-ln1141:
+ln1144:
 addv r3,r3
 movt r9
 or r9,r8
 shal r1
 movt r9
 dt r0
-bf ln1141
+bf ln1144
 cmp/pl r9
 rotcl r8
 mov #-24,r0
@@ -141371,13 +141409,13 @@ Y328:
 mov.l @(4,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1142
+bf ln1145
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1142:
+ln1145:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -141386,11 +141424,11 @@ shll16 r3
 shll8 r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1143
+bf nobitover1146
 add #-31,r0
 mov #31,r1
 shld r1,r3
-nobitover1143:
+nobitover1146:
 dt r0
 shld r0,r3
 shll r3
@@ -141406,24 +141444,24 @@ Y330:
 mov.l @(4,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1144
+bf ln1147
 mov r2,r0
 mov.b @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-6,r7
-ln1144:
+ln1147:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 cmp/pl r9
-ln1145:
+ln1148:
 rotcl r3
 movt r8
 dt r0
 exts.b r3,r3
-bf/s ln1145
+bf/s ln1148
 cmp/pl r8
 mov r8,r9
 exts.b r3,r3
@@ -141435,24 +141473,24 @@ Y338:
 mov.l @(4,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1146
+bf ln1149
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1146:
+ln1149:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 clrt
-ln1147:
+ln1150:
 rotl r3
 movt r8
 dt r0
 exts.b r3,r3
-bf ln1147
+bf ln1150
 exts.b r3,r3
 mov.b r3,@r2
 jmp @r10
@@ -141494,12 +141532,12 @@ add r13,r2
 mov.w @r2,r3
 cmp/pl r9
 mov #1,r0
-ln1153:
+ln1156:
 rotcl r3
 movt r8
 dt r0
 exts.w r3,r3
-bf/s ln1153
+bf/s ln1156
 cmp/pl r8
 mov r8,r9
 exts.w r3,r3
@@ -141512,12 +141550,12 @@ add r13,r2
 mov.w @r2,r3
 clrt
 mov #1,r0
-ln1155:
+ln1158:
 rotl r3
 movt r8
 dt r0
 exts.w r3,r3
-bf ln1155
+bf ln1158
 exts.w r3,r3
 mov.w r3,@r2
 jmp @r10
@@ -141527,13 +141565,13 @@ Y360:
 mov.l @(4,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1156
+bf ln1159
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1156:
+ln1159:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -141541,14 +141579,14 @@ mov.w @r2,r3
 shll16 r3
 mov r3,r1
 mov #0,r8
-ln1157:
+ln1160:
 addv r3,r3
 movt r9
 or r9,r8
 shal r1
 movt r9
 dt r0
-bf ln1157
+bf ln1160
 cmp/pl r9
 rotcl r8
 mov #-16,r0
@@ -141561,13 +141599,13 @@ Y368:
 mov.l @(4,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1158
+bf ln1161
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1158:
+ln1161:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -141575,11 +141613,11 @@ mov.w @r2,r3
 shll16 r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1159
+bf nobitover1162
 add #-31,r0
 mov #31,r1
 shld r1,r3
-nobitover1159:
+nobitover1162:
 dt r0
 shld r0,r3
 shll r3
@@ -141595,24 +141633,24 @@ Y370:
 mov.l @(4,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1160
+bf ln1163
 mov r2,r0
 mov.w @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-6,r7
-ln1160:
+ln1163:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 cmp/pl r9
-ln1161:
+ln1164:
 rotcl r3
 movt r8
 dt r0
 exts.w r3,r3
-bf/s ln1161
+bf/s ln1164
 cmp/pl r8
 mov r8,r9
 exts.w r3,r3
@@ -141624,24 +141662,24 @@ Y378:
 mov.l @(4,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1162
+bf ln1165
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1162:
+ln1165:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 clrt
-ln1163:
+ln1166:
 rotl r3
 movt r8
 dt r0
 exts.w r3,r3
-bf ln1163
+bf ln1166
 exts.w r3,r3
 mov.w r3,@r2
 jmp @r10
@@ -141677,11 +141715,11 @@ add r13,r2
 mov.l @r2,r3
 cmp/pl r9
 mov #1,r0
-ln1169:
+ln1172:
 rotcl r3
 movt r8
 dt r0
-bf/s ln1169
+bf/s ln1172
 cmp/pl r8
 mov r8,r9
 mov.l r3,@r2
@@ -141693,11 +141731,11 @@ add r13,r2
 mov.l @r2,r3
 clrt
 mov #1,r0
-ln1171:
+ln1174:
 rotl r3
 movt r8
 dt r0
-bf ln1171
+bf ln1174
 mov.l r3,@r2
 jmp @r10
 add #-10,r7
@@ -141706,27 +141744,27 @@ Y3A0:
 mov.l @(4,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1172
+bf ln1175
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1172:
+ln1175:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 mov r3,r1
 mov #0,r8
-ln1173:
+ln1176:
 addv r3,r3
 movt r9
 or r9,r8
 shal r1
 movt r9
 dt r0
-bf ln1173
+bf ln1176
 cmp/pl r9
 rotcl r8
 mov.l r3,@r2
@@ -141737,24 +141775,24 @@ Y3A8:
 mov.l @(4,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1174
+bf ln1177
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1174:
+ln1177:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1175
+bf nobitover1178
 add #-31,r0
 mov #31,r1
 shld r1,r3
-nobitover1175:
+nobitover1178:
 dt r0
 shld r0,r3
 shll r3
@@ -141768,23 +141806,23 @@ Y3B0:
 mov.l @(4,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1176
+bf ln1179
 mov r2,r0
 mov.l @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-8,r7
-ln1176:
+ln1179:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 cmp/pl r9
-ln1177:
+ln1180:
 rotcl r3
 movt r8
 dt r0
-bf/s ln1177
+bf/s ln1180
 cmp/pl r8
 mov r8,r9
 mov.l r3,@r2
@@ -141795,23 +141833,23 @@ Y3B8:
 mov.l @(4,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1178
+bf ln1181
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1178:
+ln1181:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 clrt
-ln1179:
+ln1182:
 rotl r3
 movt r8
 dt r0
-bf ln1179
+bf ln1182
 mov.l r3,@r2
 jmp @r10
 add #-8,r7
@@ -141972,7 +142010,7 @@ mov.b @r2,r3
 cmp/pl r9
 mov #2,r0
 extu.b r3,r3
-ln1185:
+ln1188:
 rotcr r3
 movt r8
 dt r0
@@ -141981,7 +142019,7 @@ shlr16 r1
 shlr8 r1
 or r1,r3
 extu.b r3,r3
-bf/s ln1185
+bf/s ln1188
 cmp/pl r8
 mov r8,r9
 exts.b r3,r3
@@ -141995,7 +142033,7 @@ mov.b @r2,r3
 clrt
 mov #2,r0
 extu.b r3,r3
-ln1187:
+ln1190:
 rotr r3
 movt r8
 dt r0
@@ -142004,7 +142042,7 @@ shlr16 r1
 shlr8 r1
 or r1,r3
 extu.b r3,r3
-bf ln1187
+bf ln1190
 exts.b r3,r3
 mov.b r3,@r2
 jmp @r10
@@ -142014,24 +142052,24 @@ Y420:
 mov.l @(8,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1188
+bf ln1191
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1188:
+ln1191:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1189
+bf nobitover1192
 add #-31,r0
 mov #-31,r1
 shad r1,r3
-nobitover1189:
+nobitover1192:
 dt r0
 neg r0,r0
 shad r0,r3
@@ -142047,13 +142085,13 @@ Y428:
 mov.l @(8,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1190
+bf ln1193
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1190:
+ln1193:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -142061,11 +142099,11 @@ mov.b @r2,r3
 extu.b r3,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1191
+bf nobitover1194
 add #-31,r0
 mov #-31,r1
 shld r1,r3
-nobitover1191:
+nobitover1194:
 dt r0
 neg r0,r0
 shld r0,r3
@@ -142081,20 +142119,20 @@ Y430:
 mov.l @(8,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1192
+bf ln1195
 mov r2,r0
 mov.b @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-6,r7
-ln1192:
+ln1195:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 cmp/pl r9
 extu.b r3,r3
-ln1193:
+ln1196:
 rotcr r3
 movt r8
 dt r0
@@ -142103,7 +142141,7 @@ shlr16 r1
 shlr8 r1
 or r1,r3
 extu.b r3,r3
-bf/s ln1193
+bf/s ln1196
 cmp/pl r8
 mov r8,r9
 exts.b r3,r3
@@ -142115,20 +142153,20 @@ Y438:
 mov.l @(8,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1194
+bf ln1197
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1194:
+ln1197:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 clrt
 extu.b r3,r3
-ln1195:
+ln1198:
 rotr r3
 movt r8
 dt r0
@@ -142137,7 +142175,7 @@ shlr16 r1
 shlr8 r1
 or r1,r3
 extu.b r3,r3
-bf ln1195
+bf ln1198
 exts.b r3,r3
 mov.b r3,@r2
 jmp @r10
@@ -142176,7 +142214,7 @@ mov.w @r2,r3
 cmp/pl r9
 mov #2,r0
 extu.w r3,r3
-ln1201:
+ln1204:
 rotcr r3
 movt r8
 dt r0
@@ -142184,7 +142222,7 @@ mov r3,r1
 shlr16 r1
 or r1,r3
 extu.w r3,r3
-bf/s ln1201
+bf/s ln1204
 cmp/pl r8
 mov r8,r9
 exts.w r3,r3
@@ -142198,7 +142236,7 @@ mov.w @r2,r3
 clrt
 mov #2,r0
 extu.w r3,r3
-ln1203:
+ln1206:
 rotr r3
 movt r8
 dt r0
@@ -142206,7 +142244,7 @@ mov r3,r1
 shlr16 r1
 or r1,r3
 extu.w r3,r3
-bf ln1203
+bf ln1206
 exts.w r3,r3
 mov.w r3,@r2
 jmp @r10
@@ -142216,24 +142254,24 @@ Y460:
 mov.l @(8,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1204
+bf ln1207
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1204:
+ln1207:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1205
+bf nobitover1208
 add #-31,r0
 mov #-31,r1
 shad r1,r3
-nobitover1205:
+nobitover1208:
 dt r0
 neg r0,r0
 shad r0,r3
@@ -142249,13 +142287,13 @@ Y468:
 mov.l @(8,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1206
+bf ln1209
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1206:
+ln1209:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -142263,11 +142301,11 @@ mov.w @r2,r3
 extu.w r3,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1207
+bf nobitover1210
 add #-31,r0
 mov #-31,r1
 shld r1,r3
-nobitover1207:
+nobitover1210:
 dt r0
 neg r0,r0
 shld r0,r3
@@ -142283,20 +142321,20 @@ Y470:
 mov.l @(8,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1208
+bf ln1211
 mov r2,r0
 mov.w @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-6,r7
-ln1208:
+ln1211:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 cmp/pl r9
 extu.w r3,r3
-ln1209:
+ln1212:
 rotcr r3
 movt r8
 dt r0
@@ -142304,7 +142342,7 @@ mov r3,r1
 shlr16 r1
 or r1,r3
 extu.w r3,r3
-bf/s ln1209
+bf/s ln1212
 cmp/pl r8
 mov r8,r9
 exts.w r3,r3
@@ -142316,20 +142354,20 @@ Y478:
 mov.l @(8,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1210
+bf ln1213
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1210:
+ln1213:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 clrt
 extu.w r3,r3
-ln1211:
+ln1214:
 rotr r3
 movt r8
 dt r0
@@ -142337,7 +142375,7 @@ mov r3,r1
 shlr16 r1
 or r1,r3
 extu.w r3,r3
-bf ln1211
+bf ln1214
 exts.w r3,r3
 mov.w r3,@r2
 jmp @r10
@@ -142372,11 +142410,11 @@ add r13,r2
 mov.l @r2,r3
 cmp/pl r9
 mov #2,r0
-ln1217:
+ln1220:
 rotcr r3
 movt r8
 dt r0
-bf/s ln1217
+bf/s ln1220
 cmp/pl r8
 mov r8,r9
 mov.l r3,@r2
@@ -142388,11 +142426,11 @@ add r13,r2
 mov.l @r2,r3
 clrt
 mov #2,r0
-ln1219:
+ln1222:
 rotr r3
 movt r8
 dt r0
-bf ln1219
+bf ln1222
 mov.l r3,@r2
 jmp @r10
 add #-12,r7
@@ -142401,24 +142439,24 @@ Y4A0:
 mov.l @(8,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1220
+bf ln1223
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1220:
+ln1223:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1221
+bf nobitover1224
 add #-31,r0
 mov #-31,r1
 shad r1,r3
-nobitover1221:
+nobitover1224:
 dt r0
 neg r0,r0
 shad r0,r3
@@ -142433,24 +142471,24 @@ Y4A8:
 mov.l @(8,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1222
+bf ln1225
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1222:
+ln1225:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1223
+bf nobitover1226
 add #-31,r0
 mov #-31,r1
 shld r1,r3
-nobitover1223:
+nobitover1226:
 dt r0
 neg r0,r0
 shld r0,r3
@@ -142465,23 +142503,23 @@ Y4B0:
 mov.l @(8,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1224
+bf ln1227
 mov r2,r0
 mov.l @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-8,r7
-ln1224:
+ln1227:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 cmp/pl r9
-ln1225:
+ln1228:
 rotcr r3
 movt r8
 dt r0
-bf/s ln1225
+bf/s ln1228
 cmp/pl r8
 mov r8,r9
 mov.l r3,@r2
@@ -142492,23 +142530,23 @@ Y4B8:
 mov.l @(8,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1226
+bf ln1229
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1226:
+ln1229:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 clrt
-ln1227:
+ln1230:
 rotr r3
 movt r8
 dt r0
-bf ln1227
+bf ln1230
 mov.l r3,@r2
 jmp @r10
 add #-8,r7
@@ -142714,12 +142752,12 @@ add r13,r2
 mov.b @r2,r3
 cmp/pl r9
 mov #2,r0
-ln1233:
+ln1236:
 rotcl r3
 movt r8
 dt r0
 exts.b r3,r3
-bf/s ln1233
+bf/s ln1236
 cmp/pl r8
 mov r8,r9
 exts.b r3,r3
@@ -142732,12 +142770,12 @@ add r13,r2
 mov.b @r2,r3
 clrt
 mov #2,r0
-ln1235:
+ln1238:
 rotl r3
 movt r8
 dt r0
 exts.b r3,r3
-bf ln1235
+bf ln1238
 exts.b r3,r3
 mov.b r3,@r2
 jmp @r10
@@ -142747,13 +142785,13 @@ Y520:
 mov.l @(8,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1236
+bf ln1239
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1236:
+ln1239:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -142762,14 +142800,14 @@ shll16 r3
 shll8 r3
 mov r3,r1
 mov #0,r8
-ln1237:
+ln1240:
 addv r3,r3
 movt r9
 or r9,r8
 shal r1
 movt r9
 dt r0
-bf ln1237
+bf ln1240
 cmp/pl r9
 rotcl r8
 mov #-24,r0
@@ -142782,13 +142820,13 @@ Y528:
 mov.l @(8,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1238
+bf ln1241
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1238:
+ln1241:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -142797,11 +142835,11 @@ shll16 r3
 shll8 r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1239
+bf nobitover1242
 add #-31,r0
 mov #31,r1
 shld r1,r3
-nobitover1239:
+nobitover1242:
 dt r0
 shld r0,r3
 shll r3
@@ -142817,24 +142855,24 @@ Y530:
 mov.l @(8,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1240
+bf ln1243
 mov r2,r0
 mov.b @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-6,r7
-ln1240:
+ln1243:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 cmp/pl r9
-ln1241:
+ln1244:
 rotcl r3
 movt r8
 dt r0
 exts.b r3,r3
-bf/s ln1241
+bf/s ln1244
 cmp/pl r8
 mov r8,r9
 exts.b r3,r3
@@ -142846,24 +142884,24 @@ Y538:
 mov.l @(8,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1242
+bf ln1245
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1242:
+ln1245:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 clrt
-ln1243:
+ln1246:
 rotl r3
 movt r8
 dt r0
 exts.b r3,r3
-bf ln1243
+bf ln1246
 exts.b r3,r3
 mov.b r3,@r2
 jmp @r10
@@ -142910,12 +142948,12 @@ add r13,r2
 mov.w @r2,r3
 cmp/pl r9
 mov #2,r0
-ln1249:
+ln1252:
 rotcl r3
 movt r8
 dt r0
 exts.w r3,r3
-bf/s ln1249
+bf/s ln1252
 cmp/pl r8
 mov r8,r9
 exts.w r3,r3
@@ -142928,12 +142966,12 @@ add r13,r2
 mov.w @r2,r3
 clrt
 mov #2,r0
-ln1251:
+ln1254:
 rotl r3
 movt r8
 dt r0
 exts.w r3,r3
-bf ln1251
+bf ln1254
 exts.w r3,r3
 mov.w r3,@r2
 jmp @r10
@@ -142943,13 +142981,13 @@ Y560:
 mov.l @(8,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1252
+bf ln1255
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1252:
+ln1255:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -142957,14 +142995,14 @@ mov.w @r2,r3
 shll16 r3
 mov r3,r1
 mov #0,r8
-ln1253:
+ln1256:
 addv r3,r3
 movt r9
 or r9,r8
 shal r1
 movt r9
 dt r0
-bf ln1253
+bf ln1256
 cmp/pl r9
 rotcl r8
 mov #-16,r0
@@ -142977,13 +143015,13 @@ Y568:
 mov.l @(8,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1254
+bf ln1257
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1254:
+ln1257:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -142991,11 +143029,11 @@ mov.w @r2,r3
 shll16 r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1255
+bf nobitover1258
 add #-31,r0
 mov #31,r1
 shld r1,r3
-nobitover1255:
+nobitover1258:
 dt r0
 shld r0,r3
 shll r3
@@ -143011,24 +143049,24 @@ Y570:
 mov.l @(8,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1256
+bf ln1259
 mov r2,r0
 mov.w @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-6,r7
-ln1256:
+ln1259:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 cmp/pl r9
-ln1257:
+ln1260:
 rotcl r3
 movt r8
 dt r0
 exts.w r3,r3
-bf/s ln1257
+bf/s ln1260
 cmp/pl r8
 mov r8,r9
 exts.w r3,r3
@@ -143040,24 +143078,24 @@ Y578:
 mov.l @(8,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1258
+bf ln1261
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1258:
+ln1261:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 clrt
-ln1259:
+ln1262:
 rotl r3
 movt r8
 dt r0
 exts.w r3,r3
-bf ln1259
+bf ln1262
 exts.w r3,r3
 mov.w r3,@r2
 jmp @r10
@@ -143098,11 +143136,11 @@ add r13,r2
 mov.l @r2,r3
 cmp/pl r9
 mov #2,r0
-ln1265:
+ln1268:
 rotcl r3
 movt r8
 dt r0
-bf/s ln1265
+bf/s ln1268
 cmp/pl r8
 mov r8,r9
 mov.l r3,@r2
@@ -143114,11 +143152,11 @@ add r13,r2
 mov.l @r2,r3
 clrt
 mov #2,r0
-ln1267:
+ln1270:
 rotl r3
 movt r8
 dt r0
-bf ln1267
+bf ln1270
 mov.l r3,@r2
 jmp @r10
 add #-12,r7
@@ -143127,27 +143165,27 @@ Y5A0:
 mov.l @(8,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1268
+bf ln1271
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1268:
+ln1271:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 mov r3,r1
 mov #0,r8
-ln1269:
+ln1272:
 addv r3,r3
 movt r9
 or r9,r8
 shal r1
 movt r9
 dt r0
-bf ln1269
+bf ln1272
 cmp/pl r9
 rotcl r8
 mov.l r3,@r2
@@ -143158,24 +143196,24 @@ Y5A8:
 mov.l @(8,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1270
+bf ln1273
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1270:
+ln1273:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1271
+bf nobitover1274
 add #-31,r0
 mov #31,r1
 shld r1,r3
-nobitover1271:
+nobitover1274:
 dt r0
 shld r0,r3
 shll r3
@@ -143189,23 +143227,23 @@ Y5B0:
 mov.l @(8,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1272
+bf ln1275
 mov r2,r0
 mov.l @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-8,r7
-ln1272:
+ln1275:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 cmp/pl r9
-ln1273:
+ln1276:
 rotcl r3
 movt r8
 dt r0
-bf/s ln1273
+bf/s ln1276
 cmp/pl r8
 mov r8,r9
 mov.l r3,@r2
@@ -143216,23 +143254,23 @@ Y5B8:
 mov.l @(8,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1274
+bf ln1277
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1274:
+ln1277:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 clrt
-ln1275:
+ln1278:
 rotl r3
 movt r8
 dt r0
-bf ln1275
+bf ln1278
 mov.l r3,@r2
 jmp @r10
 add #-8,r7
@@ -143400,7 +143438,7 @@ mov.b @r2,r3
 cmp/pl r9
 mov #3,r0
 extu.b r3,r3
-ln1281:
+ln1284:
 rotcr r3
 movt r8
 dt r0
@@ -143409,7 +143447,7 @@ shlr16 r1
 shlr8 r1
 or r1,r3
 extu.b r3,r3
-bf/s ln1281
+bf/s ln1284
 cmp/pl r8
 mov r8,r9
 exts.b r3,r3
@@ -143423,7 +143461,7 @@ mov.b @r2,r3
 clrt
 mov #3,r0
 extu.b r3,r3
-ln1283:
+ln1286:
 rotr r3
 movt r8
 dt r0
@@ -143432,7 +143470,7 @@ shlr16 r1
 shlr8 r1
 or r1,r3
 extu.b r3,r3
-bf ln1283
+bf ln1286
 exts.b r3,r3
 mov.b r3,@r2
 jmp @r10
@@ -143442,24 +143480,24 @@ Y620:
 mov.l @(12,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1284
+bf ln1287
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1284:
+ln1287:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1285
+bf nobitover1288
 add #-31,r0
 mov #-31,r1
 shad r1,r3
-nobitover1285:
+nobitover1288:
 dt r0
 neg r0,r0
 shad r0,r3
@@ -143475,13 +143513,13 @@ Y628:
 mov.l @(12,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1286
+bf ln1289
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1286:
+ln1289:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -143489,11 +143527,11 @@ mov.b @r2,r3
 extu.b r3,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1287
+bf nobitover1290
 add #-31,r0
 mov #-31,r1
 shld r1,r3
-nobitover1287:
+nobitover1290:
 dt r0
 neg r0,r0
 shld r0,r3
@@ -143509,20 +143547,20 @@ Y630:
 mov.l @(12,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1288
+bf ln1291
 mov r2,r0
 mov.b @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-6,r7
-ln1288:
+ln1291:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 cmp/pl r9
 extu.b r3,r3
-ln1289:
+ln1292:
 rotcr r3
 movt r8
 dt r0
@@ -143531,7 +143569,7 @@ shlr16 r1
 shlr8 r1
 or r1,r3
 extu.b r3,r3
-bf/s ln1289
+bf/s ln1292
 cmp/pl r8
 mov r8,r9
 exts.b r3,r3
@@ -143543,20 +143581,20 @@ Y638:
 mov.l @(12,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1290
+bf ln1293
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1290:
+ln1293:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 clrt
 extu.b r3,r3
-ln1291:
+ln1294:
 rotr r3
 movt r8
 dt r0
@@ -143565,7 +143603,7 @@ shlr16 r1
 shlr8 r1
 or r1,r3
 extu.b r3,r3
-bf ln1291
+bf ln1294
 exts.b r3,r3
 mov.b r3,@r2
 jmp @r10
@@ -143604,7 +143642,7 @@ mov.w @r2,r3
 cmp/pl r9
 mov #3,r0
 extu.w r3,r3
-ln1297:
+ln1300:
 rotcr r3
 movt r8
 dt r0
@@ -143612,7 +143650,7 @@ mov r3,r1
 shlr16 r1
 or r1,r3
 extu.w r3,r3
-bf/s ln1297
+bf/s ln1300
 cmp/pl r8
 mov r8,r9
 exts.w r3,r3
@@ -143626,7 +143664,7 @@ mov.w @r2,r3
 clrt
 mov #3,r0
 extu.w r3,r3
-ln1299:
+ln1302:
 rotr r3
 movt r8
 dt r0
@@ -143634,7 +143672,7 @@ mov r3,r1
 shlr16 r1
 or r1,r3
 extu.w r3,r3
-bf ln1299
+bf ln1302
 exts.w r3,r3
 mov.w r3,@r2
 jmp @r10
@@ -143644,24 +143682,24 @@ Y660:
 mov.l @(12,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1300
+bf ln1303
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1300:
+ln1303:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1301
+bf nobitover1304
 add #-31,r0
 mov #-31,r1
 shad r1,r3
-nobitover1301:
+nobitover1304:
 dt r0
 neg r0,r0
 shad r0,r3
@@ -143677,13 +143715,13 @@ Y668:
 mov.l @(12,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1302
+bf ln1305
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1302:
+ln1305:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -143691,11 +143729,11 @@ mov.w @r2,r3
 extu.w r3,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1303
+bf nobitover1306
 add #-31,r0
 mov #-31,r1
 shld r1,r3
-nobitover1303:
+nobitover1306:
 dt r0
 neg r0,r0
 shld r0,r3
@@ -143711,20 +143749,20 @@ Y670:
 mov.l @(12,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1304
+bf ln1307
 mov r2,r0
 mov.w @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-6,r7
-ln1304:
+ln1307:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 cmp/pl r9
 extu.w r3,r3
-ln1305:
+ln1308:
 rotcr r3
 movt r8
 dt r0
@@ -143732,7 +143770,7 @@ mov r3,r1
 shlr16 r1
 or r1,r3
 extu.w r3,r3
-bf/s ln1305
+bf/s ln1308
 cmp/pl r8
 mov r8,r9
 exts.w r3,r3
@@ -143744,20 +143782,20 @@ Y678:
 mov.l @(12,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1306
+bf ln1309
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1306:
+ln1309:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 clrt
 extu.w r3,r3
-ln1307:
+ln1310:
 rotr r3
 movt r8
 dt r0
@@ -143765,7 +143803,7 @@ mov r3,r1
 shlr16 r1
 or r1,r3
 extu.w r3,r3
-bf ln1307
+bf ln1310
 exts.w r3,r3
 mov.w r3,@r2
 jmp @r10
@@ -143800,11 +143838,11 @@ add r13,r2
 mov.l @r2,r3
 cmp/pl r9
 mov #3,r0
-ln1313:
+ln1316:
 rotcr r3
 movt r8
 dt r0
-bf/s ln1313
+bf/s ln1316
 cmp/pl r8
 mov r8,r9
 mov.l r3,@r2
@@ -143816,11 +143854,11 @@ add r13,r2
 mov.l @r2,r3
 clrt
 mov #3,r0
-ln1315:
+ln1318:
 rotr r3
 movt r8
 dt r0
-bf ln1315
+bf ln1318
 mov.l r3,@r2
 jmp @r10
 add #-14,r7
@@ -143829,24 +143867,24 @@ Y6A0:
 mov.l @(12,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1316
+bf ln1319
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1316:
+ln1319:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1317
+bf nobitover1320
 add #-31,r0
 mov #-31,r1
 shad r1,r3
-nobitover1317:
+nobitover1320:
 dt r0
 neg r0,r0
 shad r0,r3
@@ -143861,24 +143899,24 @@ Y6A8:
 mov.l @(12,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1318
+bf ln1321
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1318:
+ln1321:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1319
+bf nobitover1322
 add #-31,r0
 mov #-31,r1
 shld r1,r3
-nobitover1319:
+nobitover1322:
 dt r0
 neg r0,r0
 shld r0,r3
@@ -143893,23 +143931,23 @@ Y6B0:
 mov.l @(12,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1320
+bf ln1323
 mov r2,r0
 mov.l @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-8,r7
-ln1320:
+ln1323:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 cmp/pl r9
-ln1321:
+ln1324:
 rotcr r3
 movt r8
 dt r0
-bf/s ln1321
+bf/s ln1324
 cmp/pl r8
 mov r8,r9
 mov.l r3,@r2
@@ -143920,23 +143958,23 @@ Y6B8:
 mov.l @(12,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1322
+bf ln1325
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1322:
+ln1325:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 clrt
-ln1323:
+ln1326:
 rotr r3
 movt r8
 dt r0
-bf ln1323
+bf ln1326
 mov.l r3,@r2
 jmp @r10
 add #-8,r7
@@ -144131,12 +144169,12 @@ add r13,r2
 mov.b @r2,r3
 cmp/pl r9
 mov #3,r0
-ln1329:
+ln1332:
 rotcl r3
 movt r8
 dt r0
 exts.b r3,r3
-bf/s ln1329
+bf/s ln1332
 cmp/pl r8
 mov r8,r9
 exts.b r3,r3
@@ -144149,12 +144187,12 @@ add r13,r2
 mov.b @r2,r3
 clrt
 mov #3,r0
-ln1331:
+ln1334:
 rotl r3
 movt r8
 dt r0
 exts.b r3,r3
-bf ln1331
+bf ln1334
 exts.b r3,r3
 mov.b r3,@r2
 jmp @r10
@@ -144164,13 +144202,13 @@ Y720:
 mov.l @(12,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1332
+bf ln1335
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1332:
+ln1335:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -144179,14 +144217,14 @@ shll16 r3
 shll8 r3
 mov r3,r1
 mov #0,r8
-ln1333:
+ln1336:
 addv r3,r3
 movt r9
 or r9,r8
 shal r1
 movt r9
 dt r0
-bf ln1333
+bf ln1336
 cmp/pl r9
 rotcl r8
 mov #-24,r0
@@ -144199,13 +144237,13 @@ Y728:
 mov.l @(12,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1334
+bf ln1337
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1334:
+ln1337:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -144214,11 +144252,11 @@ shll16 r3
 shll8 r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1335
+bf nobitover1338
 add #-31,r0
 mov #31,r1
 shld r1,r3
-nobitover1335:
+nobitover1338:
 dt r0
 shld r0,r3
 shll r3
@@ -144234,24 +144272,24 @@ Y730:
 mov.l @(12,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1336
+bf ln1339
 mov r2,r0
 mov.b @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-6,r7
-ln1336:
+ln1339:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 cmp/pl r9
-ln1337:
+ln1340:
 rotcl r3
 movt r8
 dt r0
 exts.b r3,r3
-bf/s ln1337
+bf/s ln1340
 cmp/pl r8
 mov r8,r9
 exts.b r3,r3
@@ -144263,24 +144301,24 @@ Y738:
 mov.l @(12,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1338
+bf ln1341
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1338:
+ln1341:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 clrt
-ln1339:
+ln1342:
 rotl r3
 movt r8
 dt r0
 exts.b r3,r3
-bf ln1339
+bf ln1342
 exts.b r3,r3
 mov.b r3,@r2
 jmp @r10
@@ -144330,12 +144368,12 @@ add r13,r2
 mov.w @r2,r3
 cmp/pl r9
 mov #3,r0
-ln1345:
+ln1348:
 rotcl r3
 movt r8
 dt r0
 exts.w r3,r3
-bf/s ln1345
+bf/s ln1348
 cmp/pl r8
 mov r8,r9
 exts.w r3,r3
@@ -144348,12 +144386,12 @@ add r13,r2
 mov.w @r2,r3
 clrt
 mov #3,r0
-ln1347:
+ln1350:
 rotl r3
 movt r8
 dt r0
 exts.w r3,r3
-bf ln1347
+bf ln1350
 exts.w r3,r3
 mov.w r3,@r2
 jmp @r10
@@ -144363,13 +144401,13 @@ Y760:
 mov.l @(12,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1348
+bf ln1351
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1348:
+ln1351:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -144377,14 +144415,14 @@ mov.w @r2,r3
 shll16 r3
 mov r3,r1
 mov #0,r8
-ln1349:
+ln1352:
 addv r3,r3
 movt r9
 or r9,r8
 shal r1
 movt r9
 dt r0
-bf ln1349
+bf ln1352
 cmp/pl r9
 rotcl r8
 mov #-16,r0
@@ -144397,13 +144435,13 @@ Y768:
 mov.l @(12,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1350
+bf ln1353
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1350:
+ln1353:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -144411,11 +144449,11 @@ mov.w @r2,r3
 shll16 r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1351
+bf nobitover1354
 add #-31,r0
 mov #31,r1
 shld r1,r3
-nobitover1351:
+nobitover1354:
 dt r0
 shld r0,r3
 shll r3
@@ -144431,24 +144469,24 @@ Y770:
 mov.l @(12,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1352
+bf ln1355
 mov r2,r0
 mov.w @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-6,r7
-ln1352:
+ln1355:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 cmp/pl r9
-ln1353:
+ln1356:
 rotcl r3
 movt r8
 dt r0
 exts.w r3,r3
-bf/s ln1353
+bf/s ln1356
 cmp/pl r8
 mov r8,r9
 exts.w r3,r3
@@ -144460,24 +144498,24 @@ Y778:
 mov.l @(12,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1354
+bf ln1357
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1354:
+ln1357:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 clrt
-ln1355:
+ln1358:
 rotl r3
 movt r8
 dt r0
 exts.w r3,r3
-bf ln1355
+bf ln1358
 exts.w r3,r3
 mov.w r3,@r2
 jmp @r10
@@ -144521,11 +144559,11 @@ add r13,r2
 mov.l @r2,r3
 cmp/pl r9
 mov #3,r0
-ln1361:
+ln1364:
 rotcl r3
 movt r8
 dt r0
-bf/s ln1361
+bf/s ln1364
 cmp/pl r8
 mov r8,r9
 mov.l r3,@r2
@@ -144537,11 +144575,11 @@ add r13,r2
 mov.l @r2,r3
 clrt
 mov #3,r0
-ln1363:
+ln1366:
 rotl r3
 movt r8
 dt r0
-bf ln1363
+bf ln1366
 mov.l r3,@r2
 jmp @r10
 add #-14,r7
@@ -144550,27 +144588,27 @@ Y7A0:
 mov.l @(12,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1364
+bf ln1367
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1364:
+ln1367:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 mov r3,r1
 mov #0,r8
-ln1365:
+ln1368:
 addv r3,r3
 movt r9
 or r9,r8
 shal r1
 movt r9
 dt r0
-bf ln1365
+bf ln1368
 cmp/pl r9
 rotcl r8
 mov.l r3,@r2
@@ -144581,24 +144619,24 @@ Y7A8:
 mov.l @(12,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1366
+bf ln1369
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1366:
+ln1369:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1367
+bf nobitover1370
 add #-31,r0
 mov #31,r1
 shld r1,r3
-nobitover1367:
+nobitover1370:
 dt r0
 shld r0,r3
 shll r3
@@ -144612,23 +144650,23 @@ Y7B0:
 mov.l @(12,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1368
+bf ln1371
 mov r2,r0
 mov.l @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-8,r7
-ln1368:
+ln1371:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 cmp/pl r9
-ln1369:
+ln1372:
 rotcl r3
 movt r8
 dt r0
-bf/s ln1369
+bf/s ln1372
 cmp/pl r8
 mov r8,r9
 mov.l r3,@r2
@@ -144639,23 +144677,23 @@ Y7B8:
 mov.l @(12,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1370
+bf ln1373
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1370:
+ln1373:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 clrt
-ln1371:
+ln1374:
 rotl r3
 movt r8
 dt r0
-bf ln1371
+bf ln1374
 mov.l r3,@r2
 jmp @r10
 add #-8,r7
@@ -144809,7 +144847,7 @@ mov.b @r2,r3
 cmp/pl r9
 mov #4,r0
 extu.b r3,r3
-ln1377:
+ln1380:
 rotcr r3
 movt r8
 dt r0
@@ -144818,7 +144856,7 @@ shlr16 r1
 shlr8 r1
 or r1,r3
 extu.b r3,r3
-bf/s ln1377
+bf/s ln1380
 cmp/pl r8
 mov r8,r9
 exts.b r3,r3
@@ -144832,7 +144870,7 @@ mov.b @r2,r3
 clrt
 mov #4,r0
 extu.b r3,r3
-ln1379:
+ln1382:
 rotr r3
 movt r8
 dt r0
@@ -144841,7 +144879,7 @@ shlr16 r1
 shlr8 r1
 or r1,r3
 extu.b r3,r3
-bf ln1379
+bf ln1382
 exts.b r3,r3
 mov.b r3,@r2
 jmp @r10
@@ -144851,24 +144889,24 @@ Y820:
 mov.l @(16,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1380
+bf ln1383
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1380:
+ln1383:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1381
+bf nobitover1384
 add #-31,r0
 mov #-31,r1
 shad r1,r3
-nobitover1381:
+nobitover1384:
 dt r0
 neg r0,r0
 shad r0,r3
@@ -144884,13 +144922,13 @@ Y828:
 mov.l @(16,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1382
+bf ln1385
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1382:
+ln1385:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -144898,11 +144936,11 @@ mov.b @r2,r3
 extu.b r3,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1383
+bf nobitover1386
 add #-31,r0
 mov #-31,r1
 shld r1,r3
-nobitover1383:
+nobitover1386:
 dt r0
 neg r0,r0
 shld r0,r3
@@ -144918,20 +144956,20 @@ Y830:
 mov.l @(16,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1384
+bf ln1387
 mov r2,r0
 mov.b @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-6,r7
-ln1384:
+ln1387:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 cmp/pl r9
 extu.b r3,r3
-ln1385:
+ln1388:
 rotcr r3
 movt r8
 dt r0
@@ -144940,7 +144978,7 @@ shlr16 r1
 shlr8 r1
 or r1,r3
 extu.b r3,r3
-bf/s ln1385
+bf/s ln1388
 cmp/pl r8
 mov r8,r9
 exts.b r3,r3
@@ -144952,20 +144990,20 @@ Y838:
 mov.l @(16,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1386
+bf ln1389
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1386:
+ln1389:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 clrt
 extu.b r3,r3
-ln1387:
+ln1390:
 rotr r3
 movt r8
 dt r0
@@ -144974,7 +145012,7 @@ shlr16 r1
 shlr8 r1
 or r1,r3
 extu.b r3,r3
-bf ln1387
+bf ln1390
 exts.b r3,r3
 mov.b r3,@r2
 jmp @r10
@@ -145013,7 +145051,7 @@ mov.w @r2,r3
 cmp/pl r9
 mov #4,r0
 extu.w r3,r3
-ln1393:
+ln1396:
 rotcr r3
 movt r8
 dt r0
@@ -145021,7 +145059,7 @@ mov r3,r1
 shlr16 r1
 or r1,r3
 extu.w r3,r3
-bf/s ln1393
+bf/s ln1396
 cmp/pl r8
 mov r8,r9
 exts.w r3,r3
@@ -145035,7 +145073,7 @@ mov.w @r2,r3
 clrt
 mov #4,r0
 extu.w r3,r3
-ln1395:
+ln1398:
 rotr r3
 movt r8
 dt r0
@@ -145043,7 +145081,7 @@ mov r3,r1
 shlr16 r1
 or r1,r3
 extu.w r3,r3
-bf ln1395
+bf ln1398
 exts.w r3,r3
 mov.w r3,@r2
 jmp @r10
@@ -145053,24 +145091,24 @@ Y860:
 mov.l @(16,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1396
+bf ln1399
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1396:
+ln1399:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1397
+bf nobitover1400
 add #-31,r0
 mov #-31,r1
 shad r1,r3
-nobitover1397:
+nobitover1400:
 dt r0
 neg r0,r0
 shad r0,r3
@@ -145086,13 +145124,13 @@ Y868:
 mov.l @(16,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1398
+bf ln1401
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1398:
+ln1401:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -145100,11 +145138,11 @@ mov.w @r2,r3
 extu.w r3,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1399
+bf nobitover1402
 add #-31,r0
 mov #-31,r1
 shld r1,r3
-nobitover1399:
+nobitover1402:
 dt r0
 neg r0,r0
 shld r0,r3
@@ -145120,20 +145158,20 @@ Y870:
 mov.l @(16,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1400
+bf ln1403
 mov r2,r0
 mov.w @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-6,r7
-ln1400:
+ln1403:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 cmp/pl r9
 extu.w r3,r3
-ln1401:
+ln1404:
 rotcr r3
 movt r8
 dt r0
@@ -145141,7 +145179,7 @@ mov r3,r1
 shlr16 r1
 or r1,r3
 extu.w r3,r3
-bf/s ln1401
+bf/s ln1404
 cmp/pl r8
 mov r8,r9
 exts.w r3,r3
@@ -145153,20 +145191,20 @@ Y878:
 mov.l @(16,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1402
+bf ln1405
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1402:
+ln1405:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 clrt
 extu.w r3,r3
-ln1403:
+ln1406:
 rotr r3
 movt r8
 dt r0
@@ -145174,7 +145212,7 @@ mov r3,r1
 shlr16 r1
 or r1,r3
 extu.w r3,r3
-bf ln1403
+bf ln1406
 exts.w r3,r3
 mov.w r3,@r2
 jmp @r10
@@ -145209,11 +145247,11 @@ add r13,r2
 mov.l @r2,r3
 cmp/pl r9
 mov #4,r0
-ln1409:
+ln1412:
 rotcr r3
 movt r8
 dt r0
-bf/s ln1409
+bf/s ln1412
 cmp/pl r8
 mov r8,r9
 mov.l r3,@r2
@@ -145225,11 +145263,11 @@ add r13,r2
 mov.l @r2,r3
 clrt
 mov #4,r0
-ln1411:
+ln1414:
 rotr r3
 movt r8
 dt r0
-bf ln1411
+bf ln1414
 mov.l r3,@r2
 jmp @r10
 add #-16,r7
@@ -145238,24 +145276,24 @@ Y8A0:
 mov.l @(16,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1412
+bf ln1415
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1412:
+ln1415:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1413
+bf nobitover1416
 add #-31,r0
 mov #-31,r1
 shad r1,r3
-nobitover1413:
+nobitover1416:
 dt r0
 neg r0,r0
 shad r0,r3
@@ -145270,24 +145308,24 @@ Y8A8:
 mov.l @(16,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1414
+bf ln1417
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1414:
+ln1417:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1415
+bf nobitover1418
 add #-31,r0
 mov #-31,r1
 shld r1,r3
-nobitover1415:
+nobitover1418:
 dt r0
 neg r0,r0
 shld r0,r3
@@ -145302,23 +145340,23 @@ Y8B0:
 mov.l @(16,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1416
+bf ln1419
 mov r2,r0
 mov.l @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-8,r7
-ln1416:
+ln1419:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 cmp/pl r9
-ln1417:
+ln1420:
 rotcr r3
 movt r8
 dt r0
-bf/s ln1417
+bf/s ln1420
 cmp/pl r8
 mov r8,r9
 mov.l r3,@r2
@@ -145329,23 +145367,23 @@ Y8B8:
 mov.l @(16,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1418
+bf ln1421
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1418:
+ln1421:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 clrt
-ln1419:
+ln1422:
 rotr r3
 movt r8
 dt r0
-bf ln1419
+bf ln1422
 mov.l r3,@r2
 jmp @r10
 add #-8,r7
@@ -145399,12 +145437,12 @@ add r13,r2
 mov.b @r2,r3
 cmp/pl r9
 mov #4,r0
-ln1425:
+ln1428:
 rotcl r3
 movt r8
 dt r0
 exts.b r3,r3
-bf/s ln1425
+bf/s ln1428
 cmp/pl r8
 mov r8,r9
 exts.b r3,r3
@@ -145417,12 +145455,12 @@ add r13,r2
 mov.b @r2,r3
 clrt
 mov #4,r0
-ln1427:
+ln1430:
 rotl r3
 movt r8
 dt r0
 exts.b r3,r3
-bf ln1427
+bf ln1430
 exts.b r3,r3
 mov.b r3,@r2
 jmp @r10
@@ -145432,13 +145470,13 @@ Y920:
 mov.l @(16,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1428
+bf ln1431
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1428:
+ln1431:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -145447,14 +145485,14 @@ shll16 r3
 shll8 r3
 mov r3,r1
 mov #0,r8
-ln1429:
+ln1432:
 addv r3,r3
 movt r9
 or r9,r8
 shal r1
 movt r9
 dt r0
-bf ln1429
+bf ln1432
 cmp/pl r9
 rotcl r8
 mov #-24,r0
@@ -145467,13 +145505,13 @@ Y928:
 mov.l @(16,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1430
+bf ln1433
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1430:
+ln1433:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -145482,11 +145520,11 @@ shll16 r3
 shll8 r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1431
+bf nobitover1434
 add #-31,r0
 mov #31,r1
 shld r1,r3
-nobitover1431:
+nobitover1434:
 dt r0
 shld r0,r3
 shll r3
@@ -145502,24 +145540,24 @@ Y930:
 mov.l @(16,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1432
+bf ln1435
 mov r2,r0
 mov.b @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-6,r7
-ln1432:
+ln1435:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 cmp/pl r9
-ln1433:
+ln1436:
 rotcl r3
 movt r8
 dt r0
 exts.b r3,r3
-bf/s ln1433
+bf/s ln1436
 cmp/pl r8
 mov r8,r9
 exts.b r3,r3
@@ -145531,24 +145569,24 @@ Y938:
 mov.l @(16,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1434
+bf ln1437
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1434:
+ln1437:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 clrt
-ln1435:
+ln1438:
 rotl r3
 movt r8
 dt r0
 exts.b r3,r3
-bf ln1435
+bf ln1438
 exts.b r3,r3
 mov.b r3,@r2
 jmp @r10
@@ -145601,12 +145639,12 @@ add r13,r2
 mov.w @r2,r3
 cmp/pl r9
 mov #4,r0
-ln1441:
+ln1444:
 rotcl r3
 movt r8
 dt r0
 exts.w r3,r3
-bf/s ln1441
+bf/s ln1444
 cmp/pl r8
 mov r8,r9
 exts.w r3,r3
@@ -145619,12 +145657,12 @@ add r13,r2
 mov.w @r2,r3
 clrt
 mov #4,r0
-ln1443:
+ln1446:
 rotl r3
 movt r8
 dt r0
 exts.w r3,r3
-bf ln1443
+bf ln1446
 exts.w r3,r3
 mov.w r3,@r2
 jmp @r10
@@ -145634,13 +145672,13 @@ Y960:
 mov.l @(16,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1444
+bf ln1447
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1444:
+ln1447:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -145648,14 +145686,14 @@ mov.w @r2,r3
 shll16 r3
 mov r3,r1
 mov #0,r8
-ln1445:
+ln1448:
 addv r3,r3
 movt r9
 or r9,r8
 shal r1
 movt r9
 dt r0
-bf ln1445
+bf ln1448
 cmp/pl r9
 rotcl r8
 mov #-16,r0
@@ -145668,13 +145706,13 @@ Y968:
 mov.l @(16,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1446
+bf ln1449
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1446:
+ln1449:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -145682,11 +145720,11 @@ mov.w @r2,r3
 shll16 r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1447
+bf nobitover1450
 add #-31,r0
 mov #31,r1
 shld r1,r3
-nobitover1447:
+nobitover1450:
 dt r0
 shld r0,r3
 shll r3
@@ -145702,24 +145740,24 @@ Y970:
 mov.l @(16,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1448
+bf ln1451
 mov r2,r0
 mov.w @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-6,r7
-ln1448:
+ln1451:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 cmp/pl r9
-ln1449:
+ln1452:
 rotcl r3
 movt r8
 dt r0
 exts.w r3,r3
-bf/s ln1449
+bf/s ln1452
 cmp/pl r8
 mov r8,r9
 exts.w r3,r3
@@ -145731,24 +145769,24 @@ Y978:
 mov.l @(16,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1450
+bf ln1453
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1450:
+ln1453:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 clrt
-ln1451:
+ln1454:
 rotl r3
 movt r8
 dt r0
 exts.w r3,r3
-bf ln1451
+bf ln1454
 exts.w r3,r3
 mov.w r3,@r2
 jmp @r10
@@ -145795,11 +145833,11 @@ add r13,r2
 mov.l @r2,r3
 cmp/pl r9
 mov #4,r0
-ln1457:
+ln1460:
 rotcl r3
 movt r8
 dt r0
-bf/s ln1457
+bf/s ln1460
 cmp/pl r8
 mov r8,r9
 mov.l r3,@r2
@@ -145811,11 +145849,11 @@ add r13,r2
 mov.l @r2,r3
 clrt
 mov #4,r0
-ln1459:
+ln1462:
 rotl r3
 movt r8
 dt r0
-bf ln1459
+bf ln1462
 mov.l r3,@r2
 jmp @r10
 add #-16,r7
@@ -145824,27 +145862,27 @@ Y9A0:
 mov.l @(16,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1460
+bf ln1463
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1460:
+ln1463:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 mov r3,r1
 mov #0,r8
-ln1461:
+ln1464:
 addv r3,r3
 movt r9
 or r9,r8
 shal r1
 movt r9
 dt r0
-bf ln1461
+bf ln1464
 cmp/pl r9
 rotcl r8
 mov.l r3,@r2
@@ -145855,24 +145893,24 @@ Y9A8:
 mov.l @(16,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1462
+bf ln1465
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1462:
+ln1465:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1463
+bf nobitover1466
 add #-31,r0
 mov #31,r1
 shld r1,r3
-nobitover1463:
+nobitover1466:
 dt r0
 shld r0,r3
 shll r3
@@ -145886,23 +145924,23 @@ Y9B0:
 mov.l @(16,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1464
+bf ln1467
 mov r2,r0
 mov.l @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-8,r7
-ln1464:
+ln1467:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 cmp/pl r9
-ln1465:
+ln1468:
 rotcl r3
 movt r8
 dt r0
-bf/s ln1465
+bf/s ln1468
 cmp/pl r8
 mov r8,r9
 mov.l r3,@r2
@@ -145913,23 +145951,23 @@ Y9B8:
 mov.l @(16,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1466
+bf ln1469
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1466:
+ln1469:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 clrt
-ln1467:
+ln1470:
 rotl r3
 movt r8
 dt r0
-bf ln1467
+bf ln1470
 mov.l r3,@r2
 jmp @r10
 add #-8,r7
@@ -145967,7 +146005,7 @@ mov.b @r2,r3
 cmp/pl r9
 mov #5,r0
 extu.b r3,r3
-ln1473:
+ln1476:
 rotcr r3
 movt r8
 dt r0
@@ -145976,7 +146014,7 @@ shlr16 r1
 shlr8 r1
 or r1,r3
 extu.b r3,r3
-bf/s ln1473
+bf/s ln1476
 cmp/pl r8
 mov r8,r9
 exts.b r3,r3
@@ -145990,7 +146028,7 @@ mov.b @r2,r3
 clrt
 mov #5,r0
 extu.b r3,r3
-ln1475:
+ln1478:
 rotr r3
 movt r8
 dt r0
@@ -145999,7 +146037,7 @@ shlr16 r1
 shlr8 r1
 or r1,r3
 extu.b r3,r3
-bf ln1475
+bf ln1478
 exts.b r3,r3
 mov.b r3,@r2
 jmp @r10
@@ -146009,24 +146047,24 @@ YA20:
 mov.l @(20,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1476
+bf ln1479
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1476:
+ln1479:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1477
+bf nobitover1480
 add #-31,r0
 mov #-31,r1
 shad r1,r3
-nobitover1477:
+nobitover1480:
 dt r0
 neg r0,r0
 shad r0,r3
@@ -146042,13 +146080,13 @@ YA28:
 mov.l @(20,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1478
+bf ln1481
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1478:
+ln1481:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -146056,11 +146094,11 @@ mov.b @r2,r3
 extu.b r3,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1479
+bf nobitover1482
 add #-31,r0
 mov #-31,r1
 shld r1,r3
-nobitover1479:
+nobitover1482:
 dt r0
 neg r0,r0
 shld r0,r3
@@ -146076,20 +146114,20 @@ YA30:
 mov.l @(20,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1480
+bf ln1483
 mov r2,r0
 mov.b @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-6,r7
-ln1480:
+ln1483:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 cmp/pl r9
 extu.b r3,r3
-ln1481:
+ln1484:
 rotcr r3
 movt r8
 dt r0
@@ -146098,7 +146136,7 @@ shlr16 r1
 shlr8 r1
 or r1,r3
 extu.b r3,r3
-bf/s ln1481
+bf/s ln1484
 cmp/pl r8
 mov r8,r9
 exts.b r3,r3
@@ -146110,20 +146148,20 @@ YA38:
 mov.l @(20,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1482
+bf ln1485
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1482:
+ln1485:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 clrt
 extu.b r3,r3
-ln1483:
+ln1486:
 rotr r3
 movt r8
 dt r0
@@ -146132,7 +146170,7 @@ shlr16 r1
 shlr8 r1
 or r1,r3
 extu.b r3,r3
-bf ln1483
+bf ln1486
 exts.b r3,r3
 mov.b r3,@r2
 jmp @r10
@@ -146171,7 +146209,7 @@ mov.w @r2,r3
 cmp/pl r9
 mov #5,r0
 extu.w r3,r3
-ln1489:
+ln1492:
 rotcr r3
 movt r8
 dt r0
@@ -146179,7 +146217,7 @@ mov r3,r1
 shlr16 r1
 or r1,r3
 extu.w r3,r3
-bf/s ln1489
+bf/s ln1492
 cmp/pl r8
 mov r8,r9
 exts.w r3,r3
@@ -146193,7 +146231,7 @@ mov.w @r2,r3
 clrt
 mov #5,r0
 extu.w r3,r3
-ln1491:
+ln1494:
 rotr r3
 movt r8
 dt r0
@@ -146201,7 +146239,7 @@ mov r3,r1
 shlr16 r1
 or r1,r3
 extu.w r3,r3
-bf ln1491
+bf ln1494
 exts.w r3,r3
 mov.w r3,@r2
 jmp @r10
@@ -146211,24 +146249,24 @@ YA60:
 mov.l @(20,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1492
+bf ln1495
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1492:
+ln1495:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1493
+bf nobitover1496
 add #-31,r0
 mov #-31,r1
 shad r1,r3
-nobitover1493:
+nobitover1496:
 dt r0
 neg r0,r0
 shad r0,r3
@@ -146244,13 +146282,13 @@ YA68:
 mov.l @(20,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1494
+bf ln1497
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1494:
+ln1497:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -146258,11 +146296,11 @@ mov.w @r2,r3
 extu.w r3,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1495
+bf nobitover1498
 add #-31,r0
 mov #-31,r1
 shld r1,r3
-nobitover1495:
+nobitover1498:
 dt r0
 neg r0,r0
 shld r0,r3
@@ -146278,20 +146316,20 @@ YA70:
 mov.l @(20,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1496
+bf ln1499
 mov r2,r0
 mov.w @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-6,r7
-ln1496:
+ln1499:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 cmp/pl r9
 extu.w r3,r3
-ln1497:
+ln1500:
 rotcr r3
 movt r8
 dt r0
@@ -146299,7 +146337,7 @@ mov r3,r1
 shlr16 r1
 or r1,r3
 extu.w r3,r3
-bf/s ln1497
+bf/s ln1500
 cmp/pl r8
 mov r8,r9
 exts.w r3,r3
@@ -146311,20 +146349,20 @@ YA78:
 mov.l @(20,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1498
+bf ln1501
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1498:
+ln1501:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 clrt
 extu.w r3,r3
-ln1499:
+ln1502:
 rotr r3
 movt r8
 dt r0
@@ -146332,7 +146370,7 @@ mov r3,r1
 shlr16 r1
 or r1,r3
 extu.w r3,r3
-bf ln1499
+bf ln1502
 exts.w r3,r3
 mov.w r3,@r2
 jmp @r10
@@ -146367,11 +146405,11 @@ add r13,r2
 mov.l @r2,r3
 cmp/pl r9
 mov #5,r0
-ln1505:
+ln1508:
 rotcr r3
 movt r8
 dt r0
-bf/s ln1505
+bf/s ln1508
 cmp/pl r8
 mov r8,r9
 mov.l r3,@r2
@@ -146383,11 +146421,11 @@ add r13,r2
 mov.l @r2,r3
 clrt
 mov #5,r0
-ln1507:
+ln1510:
 rotr r3
 movt r8
 dt r0
-bf ln1507
+bf ln1510
 mov.l r3,@r2
 jmp @r10
 add #-18,r7
@@ -146396,24 +146434,24 @@ YAA0:
 mov.l @(20,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1508
+bf ln1511
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1508:
+ln1511:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1509
+bf nobitover1512
 add #-31,r0
 mov #-31,r1
 shad r1,r3
-nobitover1509:
+nobitover1512:
 dt r0
 neg r0,r0
 shad r0,r3
@@ -146428,24 +146466,24 @@ YAA8:
 mov.l @(20,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1510
+bf ln1513
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1510:
+ln1513:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1511
+bf nobitover1514
 add #-31,r0
 mov #-31,r1
 shld r1,r3
-nobitover1511:
+nobitover1514:
 dt r0
 neg r0,r0
 shld r0,r3
@@ -146460,23 +146498,23 @@ YAB0:
 mov.l @(20,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1512
+bf ln1515
 mov r2,r0
 mov.l @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-8,r7
-ln1512:
+ln1515:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 cmp/pl r9
-ln1513:
+ln1516:
 rotcr r3
 movt r8
 dt r0
-bf/s ln1513
+bf/s ln1516
 cmp/pl r8
 mov r8,r9
 mov.l r3,@r2
@@ -146487,23 +146525,23 @@ YAB8:
 mov.l @(20,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1514
+bf ln1517
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1514:
+ln1517:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 clrt
-ln1515:
+ln1518:
 rotr r3
 movt r8
 dt r0
-bf ln1515
+bf ln1518
 mov.l r3,@r2
 jmp @r10
 add #-8,r7
@@ -146560,12 +146598,12 @@ add r13,r2
 mov.b @r2,r3
 cmp/pl r9
 mov #5,r0
-ln1521:
+ln1524:
 rotcl r3
 movt r8
 dt r0
 exts.b r3,r3
-bf/s ln1521
+bf/s ln1524
 cmp/pl r8
 mov r8,r9
 exts.b r3,r3
@@ -146578,12 +146616,12 @@ add r13,r2
 mov.b @r2,r3
 clrt
 mov #5,r0
-ln1523:
+ln1526:
 rotl r3
 movt r8
 dt r0
 exts.b r3,r3
-bf ln1523
+bf ln1526
 exts.b r3,r3
 mov.b r3,@r2
 jmp @r10
@@ -146593,13 +146631,13 @@ YB20:
 mov.l @(20,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1524
+bf ln1527
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1524:
+ln1527:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -146608,14 +146646,14 @@ shll16 r3
 shll8 r3
 mov r3,r1
 mov #0,r8
-ln1525:
+ln1528:
 addv r3,r3
 movt r9
 or r9,r8
 shal r1
 movt r9
 dt r0
-bf ln1525
+bf ln1528
 cmp/pl r9
 rotcl r8
 mov #-24,r0
@@ -146628,13 +146666,13 @@ YB28:
 mov.l @(20,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1526
+bf ln1529
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1526:
+ln1529:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -146643,11 +146681,11 @@ shll16 r3
 shll8 r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1527
+bf nobitover1530
 add #-31,r0
 mov #31,r1
 shld r1,r3
-nobitover1527:
+nobitover1530:
 dt r0
 shld r0,r3
 shll r3
@@ -146663,24 +146701,24 @@ YB30:
 mov.l @(20,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1528
+bf ln1531
 mov r2,r0
 mov.b @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-6,r7
-ln1528:
+ln1531:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 cmp/pl r9
-ln1529:
+ln1532:
 rotcl r3
 movt r8
 dt r0
 exts.b r3,r3
-bf/s ln1529
+bf/s ln1532
 cmp/pl r8
 mov r8,r9
 exts.b r3,r3
@@ -146692,24 +146730,24 @@ YB38:
 mov.l @(20,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1530
+bf ln1533
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1530:
+ln1533:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 clrt
-ln1531:
+ln1534:
 rotl r3
 movt r8
 dt r0
 exts.b r3,r3
-bf ln1531
+bf ln1534
 exts.b r3,r3
 mov.b r3,@r2
 jmp @r10
@@ -146765,12 +146803,12 @@ add r13,r2
 mov.w @r2,r3
 cmp/pl r9
 mov #5,r0
-ln1537:
+ln1540:
 rotcl r3
 movt r8
 dt r0
 exts.w r3,r3
-bf/s ln1537
+bf/s ln1540
 cmp/pl r8
 mov r8,r9
 exts.w r3,r3
@@ -146783,12 +146821,12 @@ add r13,r2
 mov.w @r2,r3
 clrt
 mov #5,r0
-ln1539:
+ln1542:
 rotl r3
 movt r8
 dt r0
 exts.w r3,r3
-bf ln1539
+bf ln1542
 exts.w r3,r3
 mov.w r3,@r2
 jmp @r10
@@ -146798,13 +146836,13 @@ YB60:
 mov.l @(20,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1540
+bf ln1543
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1540:
+ln1543:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -146812,14 +146850,14 @@ mov.w @r2,r3
 shll16 r3
 mov r3,r1
 mov #0,r8
-ln1541:
+ln1544:
 addv r3,r3
 movt r9
 or r9,r8
 shal r1
 movt r9
 dt r0
-bf ln1541
+bf ln1544
 cmp/pl r9
 rotcl r8
 mov #-16,r0
@@ -146832,13 +146870,13 @@ YB68:
 mov.l @(20,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1542
+bf ln1545
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1542:
+ln1545:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -146846,11 +146884,11 @@ mov.w @r2,r3
 shll16 r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1543
+bf nobitover1546
 add #-31,r0
 mov #31,r1
 shld r1,r3
-nobitover1543:
+nobitover1546:
 dt r0
 shld r0,r3
 shll r3
@@ -146866,24 +146904,24 @@ YB70:
 mov.l @(20,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1544
+bf ln1547
 mov r2,r0
 mov.w @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-6,r7
-ln1544:
+ln1547:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 cmp/pl r9
-ln1545:
+ln1548:
 rotcl r3
 movt r8
 dt r0
 exts.w r3,r3
-bf/s ln1545
+bf/s ln1548
 cmp/pl r8
 mov r8,r9
 exts.w r3,r3
@@ -146895,24 +146933,24 @@ YB78:
 mov.l @(20,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1546
+bf ln1549
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1546:
+ln1549:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 clrt
-ln1547:
+ln1550:
 rotl r3
 movt r8
 dt r0
 exts.w r3,r3
-bf ln1547
+bf ln1550
 exts.w r3,r3
 mov.w r3,@r2
 jmp @r10
@@ -146962,11 +147000,11 @@ add r13,r2
 mov.l @r2,r3
 cmp/pl r9
 mov #5,r0
-ln1553:
+ln1556:
 rotcl r3
 movt r8
 dt r0
-bf/s ln1553
+bf/s ln1556
 cmp/pl r8
 mov r8,r9
 mov.l r3,@r2
@@ -146978,11 +147016,11 @@ add r13,r2
 mov.l @r2,r3
 clrt
 mov #5,r0
-ln1555:
+ln1558:
 rotl r3
 movt r8
 dt r0
-bf ln1555
+bf ln1558
 mov.l r3,@r2
 jmp @r10
 add #-18,r7
@@ -146991,27 +147029,27 @@ YBA0:
 mov.l @(20,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1556
+bf ln1559
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1556:
+ln1559:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 mov r3,r1
 mov #0,r8
-ln1557:
+ln1560:
 addv r3,r3
 movt r9
 or r9,r8
 shal r1
 movt r9
 dt r0
-bf ln1557
+bf ln1560
 cmp/pl r9
 rotcl r8
 mov.l r3,@r2
@@ -147022,24 +147060,24 @@ YBA8:
 mov.l @(20,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1558
+bf ln1561
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1558:
+ln1561:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1559
+bf nobitover1562
 add #-31,r0
 mov #31,r1
 shld r1,r3
-nobitover1559:
+nobitover1562:
 dt r0
 shld r0,r3
 shll r3
@@ -147053,23 +147091,23 @@ YBB0:
 mov.l @(20,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1560
+bf ln1563
 mov r2,r0
 mov.l @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-8,r7
-ln1560:
+ln1563:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 cmp/pl r9
-ln1561:
+ln1564:
 rotcl r3
 movt r8
 dt r0
-bf/s ln1561
+bf/s ln1564
 cmp/pl r8
 mov r8,r9
 mov.l r3,@r2
@@ -147080,23 +147118,23 @@ YBB8:
 mov.l @(20,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1562
+bf ln1565
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1562:
+ln1565:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 clrt
-ln1563:
+ln1566:
 rotl r3
 movt r8
 dt r0
-bf ln1563
+bf ln1566
 mov.l r3,@r2
 jmp @r10
 add #-8,r7
@@ -147134,7 +147172,7 @@ mov.b @r2,r3
 cmp/pl r9
 mov #6,r0
 extu.b r3,r3
-ln1569:
+ln1572:
 rotcr r3
 movt r8
 dt r0
@@ -147143,7 +147181,7 @@ shlr16 r1
 shlr8 r1
 or r1,r3
 extu.b r3,r3
-bf/s ln1569
+bf/s ln1572
 cmp/pl r8
 mov r8,r9
 exts.b r3,r3
@@ -147157,7 +147195,7 @@ mov.b @r2,r3
 clrt
 mov #6,r0
 extu.b r3,r3
-ln1571:
+ln1574:
 rotr r3
 movt r8
 dt r0
@@ -147166,7 +147204,7 @@ shlr16 r1
 shlr8 r1
 or r1,r3
 extu.b r3,r3
-bf ln1571
+bf ln1574
 exts.b r3,r3
 mov.b r3,@r2
 jmp @r10
@@ -147176,24 +147214,24 @@ YC20:
 mov.l @(24,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1572
+bf ln1575
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1572:
+ln1575:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1573
+bf nobitover1576
 add #-31,r0
 mov #-31,r1
 shad r1,r3
-nobitover1573:
+nobitover1576:
 dt r0
 neg r0,r0
 shad r0,r3
@@ -147209,13 +147247,13 @@ YC28:
 mov.l @(24,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1574
+bf ln1577
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1574:
+ln1577:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -147223,11 +147261,11 @@ mov.b @r2,r3
 extu.b r3,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1575
+bf nobitover1578
 add #-31,r0
 mov #-31,r1
 shld r1,r3
-nobitover1575:
+nobitover1578:
 dt r0
 neg r0,r0
 shld r0,r3
@@ -147243,20 +147281,20 @@ YC30:
 mov.l @(24,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1576
+bf ln1579
 mov r2,r0
 mov.b @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-6,r7
-ln1576:
+ln1579:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 cmp/pl r9
 extu.b r3,r3
-ln1577:
+ln1580:
 rotcr r3
 movt r8
 dt r0
@@ -147265,7 +147303,7 @@ shlr16 r1
 shlr8 r1
 or r1,r3
 extu.b r3,r3
-bf/s ln1577
+bf/s ln1580
 cmp/pl r8
 mov r8,r9
 exts.b r3,r3
@@ -147277,20 +147315,20 @@ YC38:
 mov.l @(24,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1578
+bf ln1581
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1578:
+ln1581:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 clrt
 extu.b r3,r3
-ln1579:
+ln1582:
 rotr r3
 movt r8
 dt r0
@@ -147299,7 +147337,7 @@ shlr16 r1
 shlr8 r1
 or r1,r3
 extu.b r3,r3
-bf ln1579
+bf ln1582
 exts.b r3,r3
 mov.b r3,@r2
 jmp @r10
@@ -147338,7 +147376,7 @@ mov.w @r2,r3
 cmp/pl r9
 mov #6,r0
 extu.w r3,r3
-ln1585:
+ln1588:
 rotcr r3
 movt r8
 dt r0
@@ -147346,7 +147384,7 @@ mov r3,r1
 shlr16 r1
 or r1,r3
 extu.w r3,r3
-bf/s ln1585
+bf/s ln1588
 cmp/pl r8
 mov r8,r9
 exts.w r3,r3
@@ -147360,7 +147398,7 @@ mov.w @r2,r3
 clrt
 mov #6,r0
 extu.w r3,r3
-ln1587:
+ln1590:
 rotr r3
 movt r8
 dt r0
@@ -147368,7 +147406,7 @@ mov r3,r1
 shlr16 r1
 or r1,r3
 extu.w r3,r3
-bf ln1587
+bf ln1590
 exts.w r3,r3
 mov.w r3,@r2
 jmp @r10
@@ -147378,24 +147416,24 @@ YC60:
 mov.l @(24,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1588
+bf ln1591
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1588:
+ln1591:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1589
+bf nobitover1592
 add #-31,r0
 mov #-31,r1
 shad r1,r3
-nobitover1589:
+nobitover1592:
 dt r0
 neg r0,r0
 shad r0,r3
@@ -147411,13 +147449,13 @@ YC68:
 mov.l @(24,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1590
+bf ln1593
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1590:
+ln1593:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -147425,11 +147463,11 @@ mov.w @r2,r3
 extu.w r3,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1591
+bf nobitover1594
 add #-31,r0
 mov #-31,r1
 shld r1,r3
-nobitover1591:
+nobitover1594:
 dt r0
 neg r0,r0
 shld r0,r3
@@ -147445,20 +147483,20 @@ YC70:
 mov.l @(24,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1592
+bf ln1595
 mov r2,r0
 mov.w @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-6,r7
-ln1592:
+ln1595:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 cmp/pl r9
 extu.w r3,r3
-ln1593:
+ln1596:
 rotcr r3
 movt r8
 dt r0
@@ -147466,7 +147504,7 @@ mov r3,r1
 shlr16 r1
 or r1,r3
 extu.w r3,r3
-bf/s ln1593
+bf/s ln1596
 cmp/pl r8
 mov r8,r9
 exts.w r3,r3
@@ -147478,20 +147516,20 @@ YC78:
 mov.l @(24,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1594
+bf ln1597
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1594:
+ln1597:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 clrt
 extu.w r3,r3
-ln1595:
+ln1598:
 rotr r3
 movt r8
 dt r0
@@ -147499,7 +147537,7 @@ mov r3,r1
 shlr16 r1
 or r1,r3
 extu.w r3,r3
-bf ln1595
+bf ln1598
 exts.w r3,r3
 mov.w r3,@r2
 jmp @r10
@@ -147534,11 +147572,11 @@ add r13,r2
 mov.l @r2,r3
 cmp/pl r9
 mov #6,r0
-ln1601:
+ln1604:
 rotcr r3
 movt r8
 dt r0
-bf/s ln1601
+bf/s ln1604
 cmp/pl r8
 mov r8,r9
 mov.l r3,@r2
@@ -147550,11 +147588,11 @@ add r13,r2
 mov.l @r2,r3
 clrt
 mov #6,r0
-ln1603:
+ln1606:
 rotr r3
 movt r8
 dt r0
-bf ln1603
+bf ln1606
 mov.l r3,@r2
 jmp @r10
 add #-20,r7
@@ -147563,24 +147601,24 @@ YCA0:
 mov.l @(24,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1604
+bf ln1607
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1604:
+ln1607:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1605
+bf nobitover1608
 add #-31,r0
 mov #-31,r1
 shad r1,r3
-nobitover1605:
+nobitover1608:
 dt r0
 neg r0,r0
 shad r0,r3
@@ -147595,24 +147633,24 @@ YCA8:
 mov.l @(24,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1606
+bf ln1609
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1606:
+ln1609:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1607
+bf nobitover1610
 add #-31,r0
 mov #-31,r1
 shld r1,r3
-nobitover1607:
+nobitover1610:
 dt r0
 neg r0,r0
 shld r0,r3
@@ -147627,23 +147665,23 @@ YCB0:
 mov.l @(24,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1608
+bf ln1611
 mov r2,r0
 mov.l @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-8,r7
-ln1608:
+ln1611:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 cmp/pl r9
-ln1609:
+ln1612:
 rotcr r3
 movt r8
 dt r0
-bf/s ln1609
+bf/s ln1612
 cmp/pl r8
 mov r8,r9
 mov.l r3,@r2
@@ -147654,23 +147692,23 @@ YCB8:
 mov.l @(24,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1610
+bf ln1613
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1610:
+ln1613:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 clrt
-ln1611:
+ln1614:
 rotr r3
 movt r8
 dt r0
-bf ln1611
+bf ln1614
 mov.l r3,@r2
 jmp @r10
 add #-8,r7
@@ -147730,12 +147768,12 @@ add r13,r2
 mov.b @r2,r3
 cmp/pl r9
 mov #6,r0
-ln1617:
+ln1620:
 rotcl r3
 movt r8
 dt r0
 exts.b r3,r3
-bf/s ln1617
+bf/s ln1620
 cmp/pl r8
 mov r8,r9
 exts.b r3,r3
@@ -147748,12 +147786,12 @@ add r13,r2
 mov.b @r2,r3
 clrt
 mov #6,r0
-ln1619:
+ln1622:
 rotl r3
 movt r8
 dt r0
 exts.b r3,r3
-bf ln1619
+bf ln1622
 exts.b r3,r3
 mov.b r3,@r2
 jmp @r10
@@ -147763,13 +147801,13 @@ YD20:
 mov.l @(24,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1620
+bf ln1623
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1620:
+ln1623:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -147778,14 +147816,14 @@ shll16 r3
 shll8 r3
 mov r3,r1
 mov #0,r8
-ln1621:
+ln1624:
 addv r3,r3
 movt r9
 or r9,r8
 shal r1
 movt r9
 dt r0
-bf ln1621
+bf ln1624
 cmp/pl r9
 rotcl r8
 mov #-24,r0
@@ -147798,13 +147836,13 @@ YD28:
 mov.l @(24,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1622
+bf ln1625
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1622:
+ln1625:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -147813,11 +147851,11 @@ shll16 r3
 shll8 r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1623
+bf nobitover1626
 add #-31,r0
 mov #31,r1
 shld r1,r3
-nobitover1623:
+nobitover1626:
 dt r0
 shld r0,r3
 shll r3
@@ -147833,24 +147871,24 @@ YD30:
 mov.l @(24,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1624
+bf ln1627
 mov r2,r0
 mov.b @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-6,r7
-ln1624:
+ln1627:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 cmp/pl r9
-ln1625:
+ln1628:
 rotcl r3
 movt r8
 dt r0
 exts.b r3,r3
-bf/s ln1625
+bf/s ln1628
 cmp/pl r8
 mov r8,r9
 exts.b r3,r3
@@ -147862,24 +147900,24 @@ YD38:
 mov.l @(24,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1626
+bf ln1629
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1626:
+ln1629:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 clrt
-ln1627:
+ln1630:
 rotl r3
 movt r8
 dt r0
 exts.b r3,r3
-bf ln1627
+bf ln1630
 exts.b r3,r3
 mov.b r3,@r2
 jmp @r10
@@ -147938,12 +147976,12 @@ add r13,r2
 mov.w @r2,r3
 cmp/pl r9
 mov #6,r0
-ln1633:
+ln1636:
 rotcl r3
 movt r8
 dt r0
 exts.w r3,r3
-bf/s ln1633
+bf/s ln1636
 cmp/pl r8
 mov r8,r9
 exts.w r3,r3
@@ -147956,12 +147994,12 @@ add r13,r2
 mov.w @r2,r3
 clrt
 mov #6,r0
-ln1635:
+ln1638:
 rotl r3
 movt r8
 dt r0
 exts.w r3,r3
-bf ln1635
+bf ln1638
 exts.w r3,r3
 mov.w r3,@r2
 jmp @r10
@@ -147971,13 +148009,13 @@ YD60:
 mov.l @(24,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1636
+bf ln1639
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1636:
+ln1639:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -147985,14 +148023,14 @@ mov.w @r2,r3
 shll16 r3
 mov r3,r1
 mov #0,r8
-ln1637:
+ln1640:
 addv r3,r3
 movt r9
 or r9,r8
 shal r1
 movt r9
 dt r0
-bf ln1637
+bf ln1640
 cmp/pl r9
 rotcl r8
 mov #-16,r0
@@ -148005,13 +148043,13 @@ YD68:
 mov.l @(24,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1638
+bf ln1641
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1638:
+ln1641:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -148019,11 +148057,11 @@ mov.w @r2,r3
 shll16 r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1639
+bf nobitover1642
 add #-31,r0
 mov #31,r1
 shld r1,r3
-nobitover1639:
+nobitover1642:
 dt r0
 shld r0,r3
 shll r3
@@ -148039,24 +148077,24 @@ YD70:
 mov.l @(24,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1640
+bf ln1643
 mov r2,r0
 mov.w @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-6,r7
-ln1640:
+ln1643:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 cmp/pl r9
-ln1641:
+ln1644:
 rotcl r3
 movt r8
 dt r0
 exts.w r3,r3
-bf/s ln1641
+bf/s ln1644
 cmp/pl r8
 mov r8,r9
 exts.w r3,r3
@@ -148068,24 +148106,24 @@ YD78:
 mov.l @(24,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1642
+bf ln1645
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1642:
+ln1645:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 clrt
-ln1643:
+ln1646:
 rotl r3
 movt r8
 dt r0
 exts.w r3,r3
-bf ln1643
+bf ln1646
 exts.w r3,r3
 mov.w r3,@r2
 jmp @r10
@@ -148138,11 +148176,11 @@ add r13,r2
 mov.l @r2,r3
 cmp/pl r9
 mov #6,r0
-ln1649:
+ln1652:
 rotcl r3
 movt r8
 dt r0
-bf/s ln1649
+bf/s ln1652
 cmp/pl r8
 mov r8,r9
 mov.l r3,@r2
@@ -148154,11 +148192,11 @@ add r13,r2
 mov.l @r2,r3
 clrt
 mov #6,r0
-ln1651:
+ln1654:
 rotl r3
 movt r8
 dt r0
-bf ln1651
+bf ln1654
 mov.l r3,@r2
 jmp @r10
 add #-20,r7
@@ -148167,27 +148205,27 @@ YDA0:
 mov.l @(24,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1652
+bf ln1655
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1652:
+ln1655:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 mov r3,r1
 mov #0,r8
-ln1653:
+ln1656:
 addv r3,r3
 movt r9
 or r9,r8
 shal r1
 movt r9
 dt r0
-bf ln1653
+bf ln1656
 cmp/pl r9
 rotcl r8
 mov.l r3,@r2
@@ -148198,24 +148236,24 @@ YDA8:
 mov.l @(24,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1654
+bf ln1657
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1654:
+ln1657:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1655
+bf nobitover1658
 add #-31,r0
 mov #31,r1
 shld r1,r3
-nobitover1655:
+nobitover1658:
 dt r0
 shld r0,r3
 shll r3
@@ -148229,23 +148267,23 @@ YDB0:
 mov.l @(24,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1656
+bf ln1659
 mov r2,r0
 mov.l @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-8,r7
-ln1656:
+ln1659:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 cmp/pl r9
-ln1657:
+ln1660:
 rotcl r3
 movt r8
 dt r0
-bf/s ln1657
+bf/s ln1660
 cmp/pl r8
 mov r8,r9
 mov.l r3,@r2
@@ -148256,23 +148294,23 @@ YDB8:
 mov.l @(24,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1658
+bf ln1661
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1658:
+ln1661:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 clrt
-ln1659:
+ln1662:
 rotl r3
 movt r8
 dt r0
-bf ln1659
+bf ln1662
 mov.l r3,@r2
 jmp @r10
 add #-8,r7
@@ -148310,7 +148348,7 @@ mov.b @r2,r3
 cmp/pl r9
 mov #7,r0
 extu.b r3,r3
-ln1665:
+ln1668:
 rotcr r3
 movt r8
 dt r0
@@ -148319,7 +148357,7 @@ shlr16 r1
 shlr8 r1
 or r1,r3
 extu.b r3,r3
-bf/s ln1665
+bf/s ln1668
 cmp/pl r8
 mov r8,r9
 exts.b r3,r3
@@ -148333,7 +148371,7 @@ mov.b @r2,r3
 clrt
 mov #7,r0
 extu.b r3,r3
-ln1667:
+ln1670:
 rotr r3
 movt r8
 dt r0
@@ -148342,7 +148380,7 @@ shlr16 r1
 shlr8 r1
 or r1,r3
 extu.b r3,r3
-bf ln1667
+bf ln1670
 exts.b r3,r3
 mov.b r3,@r2
 jmp @r10
@@ -148352,24 +148390,24 @@ YE20:
 mov.l @(28,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1668
+bf ln1671
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1668:
+ln1671:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1669
+bf nobitover1672
 add #-31,r0
 mov #-31,r1
 shad r1,r3
-nobitover1669:
+nobitover1672:
 dt r0
 neg r0,r0
 shad r0,r3
@@ -148385,13 +148423,13 @@ YE28:
 mov.l @(28,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1670
+bf ln1673
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1670:
+ln1673:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -148399,11 +148437,11 @@ mov.b @r2,r3
 extu.b r3,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1671
+bf nobitover1674
 add #-31,r0
 mov #-31,r1
 shld r1,r3
-nobitover1671:
+nobitover1674:
 dt r0
 neg r0,r0
 shld r0,r3
@@ -148419,20 +148457,20 @@ YE30:
 mov.l @(28,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1672
+bf ln1675
 mov r2,r0
 mov.b @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-6,r7
-ln1672:
+ln1675:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 cmp/pl r9
 extu.b r3,r3
-ln1673:
+ln1676:
 rotcr r3
 movt r8
 dt r0
@@ -148441,7 +148479,7 @@ shlr16 r1
 shlr8 r1
 or r1,r3
 extu.b r3,r3
-bf/s ln1673
+bf/s ln1676
 cmp/pl r8
 mov r8,r9
 exts.b r3,r3
@@ -148453,20 +148491,20 @@ YE38:
 mov.l @(28,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1674
+bf ln1677
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1674:
+ln1677:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 clrt
 extu.b r3,r3
-ln1675:
+ln1678:
 rotr r3
 movt r8
 dt r0
@@ -148475,7 +148513,7 @@ shlr16 r1
 shlr8 r1
 or r1,r3
 extu.b r3,r3
-bf ln1675
+bf ln1678
 exts.b r3,r3
 mov.b r3,@r2
 jmp @r10
@@ -148514,7 +148552,7 @@ mov.w @r2,r3
 cmp/pl r9
 mov #7,r0
 extu.w r3,r3
-ln1681:
+ln1684:
 rotcr r3
 movt r8
 dt r0
@@ -148522,7 +148560,7 @@ mov r3,r1
 shlr16 r1
 or r1,r3
 extu.w r3,r3
-bf/s ln1681
+bf/s ln1684
 cmp/pl r8
 mov r8,r9
 exts.w r3,r3
@@ -148536,7 +148574,7 @@ mov.w @r2,r3
 clrt
 mov #7,r0
 extu.w r3,r3
-ln1683:
+ln1686:
 rotr r3
 movt r8
 dt r0
@@ -148544,7 +148582,7 @@ mov r3,r1
 shlr16 r1
 or r1,r3
 extu.w r3,r3
-bf ln1683
+bf ln1686
 exts.w r3,r3
 mov.w r3,@r2
 jmp @r10
@@ -148554,24 +148592,24 @@ YE60:
 mov.l @(28,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1684
+bf ln1687
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1684:
+ln1687:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1685
+bf nobitover1688
 add #-31,r0
 mov #-31,r1
 shad r1,r3
-nobitover1685:
+nobitover1688:
 dt r0
 neg r0,r0
 shad r0,r3
@@ -148587,13 +148625,13 @@ YE68:
 mov.l @(28,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1686
+bf ln1689
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1686:
+ln1689:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -148601,11 +148639,11 @@ mov.w @r2,r3
 extu.w r3,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1687
+bf nobitover1690
 add #-31,r0
 mov #-31,r1
 shld r1,r3
-nobitover1687:
+nobitover1690:
 dt r0
 neg r0,r0
 shld r0,r3
@@ -148621,20 +148659,20 @@ YE70:
 mov.l @(28,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1688
+bf ln1691
 mov r2,r0
 mov.w @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-6,r7
-ln1688:
+ln1691:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 cmp/pl r9
 extu.w r3,r3
-ln1689:
+ln1692:
 rotcr r3
 movt r8
 dt r0
@@ -148642,7 +148680,7 @@ mov r3,r1
 shlr16 r1
 or r1,r3
 extu.w r3,r3
-bf/s ln1689
+bf/s ln1692
 cmp/pl r8
 mov r8,r9
 exts.w r3,r3
@@ -148654,20 +148692,20 @@ YE78:
 mov.l @(28,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1690
+bf ln1693
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1690:
+ln1693:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 clrt
 extu.w r3,r3
-ln1691:
+ln1694:
 rotr r3
 movt r8
 dt r0
@@ -148675,7 +148713,7 @@ mov r3,r1
 shlr16 r1
 or r1,r3
 extu.w r3,r3
-bf ln1691
+bf ln1694
 exts.w r3,r3
 mov.w r3,@r2
 jmp @r10
@@ -148710,11 +148748,11 @@ add r13,r2
 mov.l @r2,r3
 cmp/pl r9
 mov #7,r0
-ln1697:
+ln1700:
 rotcr r3
 movt r8
 dt r0
-bf/s ln1697
+bf/s ln1700
 cmp/pl r8
 mov r8,r9
 mov.l r3,@r2
@@ -148726,11 +148764,11 @@ add r13,r2
 mov.l @r2,r3
 clrt
 mov #7,r0
-ln1699:
+ln1702:
 rotr r3
 movt r8
 dt r0
-bf ln1699
+bf ln1702
 mov.l r3,@r2
 jmp @r10
 add #-22,r7
@@ -148739,24 +148777,24 @@ YEA0:
 mov.l @(28,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1700
+bf ln1703
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1700:
+ln1703:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1701
+bf nobitover1704
 add #-31,r0
 mov #-31,r1
 shad r1,r3
-nobitover1701:
+nobitover1704:
 dt r0
 neg r0,r0
 shad r0,r3
@@ -148771,24 +148809,24 @@ YEA8:
 mov.l @(28,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1702
+bf ln1705
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1702:
+ln1705:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1703
+bf nobitover1706
 add #-31,r0
 mov #-31,r1
 shld r1,r3
-nobitover1703:
+nobitover1706:
 dt r0
 neg r0,r0
 shld r0,r3
@@ -148803,23 +148841,23 @@ YEB0:
 mov.l @(28,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1704
+bf ln1707
 mov r2,r0
 mov.l @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-8,r7
-ln1704:
+ln1707:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 cmp/pl r9
-ln1705:
+ln1708:
 rotcr r3
 movt r8
 dt r0
-bf/s ln1705
+bf/s ln1708
 cmp/pl r8
 mov r8,r9
 mov.l r3,@r2
@@ -148830,23 +148868,23 @@ YEB8:
 mov.l @(28,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1706
+bf ln1709
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1706:
+ln1709:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 clrt
-ln1707:
+ln1710:
 rotr r3
 movt r8
 dt r0
-bf ln1707
+bf ln1710
 mov.l r3,@r2
 jmp @r10
 add #-8,r7
@@ -148909,12 +148947,12 @@ add r13,r2
 mov.b @r2,r3
 cmp/pl r9
 mov #7,r0
-ln1713:
+ln1716:
 rotcl r3
 movt r8
 dt r0
 exts.b r3,r3
-bf/s ln1713
+bf/s ln1716
 cmp/pl r8
 mov r8,r9
 exts.b r3,r3
@@ -148927,12 +148965,12 @@ add r13,r2
 mov.b @r2,r3
 clrt
 mov #7,r0
-ln1715:
+ln1718:
 rotl r3
 movt r8
 dt r0
 exts.b r3,r3
-bf ln1715
+bf ln1718
 exts.b r3,r3
 mov.b r3,@r2
 jmp @r10
@@ -148942,13 +148980,13 @@ YF20:
 mov.l @(28,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1716
+bf ln1719
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1716:
+ln1719:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -148957,14 +148995,14 @@ shll16 r3
 shll8 r3
 mov r3,r1
 mov #0,r8
-ln1717:
+ln1720:
 addv r3,r3
 movt r9
 or r9,r8
 shal r1
 movt r9
 dt r0
-bf ln1717
+bf ln1720
 cmp/pl r9
 rotcl r8
 mov #-24,r0
@@ -148977,13 +149015,13 @@ YF28:
 mov.l @(28,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1718
+bf ln1721
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1718:
+ln1721:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -148992,11 +149030,11 @@ shll16 r3
 shll8 r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1719
+bf nobitover1722
 add #-31,r0
 mov #31,r1
 shld r1,r3
-nobitover1719:
+nobitover1722:
 dt r0
 shld r0,r3
 shll r3
@@ -149012,24 +149050,24 @@ YF30:
 mov.l @(28,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1720
+bf ln1723
 mov r2,r0
 mov.b @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-6,r7
-ln1720:
+ln1723:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 cmp/pl r9
-ln1721:
+ln1724:
 rotcl r3
 movt r8
 dt r0
 exts.b r3,r3
-bf/s ln1721
+bf/s ln1724
 cmp/pl r8
 mov r8,r9
 exts.b r3,r3
@@ -149041,24 +149079,24 @@ YF38:
 mov.l @(28,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1722
+bf ln1725
 mov r2,r0
 mov.b @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1722:
+ln1725:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.b @r2,r3
 clrt
-ln1723:
+ln1726:
 rotl r3
 movt r8
 dt r0
 exts.b r3,r3
-bf ln1723
+bf ln1726
 exts.b r3,r3
 mov.b r3,@r2
 jmp @r10
@@ -149120,12 +149158,12 @@ add r13,r2
 mov.w @r2,r3
 cmp/pl r9
 mov #7,r0
-ln1729:
+ln1732:
 rotcl r3
 movt r8
 dt r0
 exts.w r3,r3
-bf/s ln1729
+bf/s ln1732
 cmp/pl r8
 mov r8,r9
 exts.w r3,r3
@@ -149138,12 +149176,12 @@ add r13,r2
 mov.w @r2,r3
 clrt
 mov #7,r0
-ln1731:
+ln1734:
 rotl r3
 movt r8
 dt r0
 exts.w r3,r3
-bf ln1731
+bf ln1734
 exts.w r3,r3
 mov.w r3,@r2
 jmp @r10
@@ -149153,13 +149191,13 @@ YF60:
 mov.l @(28,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1732
+bf ln1735
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1732:
+ln1735:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -149167,14 +149205,14 @@ mov.w @r2,r3
 shll16 r3
 mov r3,r1
 mov #0,r8
-ln1733:
+ln1736:
 addv r3,r3
 movt r9
 or r9,r8
 shal r1
 movt r9
 dt r0
-bf ln1733
+bf ln1736
 cmp/pl r9
 rotcl r8
 mov #-16,r0
@@ -149187,13 +149225,13 @@ YF68:
 mov.l @(28,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1734
+bf ln1737
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1734:
+ln1737:
 sub r0,r7
 sub r0,r7
 add r13,r2
@@ -149201,11 +149239,11 @@ mov.w @r2,r3
 shll16 r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1735
+bf nobitover1738
 add #-31,r0
 mov #31,r1
 shld r1,r3
-nobitover1735:
+nobitover1738:
 dt r0
 shld r0,r3
 shll r3
@@ -149221,24 +149259,24 @@ YF70:
 mov.l @(28,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1736
+bf ln1739
 mov r2,r0
 mov.w @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-6,r7
-ln1736:
+ln1739:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 cmp/pl r9
-ln1737:
+ln1740:
 rotcl r3
 movt r8
 dt r0
 exts.w r3,r3
-bf/s ln1737
+bf/s ln1740
 cmp/pl r8
 mov r8,r9
 exts.w r3,r3
@@ -149250,24 +149288,24 @@ YF78:
 mov.l @(28,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1738
+bf ln1741
 mov r2,r0
 mov.w @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-6,r7
-ln1738:
+ln1741:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.w @r2,r3
 clrt
-ln1739:
+ln1742:
 rotl r3
 movt r8
 dt r0
 exts.w r3,r3
-bf ln1739
+bf ln1742
 exts.w r3,r3
 mov.w r3,@r2
 jmp @r10
@@ -149323,11 +149361,11 @@ add r13,r2
 mov.l @r2,r3
 cmp/pl r9
 mov #7,r0
-ln1745:
+ln1748:
 rotcl r3
 movt r8
 dt r0
-bf/s ln1745
+bf/s ln1748
 cmp/pl r8
 mov r8,r9
 mov.l r3,@r2
@@ -149339,11 +149377,11 @@ add r13,r2
 mov.l @r2,r3
 clrt
 mov #7,r0
-ln1747:
+ln1750:
 rotl r3
 movt r8
 dt r0
-bf ln1747
+bf ln1750
 mov.l r3,@r2
 jmp @r10
 add #-22,r7
@@ -149352,27 +149390,27 @@ YFA0:
 mov.l @(28,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1748
+bf ln1751
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1748:
+ln1751:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 mov r3,r1
 mov #0,r8
-ln1749:
+ln1752:
 addv r3,r3
 movt r9
 or r9,r8
 shal r1
 movt r9
 dt r0
-bf ln1749
+bf ln1752
 cmp/pl r9
 rotcl r8
 mov.l r3,@r2
@@ -149383,24 +149421,24 @@ YFA8:
 mov.l @(28,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1750
+bf ln1753
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1750:
+ln1753:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 mov #32,r1
 cmp/hi r1,r0
-bf nobitover1751
+bf nobitover1754
 add #-31,r0
 mov #31,r1
 shld r1,r3
-nobitover1751:
+nobitover1754:
 dt r0
 shld r0,r3
 shll r3
@@ -149414,23 +149452,23 @@ YFB0:
 mov.l @(28,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1752
+bf ln1755
 mov r2,r0
 mov.l @(r0,r13),r3
 mov r9,r8
 jmp @r10
 add #-8,r7
-ln1752:
+ln1755:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 cmp/pl r9
-ln1753:
+ln1756:
 rotcl r3
 movt r8
 dt r0
-bf/s ln1753
+bf/s ln1756
 cmp/pl r8
 mov r8,r9
 mov.l r3,@r2
@@ -149441,34 +149479,34 @@ YFB8:
 mov.l @(28,r13),r0
 and #0x3F,r0
 tst r0,r0
-bf ln1754
+bf ln1757
 mov r2,r0
 mov.l @(r0,r13),r3
 mov #0,r8
 jmp @r10
 add #-8,r7
-ln1754:
+ln1757:
 sub r0,r7
 sub r0,r7
 add r13,r2
 mov.l @r2,r3
 clrt
-ln1755:
+ln1758:
 rotl r3
 movt r8
 dt r0
-bf ln1755
+bf ln1758
 mov.l r3,@r2
 jmp @r10
 add #-8,r7
 ! Opcodes F000 - FFFF
 Z000:
 mov.l r3,@-r15
-mov.l g1_except_addr1756,r0
+mov.l g1_except_addr1759,r0
 add #-2,r6
 jsr @r0
 mov #0x2C,r4
-mov.l bf_addr1756,r0
+mov.l bf_addr1759,r0
 jsr @r0
 nop
 add r5,r6
@@ -149476,8 +149514,8 @@ mov.l @r15+,r3
 jmp @r10
 add #-34,r7
 .align 2
-g1_except_addr1756: .long group_1_exception
-bf_addr1756: .long basefunction
+g1_except_addr1759: .long group_1_exception
+bf_addr1759: .long basefunction
 .data
 .align 5
 .long r_illegal

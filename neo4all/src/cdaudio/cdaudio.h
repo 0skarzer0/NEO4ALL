@@ -33,7 +33,6 @@ void	cdda_set_volume(int volume);
 
 #else
 
-#define neogeo_cdrom_current_drive 0
 #define cdda_init() (0)
 #define cdda_play(A) (0)
 #define cdda_pause()

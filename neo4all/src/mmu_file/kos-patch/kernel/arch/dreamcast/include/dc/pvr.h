@@ -1,21 +1,7 @@
-/*
-
-CHANGED BY CHUI FOR MMU_HANDLE LIBRARY COMPATIBLE
-
-
-CAUTION: DON'T REMOVE ORIGINAL PVR.H OF KOS TOOLCHAIN.
-	 THIS PVR.H ONLY WORKS FOR MMU_HANDLE LIBRARY 
-
-*/
-
-#define USE_SQ_MMU
-
 /* KallistiOS ##version##
 
    kernel/arch/dreamcast/include/dc/pvr.h
    (C)2002 Dan Potter
-
-   $Id: pvr.h,v 1.28 2003/04/24 03:13:45 bardtx Exp $
 
    Low-level PVR 3D interface for the DC
    Note: this API does _not_ handle any sort of transformations
@@ -25,6 +11,8 @@ CAUTION: DON'T REMOVE ORIGINAL PVR.H OF KOS TOOLCHAIN.
 
 #ifndef __DC_PVR_H
 #define __DC_PVR_H
+
+#define USE_SQ_MMU
 
 #include <sys/cdefs.h>
 __BEGIN_DECLS
@@ -62,10 +50,15 @@ typedef struct {
 		int		color_clamp;
 		int		clip_mode;
 		int		modifier_mode;
+		int		alpha2;
+		int		fog_type2;
+		int		color_clamp2;
 	} gen;
 	struct {
 		int		src, dst;
 		int		src_enable, dst_enable;
+		int		src2, dst2;
+		int		src_enable2, dst_enable2;
 	} blend;
 	struct {
 		int		color;
@@ -90,7 +83,56 @@ typedef struct {
 		int		format;		/* bit format, vq, twiddle, stride */
 		pvr_ptr_t	base;		/* texture location */
 	} txr;
+    struct {
+		int		enable;
+		int		filter;		/* none, bi-linear, tri-linear, etc */
+		int		mipmap;
+		int		mipmap_bias;
+		int		uv_flip;
+		int		uv_clamp;
+		int		alpha;
+		int		env;
+		int		width;
+		int		height;
+		int		format;		/* bit format, vq, twiddle, stride */
+		pvr_ptr_t	base;		/* texture location */
+	} txr2;
 } pvr_poly_cxt_t;
+
+/* Sprite context; use this somewhat readable format to specify your
+   sprites before compiling them into polygon headers.
+*/
+typedef struct {
+	int		list_type;
+	struct {
+		int		alpha;
+		int		fog_type;
+		int		culling;
+		int		color_clamp;
+		int		clip_mode;
+	} gen;
+	struct {
+		int		src, dst;
+		int		src_enable, dst_enable;
+	} blend;
+	struct {
+		int		comparison;
+		int		write;
+	} depth;
+	struct {
+		int		enable;
+		int		filter;
+		int		mipmap;
+		int		mipmap_bias;
+		int		uv_flip;
+		int		uv_clamp;
+		int		alpha;
+		int		width;
+		int		height;
+		int		format;
+		pvr_ptr_t	base;
+	} txr;
+} pvr_sprite_cxt_t;
 
 /* Constants for the above structure; thanks to Benoit Miller for these */
 /* list_type */
@@ -231,8 +273,8 @@ typedef struct {
 #define PVR_MODIFIER_NORMAL		1
 
 #define PVR_MODIFIER_OTHER_POLY		0	/* PM1 modifer instruction */
-#define PVR_MODIFIER_FIRST_POLY		1	/* ...in inclusion vol */
-#define PVR_MODIFIER_LAST_POLY		2	/* ...in exclusion vol */
+#define PVR_MODIFIER_INCLUDE_LAST_POLY		1	/* ...in inclusion vol */
+#define PVR_MODIFIER_EXCLUDE_LAST_POLY		2	/* ...in exclusion vol */
 
 
 /* "Polygon header" -- this is the hardware equivalent of a rendering
@@ -243,6 +285,41 @@ typedef struct {
 	uint32		mode1, mode2, mode3;	/* mode parameters */
 	uint32		d1, d2, d3, d4;		/* dummies */
 } pvr_poly_hdr_t;
+
+/* Polygon header with intensity color. This is the equivalent of
+   pvr_poly_hdr_t, but for use with intensity color. */
+typedef struct {
+	uint32		cmd;					/* TA command */
+	uint32		mode1, mode2, mode3;	/* mode parameters */
+	float		a, r, g, b;				/* color */
+} pvr_poly_ic_hdr_t;
+
+/* Polygon header to be used with modifier volumes. This is the
+   equivalent of a pvr_poly_hdr_t for use when a polygon is to
+   be used with modifier volumes. */
+typedef struct {
+	uint32		cmd;			/* TA command */
+	uint32		mode1;			/* mode parameters */
+	uint32		mode2_0, mode3_0;
+	uint32		mode2_1, mode3_1;
+	uint32		d1, d2;			/* dummies */
+} pvr_poly_mod_hdr_t;
+
+/* Polygon header specifically for sprites. */
+typedef struct {
+	uint32		cmd;					/* TA command */
+	uint32		mode1, mode2, mode3;	/* mode parameters */
+	uint32		argb;					/* sprite color */
+	uint32		oargb;					/* offset color */
+	uint32		d1, d2;					/* dummies */
+} pvr_sprite_hdr_t;
+
+/* Modifier volume header. */
+typedef struct {
+	uint32		cmd;					/* TA command */
+	uint32		mode1;					/* mode parameter */
+	uint32		d1, d2, d3, d4, d5, d6;	/* dummies */
+} pvr_mod_hdr_t;
 
 /* Generic vertex type; the PVR chip itself supports many more vertex
    types, but this is the main one that can be used with both textured
@@ -255,6 +332,17 @@ typedef struct {
 	uint32		argb;			/* vertex color */
 	uint32		oargb;			/* offset color */
 } pvr_vertex_t;
+
+/* Non-textured, packed color, affected by modifier volume. This
+   vertex type has two copies of colors. The second color is used when
+   enclosed within a modifier volume. */
+typedef struct {
+	uint32		flags;
+	float		x, y, z;
+	uint32		argb0;
+	uint32		argb1;
+	uint32		d1, d2;
+} pvr_vertex_pcm_t;
 
 /* Textured, packed color, affected by modifer volume. Note that this
    vertex type has two copies of colors, offset colors and texture 
@@ -272,6 +360,33 @@ typedef struct {
 	uint32 d1, d2, d3, d4;			/* dummies */
 } pvr_vertex_tpcm_t;
 
+/* Textured sprite. This vertex type is to be used with the sprite
+   polygon header and the sprite related commands to draw textured
+   sprites. */
+typedef struct {
+	uint32 flags;
+	float ax, ay, az;
+	float bx, by, bz;
+	float cx, cy, cz;
+	float dx, dy;
+	uint32 dummy;
+	uint32 auv;
+	uint32 buv;
+	uint32 cuv;
+} pvr_sprite_txr_t;
+
+/* Untextured sprite. This vertex type is to be used with the sprite
+   polygon header and the sprite related commands to draw untextured
+   sprites (aka, quads). */
+typedef struct {
+	uint32 flags;
+	float ax, ay, az;
+	float bx, by, bz;
+	float cx, cy, cz;
+	float dx, dy;
+	uint32 d1, d2, d3, d4;
+} pvr_sprite_col_t;
+
 /* This vertex is only for modifer volumes */
 typedef struct {
 	uint32 flags;				/* vertex flags */
@@ -288,14 +403,26 @@ typedef struct {
 	( ((uint8)( g * 255 ) ) << 8 ) | \
 	( ((uint8)( b * 255 ) ) << 0 ) )
 
+/* Small function for packing two 32-bit u/v values into
+   two 16-bit u/v values. */
+static inline uint32 PVR_PACK_16BIT_UV(float u, float v) {
+	return ( ((*((uint32 *) &u)) >> 0  ) & 0xFFFF0000 ) |
+	       ( ((*((uint32 *) &v)) >> 16 ) & 0x0000FFFF );
+}
+
 /* ... other vertex structs omitted for now ... */
 
 /* Constants that apply to all primitives */
 #define PVR_CMD_POLYHDR		0x80840000	/* sublist, striplength=2 */
+#ifdef USE_SQ_MMU
+#define PVR_CMD_VERTEX		0xe2000000
+#else
 #define PVR_CMD_VERTEX		0xe0000000
+#endif
 #define PVR_CMD_VERTEX_EOL	0xf0000000
 #define PVR_CMD_USERCLIP	0x20000000
-#define PVR_CMD_MODIFIER	0x80040000
+#define PVR_CMD_MODIFIER	0x80000000
+#define PVR_CMD_SPRITE		0xA0000000
 
 /* Constants and bitmasks for handling polygon headers; note that thanks
    to the arrangement of constants above, this is mainly a matter of bit
@@ -334,7 +461,7 @@ typedef struct {
 #define PVR_TA_PM1_TXRENABLE_MASK	(1 << PVR_TA_PM1_TXRENABLE_SHIFT)
 
 #define PVR_TA_PM1_MODIFIERINST_SHIFT	29 
-#define PVR_TA_PM1_MODIFIERINST_MASK	(2 <<  PVR_TA_PM1_MODIFIERINST_SHIFT)
+#define PVR_TA_PM1_MODIFIERINST_MASK	(3 <<  PVR_TA_PM1_MODIFIERINST_SHIFT)
 
 #define PVR_TA_PM2_SRCBLEND_SHIFT	29
 #define PVR_TA_PM2_SRCBLEND_MASK	(7 << PVR_TA_PM2_SRCBLEND_SHIFT)
@@ -738,33 +865,32 @@ int pvr_prim(void * data, int size);
 
 /* Initialize a state variable for Direct Rendering; variable should be
    of the type pvr_dr_state_t */
-#ifndef USE_SQ_MMU
+#ifdef USE_SQ_MMU
+#define pvr_dr_init(vtx_buf_ptr) do { \
+	(vtx_buf_ptr) = 0; \
+} while (0)
+#else
 #define pvr_dr_init(vtx_buf_ptr) do { \
 	(vtx_buf_ptr) = 0; \
 	QACR0 = ((((uint32)PVR_TA_INPUT) >> 26) << 2) & 0x1c; \
 	QACR1 = ((((uint32)PVR_TA_INPUT) >> 26) << 2) & 0x1c; \
 } while (0)
-#else
-#define pvr_dr_init(vtx_buf_ptr) do { \
-	(vtx_buf_ptr) = 0; \
-} while (0)
 #endif
-
 #define pvr_dr_state_t uint32
 
 /* Obtain the target address for Direct Rendering; this will return a
    write-only destination address where a primitive should be written to get
    ready to submit it to the TA in DR mode. You must pass in a variable
    which was initialized with pvr_dr_init(). */
-#ifndef USE_SQ_MMU
+#ifdef USE_SQ_MMU
 #define pvr_dr_target(vtx_buf_ptr) \
 	({ (vtx_buf_ptr) ^= 32; \
-	   (pvr_vertex_t *)(0xe0000000 | (vtx_buf_ptr)); \
+	   (pvr_vertex_t *)(0xe2000000 | (vtx_buf_ptr)); \
 	})
 #else
 #define pvr_dr_target(vtx_buf_ptr) \
 	({ (vtx_buf_ptr) ^= 32; \
-	   (pvr_vertex_t *)(0xe2000000 | (vtx_buf_ptr)); \
+	   (pvr_vertex_t *)(0xe0000000 | (vtx_buf_ptr)); \
 	})
 #endif
 
@@ -828,6 +954,37 @@ void pvr_poly_cxt_txr(pvr_poly_cxt_t *dst, pvr_list_t list,
 	int textureformat, int tw, int th, pvr_ptr_t textureaddr,
 	int filtering);
 
+/* Compile a sprite context into a colored polygon header */
+void pvr_sprite_compile(pvr_sprite_hdr_t *dst,
+	pvr_sprite_cxt_t *src);
+
+/* Create an untextured sprite context */
+void pvr_sprite_cxt_col(pvr_sprite_cxt_t *dst, pvr_list_t list);
+
+/* Create a textured sprite context */
+void pvr_sprite_cxt_txr(pvr_sprite_cxt_t *dst, pvr_list_t list,
+	int textureformat, int tw, int th, pvr_ptr_t textureaddr,
+	int filtering);
+
+/* Create a modifier volume context */
+void pvr_mod_compile(pvr_mod_hdr_t *dst, pvr_list_t list, uint32 mode,
+                     uint32 cull);
+
+/* Compile a polygon context into a polygon header that is affected by
+   modifier volumes */
+void pvr_poly_mod_compile(pvr_poly_mod_hdr_t *dst, pvr_poly_cxt_t *src);
+
+/* Create a colored polygon context for polygons affected by
+   modifier volumes */
+void pvr_poly_cxt_col_mod(pvr_poly_cxt_t *dst, pvr_list_t list);
+
+/* Create a textured polygon context for polygons affected by
+   modifier volumes */
+void pvr_poly_cxt_txr_mod(pvr_poly_cxt_t *dst, pvr_list_t list,
+                          int textureformat, int tw, int th,
+                          pvr_ptr_t textureaddr, int filtering,
+                          int textureformat2, int tw2, int th2,
+                          pvr_ptr_t textureaddr2, int filtering2);
 
 /* Texture handling **************************************************/
 

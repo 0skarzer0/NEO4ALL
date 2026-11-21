@@ -22,9 +22,13 @@
 #define M68KCONTEXT _m68kcontext
 #endif
 
-extern struct M68K_CONTEXT M68KCONTEXT;
+extern M68K_CONTEXT M68KCONTEXT;
 
-// #define USE_SECURE_MEMSWITCH
+#if defined(USE_FAME_C_CORE) && defined(FAME_DIRECT_MAPPING)
+#define USE_SECURE_MEMSWITCH
+#else
+void famec_SetFetch(unsigned low_adr, unsigned high_adr, unsigned fetch_adr);
+#endif
 
 #include "z80/z80intrf.h"
 
@@ -95,6 +99,7 @@ static unsigned short	cpu_nvram_read_16 	(unsigned int addr);
 static void 		cpu_bk_write		(unsigned int addr, unsigned int _data);
 #endif
 
+static unsigned int back_bankswitch_address=0xFFFFFFFF;
 
 
 void cdda_control(void);
@@ -105,7 +110,7 @@ static void   cpu_watchdog_reset(void);
 
 // NEOGEO CDROM
 
-static struct M68K_PROGRAM neogeo_program[]= {
+static M68K_PROGRAM neogeo_program[]= {
 	{0x000000, 0x1FFFFF, (unsigned)&neogeo_prg_memory},		// 0
 	{0xC00000, 0xC7FFFF, (((unsigned)&neogeo_rom_memory)-0xC00000)},// 1
 	{(unsigned)-1,(unsigned)-1,(unsigned)NULL}
@@ -114,7 +119,7 @@ static struct M68K_PROGRAM neogeo_program[]= {
 
 // NEOGEO AES
 
-static struct M68K_PROGRAM neogeo_program[]= {
+static M68K_PROGRAM neogeo_program[]= {
 	{0x000000, 0x0FFFFF, (unsigned)&neogeo_prg_memory},		// 0
 	{0x100000, 0x10FFFF, (((unsigned)&aes4all_ram)-0x100000)},	// 1
 	{0x200000, 0x2FFFFF, (unsigned)&neogeo_prg_memory},             // 2
@@ -145,7 +150,7 @@ if (trazando) printf("cpu_dummy_write(0x%X,0x%X)\n",address,value);
 // NEOGEO CDROM
 
 #if !defined(DEBUG_MEMORY) && !defined(SINGLE_MEMORY)
-static struct M68K_DATA neogeo_memmap_read_16[] = {
+static M68K_DATA neogeo_memmap_read_16[] = {
 	{0x000000, 0x1FFFFF, NULL, (void *)&neogeo_prg_memory},			//0
 	{0x200000, 0x3BFFFF, (void *)cpu_dummy_read, NULL},		//1
 	{0x3C0000, 0x3CFFFF, (void *)cpu_vidreg_read_16, NULL},			//2
@@ -161,7 +166,7 @@ static struct M68K_DATA neogeo_memmap_read_16[] = {
 #else
 
 #ifdef SINGLE_MEMORY
-static struct M68K_DATA neogeo_memmap_read_16[] = {
+static M68K_DATA neogeo_memmap_read_16[] = {
 	{0x000000, 0x1FFFFF, NULL, (void *)&neogeo_prg_memory},			//0
 	{0x200000, 0xBFFFFF, (void *)m68k_read_memory_16, NULL},		//1
 	{0xC00000, 0xC7FFFF, NULL, (void *)(((unsigned)&neogeo_rom_memory)-0xC00000)},  //2
@@ -171,7 +176,7 @@ static struct M68K_DATA neogeo_memmap_read_16[] = {
 #else
 
 #warning neogeo_memmap_read_16 DEBUG MODE !!!!!!!
-static struct M68K_DATA neogeo_memmap_read_16[] = {
+static M68K_DATA neogeo_memmap_read_16[] = {
 	{0x000000, 0xFFFFFF, (void *)m68k_read_memory_16, NULL},	// 0
 	{(unsigned)-1,(unsigned)-1,NULL,NULL}
 };
@@ -182,7 +187,7 @@ static struct M68K_DATA neogeo_memmap_read_16[] = {
 
 // NEOGEO AES
 
-static struct M68K_DATA neogeo_memmap_read_16[] = {
+static M68K_DATA neogeo_memmap_read_16[] = {
 	{0x000000, 0x0FFFFF, NULL, (void *)&neogeo_prg_memory},			// 0
 	{0x100000, 0x10FFff, NULL, (void *)(((unsigned)&aes4all_ram)-0x100000)},// 1 
 	{0x110000, 0x1FFFFF, (void *)cpu_dummy_read, NULL},             // 2
@@ -214,7 +219,7 @@ static struct M68K_DATA neogeo_memmap_read_16[] = {
 // NEOGEO CDROM
 
 #if !defined(DEBUG_MEMORY) && !defined(SINGLE_MEMORY)
-static struct M68K_DATA neogeo_memmap_read_8[] = {
+static M68K_DATA neogeo_memmap_read_8[] = {
 	{0x000000, 0x1FFFFF, NULL, (void *)&neogeo_prg_memory},			// 0
 	{0x200000, 0x2FFFFF, (void *)cpu_dummy_read, NULL},		// 1
 	{0x300000, 0x30FFFF, (void *)read_player1, NULL},			// 2
@@ -238,7 +243,7 @@ static struct M68K_DATA neogeo_memmap_read_8[] = {
 #else
 
 #ifdef SINGLE_MEMORY
-static struct M68K_DATA neogeo_memmap_read_8[] = {
+static M68K_DATA neogeo_memmap_read_8[] = {
 	{0x000000, 0x1FFFFF, NULL, (void *)&neogeo_prg_memory},			//0
 	{0x200000, 0xBFFFFF, (void *)m68k_read_memory_8, NULL},		//1
 	{0xC00000, 0xC7FFFF, NULL, (void *)(((unsigned)&neogeo_rom_memory)-0xC00000)},  //2
@@ -248,7 +253,7 @@ static struct M68K_DATA neogeo_memmap_read_8[] = {
 #else
 
 #warning neogeo_memmap_read_8 DEBUG MODE !!!!!!!
-static struct M68K_DATA neogeo_memmap_read_8[] = {
+static M68K_DATA neogeo_memmap_read_8[] = {
 	{0x000000, 0xFFFFFF, (void *)m68k_read_memory_8, NULL},	// 0
 	{(unsigned)-1,(unsigned)-1,NULL,NULL}
 };
@@ -259,7 +264,7 @@ static struct M68K_DATA neogeo_memmap_read_8[] = {
 
 // NEOGEO AES
 
-static struct M68K_DATA neogeo_memmap_read_8[] = {
+static M68K_DATA neogeo_memmap_read_8[] = {
 	{0x000000, 0x0FFFFF, NULL, (void *)&neogeo_prg_memory},			// 0
 	{0x100000, 0x10FFFF, NULL, (void *)(((unsigned)&aes4all_ram)-0x100000)},// 1 
 	{0x110000, 0x1FFFFF, (void *)cpu_dummy_read, NULL},             // 2
@@ -297,7 +302,7 @@ static struct M68K_DATA neogeo_memmap_read_8[] = {
 // NEOGEO CDROM
 
 #if !defined(DEBUG_MEMORY) && !defined(SINGLE_MEMORY)
-static struct M68K_DATA neogeo_memmap_write_16[] = {
+static M68K_DATA neogeo_memmap_write_16[] = {
 	{0x000000, 0x1FFFFF, NULL, (void *)&neogeo_prg_memory},		// 0
 	{0x200000, 0x31FFFF, (void *)cpu_dummy_write, NULL},		// 1
 	{0x320000, 0x32FFFF, (void *)cpu_z80_write_16, NULL},		// 2
@@ -319,7 +324,7 @@ static struct M68K_DATA neogeo_memmap_write_16[] = {
 #else
 
 #ifdef SINGLE_MEMORY
-static struct M68K_DATA neogeo_memmap_write_16[] = {
+static M68K_DATA neogeo_memmap_write_16[] = {
 	{0x000000, 0x1FFFFF, NULL, (void *)&neogeo_prg_memory},			//0
 	{0x200000, 0xFFFFFF, (void *)m68k_write_memory_16, NULL},		//1
 	{(unsigned)-1,(unsigned)-1,NULL,NULL}
@@ -327,7 +332,7 @@ static struct M68K_DATA neogeo_memmap_write_16[] = {
 #else
 
 #warning neogeo_memmap_write_16 DEBUG MODE !!!!!!!
-static struct M68K_DATA neogeo_memmap_write_16[] = {
+static M68K_DATA neogeo_memmap_write_16[] = {
 	{0x000000, 0xFFFFFF, (void *)m68k_write_memory_16, NULL},	// 0
 	{(unsigned)-1,(unsigned)-1,NULL,NULL}
 };
@@ -338,7 +343,7 @@ static struct M68K_DATA neogeo_memmap_write_16[] = {
 
 // NEOGEO AES
 
-static struct M68K_DATA neogeo_memmap_write_16[] = {
+static M68K_DATA neogeo_memmap_write_16[] = {
 	{0x000000, 0x0FFFFF, (void *)cpu_dummy_write, NULL},			// 0
 	{0x100000, 0x10FFFF, NULL, (void *)(((unsigned)&aes4all_ram)-0x100000)},// 1 
 	{0x110000, 0x1FFFFF, (void *)cpu_dummy_write, NULL},			// 2
@@ -370,7 +375,7 @@ static struct M68K_DATA neogeo_memmap_write_16[] = {
 // NEOGEO CDROM
 
 #if !defined(DEBUG_MEMORY) && !defined(SINGLE_MEMORY)
-static struct M68K_DATA neogeo_memmap_write_8[] = {
+static M68K_DATA neogeo_memmap_write_8[] = {
 	{0x000000, 0x1FFFFF, NULL, &neogeo_prg_memory},		// 0
 	{0x200000, 0x2FFFFF, (void *)cpu_dummy_write, NULL},	// 1
 	{0x300000, 0x30FFFF, (void *)cpu_watchdog_reset, NULL},	// 2
@@ -394,7 +399,7 @@ static struct M68K_DATA neogeo_memmap_write_8[] = {
 #else
 
 #ifdef SINGLE_MEMORY
-static struct M68K_DATA neogeo_memmap_write_8[] = {
+static M68K_DATA neogeo_memmap_write_8[] = {
 	{0x000000, 0x1FFFFF, NULL, (void *)&neogeo_prg_memory},			//0
 	{0x200000, 0xFFFFFF, (void *)m68k_write_memory_8, NULL},		//1
 	{(unsigned)-1,(unsigned)-1,NULL,NULL}
@@ -402,7 +407,7 @@ static struct M68K_DATA neogeo_memmap_write_8[] = {
 #else
 
 #warning neogeo_memmap_write_8 DEBUG MODE !!!!!!!
-static struct M68K_DATA neogeo_memmap_write_8[] = {
+static M68K_DATA neogeo_memmap_write_8[] = {
 	{0x000000, 0xFFFFFF, (void *)m68k_write_memory_8, NULL},	// 0
 	{(unsigned)-1,(unsigned)-1,NULL,NULL}
 };
@@ -413,7 +418,7 @@ static struct M68K_DATA neogeo_memmap_write_8[] = {
 
 // NEOGEO AES
 
-static struct M68K_DATA neogeo_memmap_write_8[] = {
+static M68K_DATA neogeo_memmap_write_8[] = {
 	{0x000000, 0x0FFFFF, (void *)cpu_dummy_write, NULL},			// 0
 	{0x100000, 0x10FFFF, NULL, (void *)(((unsigned)&aes4all_ram)-0x100000)},// 1 
 	{0x110000, 0x1FFFFF, (void *)cpu_dummy_write, NULL},			// 2
@@ -441,7 +446,7 @@ static struct M68K_DATA neogeo_memmap_write_8[] = {
 
 
 
-static struct M68K_CONTEXT neogeo_context;
+static M68K_CONTEXT neogeo_context;
 
 
 #ifndef AES
@@ -505,7 +510,7 @@ static void init_context(void)
 /***************************************************************************************************/
 void initialize_memmap(void) {
 	console_puts("INIT MEMMAP");
-	memset(&neogeo_context,0,sizeof(struct M68K_CONTEXT));
+	memset(&neogeo_context,0,sizeof(M68K_CONTEXT));
 #ifndef AES
 	memset(&neogeo_fpa,0,sizeof(unsigned)*256);
 	neogeo_fpa[0x10 / 4]=(unsigned)&neogeo_chk_handler_10;
@@ -564,6 +569,7 @@ void initialize_memmap(void) {
 //	m68k_set_irq_type(NULL,M68K_AUTO_LOWER_IRQ);
 
 #ifdef AES
+	back_bankswitch_address=0xFFFFFFFF;
 	if (aes4all_memory_cpu_size>=0x100000)
 		m68k_bankswitch(0x100000);
 	else
@@ -1101,11 +1107,13 @@ static void     neogeo_setpalbank1 (void) {
 
 static __inline__ void    neogeo_select_bios_vectors (void) {
 //puts("neogeo_select_bios_vectors");
+#ifndef USE_MMAP
     memcpy(neogeo_prg_memory, neogeo_rom_memory, 0x80);
+#endif
 }
 
 static __inline__ void    neogeo_select_game_vectors (void) {
-#ifdef AES
+#if defined(AES) && !defined(USE_MMAP)
 //puts("neogeo_select_game_vectors");
     memcpy(neogeo_prg_memory, neogeo_game_vector, 0x80);
 #endif
@@ -1117,9 +1125,8 @@ static __inline__ void    neogeo_select_game_vectors (void) {
 
 void m68k_bankswitch(unsigned int address)
 {
-#ifdef USE_SECURE_MEMSWITCH
-	static unsigned int back_address=0xFFFFFFFF;
-	if (back_address!=address)
+#if defined(USE_SECURE_MEMSWITCH) || defined(USE_FAME_C_CORE)
+	if (back_bankswitch_address!=address)
 	{
 #endif
 //printf("m68k_bankswitch(0x%X)\n",address);
@@ -1131,12 +1138,18 @@ void m68k_bankswitch(unsigned int address)
 		neogeo_program[2].offset=new_address;
 //		init_context();	
 		m68k_set_context(&neogeo_context);
-		back_address=address;
-	}
 #else
 		M68KCONTEXT.read_byte[3].data=(void *)(new_address);
 		M68KCONTEXT.read_word[3].data=(void *)(new_address);
+#ifndef USE_FAME_C_CORE
 		M68KCONTEXT.fetch[2].offset=new_address;
+#else
+		famec_SetFetch(0x200000, 0x2FFFFF,new_address);
+#endif
+#endif
+#if defined(USE_SECURE_MEMSWITCH) || defined(USE_FAME_C_CORE)
+		back_bankswitch_address=address;
+	}
 #endif
 }
 

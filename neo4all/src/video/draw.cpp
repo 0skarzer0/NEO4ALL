@@ -40,9 +40,24 @@ unsigned eficiencia_media=50;
 				}
 #endif
 
+static int show_message=0;
+static char _show_message_str[40]= {
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+	0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+};
+static char *show_message_str=(char *)&_show_message_str[0];
+
+void set_message(char *msg, int t) {
+	show_message=t;
+	strncpy(show_message_str, msg, 36);
+}
+
 
 int used_blitter=0;
 
+void _write_text_inv_n(SDL_Surface *sf, int x, int y, int n, char * str);
 
 void blitter(void) {
 #ifdef USE_VIDEO_GL
@@ -52,8 +67,23 @@ void blitter(void) {
 	used_blitter=1;
 
 #ifndef USE_VIDEO_GL
+	if (show_message) {
+		show_message--;
+		if (show_message)
+			_write_text_inv_n(screen,1,28,38,show_message_str);
+		else {
+			SDL_Rect sr={ 0, 200, 320, 40 };
+			SDL_FillRect(screen,(SDL_Rect *)&sr, 0);
+		}
+	}
 #ifdef DOUBLE_BUFFER
-	SDL_BlitSurface(video_buffer,&src,screen,NULL); // &dest);
+	/*static const*/ SDL_Rect s={ 8, 0, 304, 240 };
+	SDL_BlitSurface(video_buffer,(SDL_Rect *)&s,screen,(SDL_Rect *)&s);
+#else
+	/*static const*/ SDL_Rect r1={ 0, 0, 8, 240 };
+	/*static const*/ SDL_Rect r2={ 312, 0, 8, 240 };
+	SDL_FillRect(screen,(SDL_Rect *)&r1, 0);
+	SDL_FillRect(screen,(SDL_Rect *)&r2, 0);
 #endif
 	SDL_Flip(screen);
 #else

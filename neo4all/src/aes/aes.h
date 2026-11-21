@@ -6,8 +6,8 @@
 //#define AES4ALL_TOTAL_MEMORY ((11*1024*1024)-(256*1024))
 #define AES4ALL_TOTAL_MEMORY ((11*1024*1024)+(64*1024))
 #else
-//#define AES4ALL_TOTAL_MEMORY ((12*1024*1024)+(128*1024))
-#define AES4ALL_TOTAL_MEMORY ((12*1024*1024)+(320*1024))
+#define AES4ALL_TOTAL_MEMORY ((12*1024*1024)+(128*1024))
+//#define AES4ALL_TOTAL_MEMORY ((12*1024*1024)+(320*1024))
 #endif
 #else
 #define AES4ALL_TOTAL_MEMORY (10*1024*1024)
@@ -27,6 +27,7 @@ extern unsigned char aes4all_system;
 extern unsigned aes4all_bankaddress;
 
 extern void *aes4all_mmu;
+extern void *aes4all_mmap;
 
 extern char *aes4all_filename;
 
@@ -93,6 +94,7 @@ int aes4all_load(void);
 int aes4all_prefetch_all(void);
 
 int is_aes_file(char *dir, char *filename, char *realname);
+int aes4all_mmap_prefetch(unsigned mem_init, unsigned mem_size, FILE *f);
 
 void m68k_bankswitch(unsigned int address);
 

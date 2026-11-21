@@ -14,7 +14,8 @@
 #define INLINE static __inline__
 #endif
 
-#ifndef AES
+#if 1
+//ndef AES
 /* Draw Single FIX character */
 INLINE void draw_fix(Uint16 code, Uint16 colour, Uint16 sx, Uint16 sy, Uint16 * palette, char * fix_memory)
 {

@@ -273,7 +273,14 @@ int neo4all_init_memory(void)
 	console_puts("NEOGEO: Allocating memory...");
 #ifdef AES
 #ifndef DREAMCAST
-	unsigned mem = (unsigned)calloc(aes4all_memory_total,1);
+#ifndef USE_MMAP
+	static unsigned back_mem=0;
+	unsigned mem;
+	if (back_mem) free((void *)back_mem);
+        mem = back_mem = (unsigned)calloc(aes4all_memory_total,1);
+#else
+	unsigned mem = (unsigned)aes4all_mmap;
+#endif
 #else
 	unsigned mem = (unsigned)aes4all_mmu;
 #endif
@@ -294,6 +301,7 @@ int neo4all_init_memory(void)
 	mem+=aes4all_memory_sfix_board_size;
 
 	aes4all_memory_sm1 = (void *)mem;
+//printf("aes4all_memory_sm1=%p (%x)\n",aes4all_memory_sm1,*((unsigned char *)aes4all_memory_sm1)); exit(0);
 	mem+=aes4all_memory_sm1_size;
 
 	aes4all_memory_sound1 = (void *)mem;
@@ -369,13 +377,17 @@ int neo4all_load_bios(void)
 {
 #ifdef AES
 // NEOGEO AES
-
 	aes4all_prefetch_all();
-
 #else
 // NEOGEO CD
 	// Load BIOS
 	FILE *fp = fopen(ROM_PREFIX "/neocd.bin", "rb");
+	if (!fp)
+		fp = fopen("neocd.bin", "rb");
+#ifdef DREAMCAST
+	if (fp==NULL)
+		fp = fopen("/sd/neocd.bin","rb");
+#endif
 	if (fp==NULL) {
 #ifdef SHOW_CONSOLE
 		console_println();
@@ -477,7 +489,11 @@ int	main(int argc, char* argv[])
 	SDL_DC_ShowAskHz(SDL_FALSE);
 #endif
 	// Initialise SDL
+#ifdef DINGUX
+	if((SDL_Init(SDL_INIT_VIDEO|SDL_INIT_AUDIO)==-1)) { 
+#else
 	if((SDL_Init(SDL_INIT_VIDEO|SDL_INIT_CDROM|SDL_INIT_AUDIO|SDL_INIT_JOYSTICK)==-1)) { 
+#endif
             console_printf("Could not initialize SDL: %s.\n", SDL_GetError());
            return -1;
         }
@@ -485,7 +501,7 @@ int	main(int argc, char* argv[])
 	// Register exit procedure
 	atexit(neogeo_shutdown);
 #endif
-	
+
 	if (!video_init())
 		return -2;
 
@@ -512,11 +528,9 @@ int	main(int argc, char* argv[])
 		return -4;
 #endif
 
-#ifdef SHOW_MENU
+#if defined(SHOW_MENU) && !defined(AUTO_EVENTS)
 	do{
-#ifndef AUTO_EVENTS
   		run_mainMenu();
-#endif
 	}while(!neogeo_cdrom_init1());
 #else
 	if (!neogeo_cdrom_init1())
@@ -646,7 +660,7 @@ int	neogeo_hreset(void)
 	
 	}
 
-#ifndef DREAMCAST
+#if !defined(DREAMCAST) && !defined(DINGUX)
 	/* update window title with game name */
 	strcat(neocd_wm_title," - ");
 	strcat(neocd_wm_title,(const char *)config_game_name);
@@ -680,8 +694,10 @@ int	neogeo_hreset(void)
 	/* Set System Region */
 	m68k_write_memory_8(0x10FD83,neogeo_region);
 
+#ifdef ENABLE_CDDA
 	cdda_current_track = 0;
 	cdda_get_disk_info();
+#endif
 #else
 
 	aes4all_nvram_lock=0;
@@ -740,7 +756,9 @@ void	neogeo_reset(void)
 	/* System Region */
 	m68k_write_memory_8(0x10FD83,neogeo_region);
 
+#ifdef ENABLE_CDDA
 	cdda_current_track = 0;
+#endif
 #endif
 #ifdef Z80_EMULATED
 	_z80reset();

@@ -219,9 +219,11 @@ static int getFiles(char *dir)
 #else
 		text_dir_files[i].d_type=actual->d_type & 4;
 #endif
+#ifdef AES
 		if (!text_dir_files[i].d_type)
 			if (!is_aes_file(dir,name,(char *)&text_dir_files[i].d_name[MAX_FILELEN+2]))
 			{ i--; continue; }
+#endif
 		text_dir_files[i].d_name[MAX_FILELEN+1]=0;
 		text_dir_files[i].d_name[MAX_DNAME-1]=0;
 	}

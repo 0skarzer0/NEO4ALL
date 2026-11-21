@@ -108,8 +108,10 @@ int aes4all_prefetch_all(void)
 	int nc=strlen(aes4all_actual_dir);
 	if (!aes4all_filename)
 		return 1;
+#ifndef AUTO_EVENTS
 	if (!nc)
 		return 1;
+#endif
 #ifdef DREAMCAST
 	strcat(aes4all_actual_dir,"/");
 	strcat(aes4all_actual_dir,aes4all_filename);
@@ -148,51 +150,134 @@ int aes4all_prefetch_all(void)
 
 #else
 	text_draw_loading(1,12);
+#ifndef USE_MMAP
 	fseek(f,aes4all_memory_cpu_init,SEEK_SET);
 	fread(aes4all_memory_cpu,1,aes4all_memory_cpu_size,f);
+#else
+#ifdef DEBUG_MMAP_PREFETCH
+	puts("CPU");fflush(stdout);
+#endif
+	aes4all_mmap_prefetch(aes4all_memory_cpu_init,aes4all_memory_cpu_size,f);
+#endif
 
 	text_draw_loading(2,12);
+#ifndef USE_MMAP
 	fseek(f,aes4all_memory_bios_init,SEEK_SET);
 	fread(aes4all_memory_bios,1,aes4all_memory_bios_size,f);
+#else
+#ifdef DEBUG_MMAP_PREFETCH
+	puts("BIOS");fflush(stdout);
+#endif
+	aes4all_mmap_prefetch(aes4all_memory_bios_init,aes4all_memory_bios_size,f);
+#endif
 
 	text_draw_loading(3,12);
+#ifndef USE_MMAP
 	fseek(f,aes4all_memory_sfix_game_init,SEEK_SET);
 	fread(aes4all_memory_sfix_game,1,aes4all_memory_sfix_game_size,f);
+#else
+#ifdef DEBUG_MMAP_PREFETCH
+	puts("SFIX_GAME");fflush(stdout);
+#endif
+	aes4all_mmap_prefetch(aes4all_memory_sfix_game_init,aes4all_memory_sfix_game_size,f);
+#endif
 
 	text_draw_loading(4,12);
+#ifndef USE_MMAP
 	fseek(f,aes4all_memory_sfix_board_init,SEEK_SET);
 	fread(aes4all_memory_sfix_board,1,aes4all_memory_sfix_board_size,f);
+#else
+#ifdef DEBUG_MMAP_PREFETCH
+	puts("SFIX_BOARD");fflush(stdout);
+#endif
+	aes4all_mmap_prefetch(aes4all_memory_sfix_board_init,aes4all_memory_sfix_board_size,f);
+#endif
 
 	text_draw_loading(5,12);
+#ifndef USE_MMAP
 	fseek(f,aes4all_memory_sm1_init,SEEK_SET);
 	fread(aes4all_memory_sm1,1,aes4all_memory_sm1_size,f);
+#else
+#ifdef DEBUG_MMAP_PREFETCH
+	puts("SM1");fflush(stdout);
+#endif
+	aes4all_mmap_prefetch(aes4all_memory_sm1_init,aes4all_memory_sm1_size,f);
+#endif
 
 	text_draw_loading(6,12);
+#ifndef USE_MMAP
 	fseek(f,aes4all_memory_sound1_init,SEEK_SET);
 	fread(aes4all_memory_sound1,1,aes4all_memory_sound1_size,f);
+#else
+#ifdef DEBUG_MMAP_PREFETCH
+	puts("SOUND1");fflush(stdout);
+#endif
+	aes4all_mmap_prefetch(aes4all_memory_sound1_init,aes4all_memory_sound1_size,f);
+#endif
 
 	text_draw_loading(7,12);
 	if (aes4all_memory_sound2_size)
 	{
+#ifndef USE_MMAP
 		fseek(f,aes4all_memory_sound2_init,SEEK_SET);
 		fread(aes4all_memory_sound2,1,aes4all_memory_sound2_size,f);
+#else
+#ifdef DEBUG_MMAP_PREFETCH
+	puts("SOUND2");fflush(stdout);
+#endif
+		aes4all_mmap_prefetch(aes4all_memory_sound2_init,aes4all_memory_sound2_size,f);
+#endif
 	}
 
 	text_draw_loading(8,12);
+#ifndef USE_MMAP
 	fseek(f,aes4all_memory_gfx_init,SEEK_SET);
 	fread(aes4all_memory_gfx,1,aes4all_memory_gfx_size,f);
+#else
+#ifdef DEBUG_MMAP_PREFETCH
+	puts("GFX");fflush(stdout);
+	aes4all_mmap_prefetch(aes4all_memory_gfx_init,aes4all_memory_gfx_size,f);
+#else
+	aes4all_mmap_prefetch(aes4all_memory_gfx_init,aes4all_memory_gfx_size<0x1000000?aes4all_memory_gfx_size:1000000,f);
+#endif
+#endif
 
 	text_draw_loading(9,12);
+#ifndef USE_MMAP
 	fseek(f,aes4all_memory_ng_lo_init,SEEK_SET);
 	fread(aes4all_memory_ng_lo,1,aes4all_memory_ng_lo_size,f);
+#else
+#ifdef DEBUG_MMAP_PREFETCH
+	puts("NG_LO");fflush(stdout);
+#endif
+	aes4all_mmap_prefetch(aes4all_memory_ng_lo_init,aes4all_memory_ng_lo_size,f);
+#endif
 
 	text_draw_loading(10,12);
+#ifndef USE_MMAP
 	fseek(f,aes4all_memory_fix_board_usage_init,SEEK_SET);
 	fread(aes4all_memory_fix_board_usage,1,aes4all_memory_fix_board_usage_size,f);
+#else
+#ifdef DEBUG_MMAP_PREFETCH
+	puts("FIX_BOARD");fflush(stdout);
+#endif
+	aes4all_mmap_prefetch(aes4all_memory_fix_board_usage_init,aes4all_memory_fix_board_usage_size,f);
+#endif
 
 	text_draw_loading(11,12);
+#ifndef USE_MMAP
 	fseek(f,aes4all_memory_fix_game_usage_init,SEEK_SET);
 	fread(aes4all_memory_fix_game_usage,1,aes4all_memory_fix_game_usage_size,f);
+#else
+#ifdef DEBUG_MMAP_PREFETCH
+	puts("FIX_GAME");fflush(stdout);
+#endif
+	aes4all_mmap_prefetch(aes4all_memory_fix_game_usage_init,aes4all_memory_fix_game_usage_size,f);
+#endif
+
+#endif
+#ifdef DEBUG_MMAP_PREFETCH
+	puts("PEN_USAGE");fflush(stdout);
 #endif
 	text_draw_loading(12,12);
 	fseek(f,aes4all_memory_pen_usage_init,SEEK_SET);

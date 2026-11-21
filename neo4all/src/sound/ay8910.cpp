@@ -642,7 +642,7 @@ static int AY8910_init(int clock, int sample_rate,
 int AY8910_sh_start(void)
 {
 
-    if (AY8910_init(8000000, SAMPLE_RATE, NULL, NULL, NULL, NULL) !=
+    if (AY8910_init((8000000*80)/100, (SAMPLE_RATE*80)/100, NULL, NULL, NULL, NULL) !=
 	0)
 	return 1;
     build_mixer_table();

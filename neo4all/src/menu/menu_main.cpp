@@ -25,9 +25,9 @@
 #endif
 
 #ifndef AES
-static char *text_str_title="NEO4ALL RC-3";
+static char *text_str_title="NEO4ALL RC-4";
 #else
-static char *text_str_title="AES4ALL BETA-3";
+static char *text_str_title="AES4ALL BETA-4";
 #endif
 
 static char *text_str_cpu="CPU Settings";
@@ -52,7 +52,7 @@ static char *text_str_filter_bilinear="Bilinear";
 static char *text_str_control="Edit Controls";
 static char *text_str_cdaudio="CDDA";
 static char *text_str_separator="~~~~~~~~~~~~~~~~~~~~~~";
-#ifndef AES
+#if !defined(AES) && !defined(CDISO)
 static char *text_str_reset="Reset";
 #else
 static char *text_str_reset="Select Game";
@@ -493,7 +493,7 @@ void drawNoCD(void)
 	{
 		text_draw_background();
 		text_draw_window(64,64,160,36,"ERROR");
-#ifndef AES
+#if !defined(AES) && !defined(CDISO)
 		write_text(9,9,"No disk in drive");
 #else
 		write_text(9,9,"No game selected");
@@ -591,7 +591,7 @@ int run_mainMenu()
 				break;
 */
 			case MAIN_MENU_CASE_RUN:
-#if defined(AES)
+#if defined(AES) || defined(CDISO)
 				if (neogeo_yet_running)
 				{
 					if (need_reset>0)
@@ -634,7 +634,7 @@ int run_mainMenu()
 				break;
 
 			case MAIN_MENU_CASE_RESET:
-#ifdef AES
+#if defined(AES) || defined(CDISO)
 				if (need_reset>0)
 					run_menuLoad();
 				else

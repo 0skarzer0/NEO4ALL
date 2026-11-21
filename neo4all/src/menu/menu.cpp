@@ -68,7 +68,14 @@ extern int __sdl_dc_emulate_keyboard;
 
 static void obten_colores(void)
 {
-	FILE *f=fopen(DATA_PREFIX "colors.txt", "rt");
+	char *filename=DATA_PREFIX "colors.txt";
+	FILE *f=fopen(filename, "rt");
+#ifdef DREAMCAST
+	if (!f) {
+		filename[1]='s';
+		f=fopen(filename, "rt");
+	}
+#endif
 	if (f)
 	{
 		Uint32 r,g,b;
@@ -238,10 +245,17 @@ SDL_Surface *menu_IMG_Load(char *filename)
 	SDL_Surface *ret, *tmp=IMG_Load(filename);
 	if (tmp==NULL)
 	{
+#ifdef DREAMCAST
+		filename[1]='s';
+		tmp=IMG_Load(filename);
+		if (tmp==NULL)
+#endif
+		{
 #ifdef STDOUTPUT
 		printf("Unable to load '%s'\n",filename);
 #endif
 		exit(-2);
+		}
 	}
 	ret=menu_DisplayFormat(tmp);
 	SDL_FreeSurface(tmp);
@@ -381,7 +395,8 @@ void init_text(int splash)
 #ifndef DREAMCAST
 	chdir(ROM_PREFIX);
 #else
-	fs_chdir(ROM_PREFIX);
+//	fs_chdir(ROM_PREFIX);
+	fs_chdir("/");//ROM_PREFIX);
 #endif
 #endif
 //	menu_msg_time=SDL_GetTicks();
@@ -475,6 +490,17 @@ void write_text(int x, int y, char * str)
 void write_text_inv(int x, int y, char * str)
 {
 	SFont_PutStringInfo(text_screen, &font_inv, x*8, y*8, str);
+}
+
+void _write_text_inv_n(SDL_Surface *sf, int x, int y, int n, char * str)
+{
+	SDL_Rect dest;
+	dest.x = (x * 8) -2 ;
+	dest.y = (y * 8) /*10*/ - 2;
+	dest.w = (n*8)+4;
+	dest.h = 16;
+	SDL_FillRect(sf, &dest, menu_inv_color);
+	SFont_PutString(sf, x*8, y*8, str);
 }
 
 #define exact_write_text_inv(X,Y,STR) SFont_PutStringInfo(text_screen, &font_inv, (X), (Y), (STR) )

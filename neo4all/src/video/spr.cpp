@@ -65,7 +65,8 @@ void   video_draw_spr(unsigned int code, unsigned int color, int flipx,
    char               *l_y_skip; 
    const unsigned short   *paldata; 
 
-#ifdef _AES_
+#if 0
+   def _AES_
    sx+=16;
    if ((sx<=-8)||(sx+zx>=312)||(sy<0)||(sy+zy>=232))
 	  return;
@@ -92,7 +93,8 @@ void   video_draw_spr(unsigned int code, unsigned int color, int flipx,
    if (ey >= 224) 
       ey = 223; 
 
-#ifndef AES
+#if 1
+   //ndef AES
    if (flipy)   // Y flip 
 #else
    if (!flipy)   // Y flip 

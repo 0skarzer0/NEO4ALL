@@ -74,6 +74,8 @@ void video_draw_blank(void);
 
 void blitter(void);
 
+void set_message(char *msg, int t);
+
 /*-- draw_fix.c functions -------------------------------------------------*/
 void video_draw_fix(void);
 void fixputs(Uint16 x, Uint16 y, const char * string);

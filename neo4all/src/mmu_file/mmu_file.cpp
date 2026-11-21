@@ -26,7 +26,8 @@
 
 // #define MMU_FILE_DEBUG
 
-#if defined(DREAMCAST) && !defined(DEBUG_NEO4ALL)
+//#if defined(DREAMCAST) && !defined(DEBUG_NEO4ALL)
+#if 0
 #define MMU_FILE_LOW_LEVEL
 extern "C" {
 int __kos__iso_tell(void * h);

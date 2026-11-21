@@ -169,5 +169,8 @@ void neo4all_prof_show(void);
 #define NEO4ALL_PROFILER_BLIT	5
 #define NEO4ALL_PROFILER_SOUND  6
 
+#ifdef DINGUX
+#define bzero(SZ,NB) memset((SZ),0,(NB))
+#endif
 
 #endif /* NEOCD_H */

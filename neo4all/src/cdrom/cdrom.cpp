@@ -25,6 +25,20 @@
 #define LOWERCASEFILES
 #endif
 
+#ifdef CDISO
+#define cdrom_fopen(FN,MD) (FILE *)CDR_fopen(FN,MD)
+#define cdrom_fclose(ST) CDR_fclose((void *)ST)
+#define cdrom_fread(PTR,SZ,NM,ST) CDR_fread(PTR,SZ,NM,(void*)ST)
+#define cdrom_feof(ST) CDR_feof((void*)ST)
+#define cdrom_fgets(STR,SZ,FS) CDR_fgets(STR,SZ,(void *)FS)
+#else
+#define cdrom_fopen(FN,MD) fopen_retry(FN,MD)
+FILE *fopen_retry(char *filename, char *mode);
+#define cdrom_fclose(ST) fclose(ST)
+#define cdrom_fread(PTR,SZ,NM,ST) fread(PTR,SZ,NM,ST)
+#define cdrom_feof(ST) feof(ST)
+#define cdrom_fgets(STR,SZ,FS) fgets(STR,SZ,FS)
+#endif
 
 #define MIN_TEXT_DRAW 2
 
@@ -104,6 +118,7 @@ int    neogeo_cdrom_init1(void)
     char Path[256];
     int found=0,number;
 
+#ifndef CDISO
     console_printf("\nDetecting CD-ROM drives... ");
 
     /* Check for CD drives */
@@ -114,6 +129,15 @@ int    neogeo_cdrom_init1(void)
 	drawNoCD();
         exit(-1);
     }
+#else
+    extern char neo4all_image_file[];
+    CDR_init();
+    CDR_SetIsoFile(neo4all_image_file); //ROM_PREFIX "/game.iso");
+    CDR_open();
+
+    strcpy(cdpath,"");
+    number=1;
+#endif
 
     neogeo_cdrom_current_drive=0;
 
@@ -125,19 +149,23 @@ int    neogeo_cdrom_init1(void)
     {
         console_printf("Trying %s\n",SDL_CDName(neogeo_cdrom_current_drive));
 
+#ifndef CDISO
         if(getMountPoint(neogeo_cdrom_current_drive,cdpath))
+#endif
         {
             strcpy(Path, cdpath);
             strcat(Path, IPL_TXT);
-            if((fp=fopen_s(Path,"rb"))!=NULL)
+            if((fp=cdrom_fopen(Path,"rb"))!=NULL)
             {
                 found=1;
-                fclose(fp);
+                cdrom_fclose(fp);
                 console_printf("Found Neogeo CD in drive: %s\n",SDL_CDName(neogeo_cdrom_current_drive));
             } else 
                 neogeo_cdrom_current_drive++;
+#ifndef CDISO
         } else {
             console_printf ("CD drive %s is not mounted\n",SDL_CDName(neogeo_cdrom_current_drive));
+#endif
             
             neogeo_cdrom_current_drive++;
         }
@@ -178,7 +206,7 @@ int    neogeo_cdrom_load_prg_file(char *FileName, unsigned int Offset)
     strcpy(Path, cdpath);
     strcat(Path, FileName);
 
-    fp = fopen_s(Path, "rb");
+    fp = cdrom_fopen(Path, "rb");
     if (fp==NULL) {
 //        sprintf(global_error, "Could not open %s", Path);
 //    	sound_enable();
@@ -188,15 +216,15 @@ int    neogeo_cdrom_load_prg_file(char *FileName, unsigned int Offset)
     Ptr = neogeo_prg_memory + Offset;
     
     do {
-        Readed = fread(neogeo_cdrom_buffer, 1, BUFFER_SIZE, fp);
+        Readed = cdrom_fread(neogeo_cdrom_buffer, 1, BUFFER_SIZE, fp);
 #ifdef DEBUG_CDROM
 	printf("PRG Lectura desde la posicion %i (%i bytes), resto=%i\n",Ptr-neogeo_prg_memory,Readed,0x200000-(Ptr-neogeo_prg_memory));
 #endif
         swab(neogeo_cdrom_buffer, Ptr, Readed);
         Ptr += Readed;
-    } while(  !feof(fp) );//Readed==BUFFER_SIZE &&
+    } while(  !cdrom_feof(fp) );//Readed==BUFFER_SIZE &&
     
-    fclose(fp);
+    cdrom_fclose(fp);
 
 //    sound_enable();
 #ifdef DEBUG_CDROM
@@ -219,7 +247,7 @@ int    neogeo_cdrom_load_z80_file(char *FileName, unsigned int Offset)
     strcpy(Path, cdpath);
     strcat(Path, FileName);
 
-    fp = fopen_s(Path, "rb");
+    fp = cdrom_fopen(Path, "rb");
     if (fp==NULL) {
 //        sprintf(global_error, "Could not open %s", Path);
 //    	sound_enable();
@@ -229,10 +257,10 @@ int    neogeo_cdrom_load_z80_file(char *FileName, unsigned int Offset)
 #ifdef DEBUG_CDROM
     printf("Z80 Lectura desde la posicion %i (%i bytes)\n",Offset,0x10000-Offset);
 #endif
-    fread( &subcpu_memspace[Offset], 1, 0x10000-Offset, fp);
+    cdrom_fread( &subcpu_memspace[Offset], 1, 0x10000-Offset, fp);
     memcpy(&mame_z80mem[Offset],&subcpu_memspace[Offset],0x10000-Offset);
 
-    fclose(fp);
+    cdrom_fclose(fp);
 //    sound_enable();
 #ifdef DEBUG_CDROM
     puts("Z80 Ok.");
@@ -256,7 +284,7 @@ int    neogeo_cdrom_load_fix_file(char *FileName, unsigned int Offset)
     strcpy(Path, cdpath);
     strcat(Path, FileName);
     
-    fp = fopen_s(Path, "rb");
+    fp = cdrom_fopen(Path, "rb");
     if (fp==NULL) {
 //        sprintf(global_error, "Could not open %s", Path);
 //    	sound_enable();
@@ -267,7 +295,7 @@ int    neogeo_cdrom_load_fix_file(char *FileName, unsigned int Offset)
     
     do {
         memset(neogeo_cdrom_buffer, 0, BUFFER_SIZE);
-        Readed = fread(neogeo_cdrom_buffer, 1, BUFFER_SIZE, fp);
+        Readed = cdrom_fread(neogeo_cdrom_buffer, 1, BUFFER_SIZE, fp);
 #ifdef DEBUG_CDROM
     printf("FIX Lectura desde la posicion %i (%i bytes), resto=%i\n",Ptr-neogeo_fix_memory,Readed,0x20000-(Ptr-neogeo_fix_memory));
 #endif
@@ -277,7 +305,7 @@ int    neogeo_cdrom_load_fix_file(char *FileName, unsigned int Offset)
         Offset += Readed;
     } while( Readed == BUFFER_SIZE );
     
-    fclose(fp);
+    cdrom_fclose(fp);
     
 //    sound_enable();
 #ifdef DEBUG_CDROM
@@ -301,7 +329,7 @@ int    neogeo_cdrom_load_spr_file(char *FileName, unsigned int Offset)
     strcpy(Path, cdpath);
     strcat(Path, FileName);
     
-    fp = fopen_s(Path, "rb");
+    fp = cdrom_fopen(Path, "rb");
     if (fp==NULL) {
 //        sprintf(global_error, "Could not open %s", Path);
 //    	sound_enable();
@@ -312,7 +340,7 @@ int    neogeo_cdrom_load_spr_file(char *FileName, unsigned int Offset)
     
     do {
         memset(neogeo_cdrom_buffer, 0, BUFFER_SIZE);
-        Readed = fread(neogeo_cdrom_buffer, 1, BUFFER_SIZE, fp);
+        Readed = cdrom_fread(neogeo_cdrom_buffer, 1, BUFFER_SIZE, fp);
 #ifdef DEBUG_CDROM
     printf("SPR Lectura desde la posicion %i (%i bytes), resto=%i\n",Ptr-neogeo_spr_memory,Readed,0x400000-(Ptr-neogeo_spr_memory));
 #endif
@@ -321,7 +349,7 @@ int    neogeo_cdrom_load_spr_file(char *FileName, unsigned int Offset)
         Ptr += Readed;
     } while( Readed == BUFFER_SIZE );
     
-    fclose(fp);
+    cdrom_fclose(fp);
     
 //    sound_enable();
 #ifdef DEBUG_CDROM
@@ -344,7 +372,7 @@ int    neogeo_cdrom_load_pcm_file(char *FileName, unsigned int Offset)
     strcpy(Path, cdpath);
     strcat(Path, FileName);
 
-    fp = fopen_s(Path, "rb");
+    fp = cdrom_fopen(Path, "rb");
     if (fp==NULL) {
 //        sprintf(global_error, "Could not open %s", Path);
 //    	sound_enable();
@@ -355,9 +383,9 @@ int    neogeo_cdrom_load_pcm_file(char *FileName, unsigned int Offset)
 #ifdef DEBUG_CDROM
     printf("PCM Lectura desde la posicion %i (%i bytes)\n",Offset,0x100000-Offset);
 #endif
-    fread(Ptr, 1, 0x100000-Offset, fp);
+    cdrom_fread(Ptr, 1, 0x100000-Offset, fp);
 
-    fclose(fp);
+    cdrom_fclose(fp);
 
 //    sound_enable();
 #ifdef DEBUG_CDROM
@@ -380,21 +408,21 @@ int    neogeo_cdrom_load_pat_file(char *FileName, unsigned int Offset, unsigned 
     strcpy(Path, cdpath);
     strcat(Path, FileName);
     
-    fp = fopen_s(Path, "rb");
+    fp = cdrom_fopen(Path, "rb");
     if (fp==NULL) {
 //        sprintf(global_error, "Could not open %s", Path);
 //    	sound_enable();
         return 0;
     }
     
-    Readed = fread(neogeo_cdrom_buffer, 1, BUFFER_SIZE, fp);
+    Readed = cdrom_fread(neogeo_cdrom_buffer, 1, BUFFER_SIZE, fp);
 #ifdef DEBUG_CDROM
     printf("PAT Lectura desde la posicion %i (%i bytes)\n",0,Readed);
 #endif
     swab(neogeo_cdrom_buffer, neogeo_cdrom_buffer, Readed);
     neogeo_cdrom_apply_patch((short*)neogeo_cdrom_buffer, Offset, Bank);
 
-    fclose(fp);
+    cdrom_fclose(fp);
 
 //    sound_enable();
 #ifdef DEBUG_CDROM
@@ -447,19 +475,18 @@ int    neogeo_cdrom_process_ipl(int check)
     strcpy(Path, cdpath);
     strcat(Path, IPL_TXT);
     
-    fp = fopen_s(Path, "rb");
+    fp = cdrom_fopen(Path, "rb");
     
     if (fp==NULL) {
 //        strcpy(global_error, "Could not open IPL.TXT!");
     	sound_enable();
         return 0;
     }
-    while (fgets(Line, 32, fp)!=NULL)
+    while (cdrom_fgets(Line, 32, fp)!=NULL)
     {
         Bnk=0;
-		Off=0;
-
-		processEvents();
+	Off=0;
+	processEvents();
     
         i=0;
         j=0;
@@ -474,17 +501,17 @@ int    neogeo_cdrom_process_ipl(int check)
             j=0;
             while(Line[i] != ',') {
                 Bnk*=10;
-				Bnk+=Line[i]-'0';
-				i++;
-			}
+		Bnk+=Line[i]-'0';
+		i++;
+	    }
 
             i++;
             j=0;
 
-            while(Line[i] != 0x0D) {
-			    Off*=16;
-				Off+=hextodec(Line[i++]);
-			}
+            while(Line[i] != 0x0D && Line[i] != 0) {
+		Off*=16;
+		Off+=hextodec(Line[i++]);
+	    }
 
             Bnk &= 3;
 
@@ -493,10 +520,10 @@ int    neogeo_cdrom_process_ipl(int check)
 	    {
 		strcpy(Path, cdpath);
 		strcat(Path, FileName);
-		FILE *f=fopen_s(Path,"rb");
+		FILE *f=cdrom_fopen(Path,"rb");
 		if (!f)
 			return 0;
-		fclose(f);
+		cdrom_fclose(f);
 	    }
 	    else
 	    {
@@ -506,42 +533,42 @@ int    neogeo_cdrom_process_ipl(int check)
             	switch( FileType ) {
             	  case PRG_TYPE:
                 	if (!neogeo_cdrom_load_prg_file(FileName, Off)) {
-                    		fclose(fp);
+                    		cdrom_fclose(fp);
     		    		sound_enable();
                     		return 0;
                 	}
                		break;
             	  case FIX_TYPE:
                 	if (!neogeo_cdrom_load_fix_file(FileName, (Off>>1))) {
-                    		fclose(fp);
+                    		cdrom_fclose(fp);
     		    		sound_enable();
                    		return 0;
                 	}
                 	break;
             	  case SPR_TYPE:
                 	if (!neogeo_cdrom_load_spr_file(FileName, (Bnk*0x100000) + Off)) {
-                    		fclose(fp);
+                    		cdrom_fclose(fp);
     		    		sound_enable();
                     		return 0;
                 	}
                 	break;
             	  case Z80_TYPE:
                 	if (!neogeo_cdrom_load_z80_file(FileName, (Off>>1))) {
-                    		fclose(fp);
+                    		cdrom_fclose(fp);
     		    		sound_enable();
                     		return 0;
                 	}
                 	break;
             	  case PAT_TYPE:
                 	if (!neogeo_cdrom_load_pat_file(FileName, Off, Bnk)) {
-                    		fclose(fp);
+                    		cdrom_fclose(fp);
     		    		sound_enable();
                     		return 0;
                 	}
                 	break;
             	  case PCM_TYPE:
                 	if (!neogeo_cdrom_load_pcm_file(FileName, (Bnk*0x80000) + (Off>>1))) {
-                   		fclose(fp);
+                   		cdrom_fclose(fp);
     		    		sound_enable();
                     		return 0;
                 	}
@@ -555,7 +582,7 @@ int    neogeo_cdrom_process_ipl(int check)
         }
     }
     
-    fclose(fp);
+    cdrom_fclose(fp);
 #ifndef USE_VIDEO_GL
     video_draw_blank();
 #endif
@@ -668,10 +695,10 @@ static unsigned neogeo_cdrom_test_files(int check)
 		char Path[256];
 		strcpy(Path, cdpath);
 		strcat(Path, FileName);
-		FILE *f=fopen_s(Path,"rb");
+		FILE *f=cdrom_fopen(Path,"rb");
 		if (!f)
 			return 0;
-		fclose(f);
+		cdrom_fclose(f);
 	}
 	else
 	{
@@ -720,7 +747,9 @@ void    neogeo_cdrom_load_files(void)
 
     SDL_PauseAudio(1);
     cdda_stop();
+#ifdef ENABLE_CDDA
     cdda_current_track = 0;
+#endif
 
     m68k_write_memory_32(0x10F68C, 0x00000000);
     m68k_write_memory_8(0x10F6C3, 0x00);
@@ -914,7 +943,7 @@ puts("NEOGEO_UPLOAD !!!");fflush(stdout);
 printf("neogeo_upload: Zone=0x%X\n",Zone); fflush(stdout);
 #endif
 
-    /*fp = fopen_s("UPLOAD.LOG", "at");
+    /*fp = cdrom_fopen("UPLOAD.LOG", "at");
 
     fprintf(fp, "%02x: %06x, %06x:%02x, %08x\n",
         Zone,
@@ -923,7 +952,7 @@ printf("neogeo_upload: Zone=0x%X\n",Zone); fflush(stdout);
         m68k_read_memory_8(0x10FEDB),
         m68k_read_memory_32(0x10FEFC));
 
-    fclose(fp);   */
+    cdrom_fclose(fp);   */
 
     switch( Zone&0x0F )
     {
@@ -1112,14 +1141,14 @@ void neogeo_cdrom_load_title(void)
 
     strcat(Path, file);
     
-    fp = fopen_s(Path, "rb");
+    fp = cdrom_fopen(Path, "rb");
     if (fp!=NULL)
     {
     
 #ifdef DEBUG_CDROM
     	printf("Palette Lectura desde la posicion %i (%i bytes)\n",0,0x5a0);
 #endif
-    	fread(video_paletteram_pc, 1, 0x5A0, fp);
+    	cdrom_fread(video_paletteram_pc, 1, 0x5A0, fp);
     	swab((char *)video_paletteram_pc, (char *)video_paletteram_pc, 0x5A0);
 
     	for(Readed=0;Readed<720;Readed++)
@@ -1127,12 +1156,12 @@ void neogeo_cdrom_load_title(void)
 
     	Ptr = neogeo_spr_memory;
     
-    	Readed = fread(neogeo_cdrom_buffer, 1, BUFFER_SIZE, fp);
+    	Readed = cdrom_fread(neogeo_cdrom_buffer, 1, BUFFER_SIZE, fp);
 #ifdef DEBUG_CDROM
     	printf("TITLE Lectura desde la posicion %i (%i bytes)\n",0,Readed);
 #endif
     	spr_conv((unsigned char *)neogeo_cdrom_buffer, (unsigned char *)Ptr, Readed, (unsigned char *)video_spr_usage);
-    	fclose(fp);
+    	cdrom_fclose(fp);
 
 #if defined(DREAMCAST) && defined(USE_VIDEO_GL)
     	glKosBeginFrame();
@@ -1200,7 +1229,7 @@ void neogeo_cdrom_apply_patch(short *source, int offset, int bank)
     }
 }
 
-FILE *fopen_s(char *filename, char *mode)
+FILE *fopen_retry(char *filename, char *mode)
 {
 	FILE *ret=fopen(filename,mode);
 	unsigned len=strlen(filename);

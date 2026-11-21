@@ -114,6 +114,82 @@ static void input_reinit_aes_system(void)
 #define input_reinit_aes_system()
 #endif
 
+#ifdef DINGOO
+static int pulsando_escape=0;
+
+static void show_mhz(void)
+{
+    extern int dingoo_get_clock(void);
+    char n[40];
+    sprintf((char *)&n[0],"Dingoo at %iMHz",dingoo_get_clock());
+    set_message((char *)&n[0], 50);
+}
+
+static void show_brightness(void)
+{
+    extern int dingoo_get_brightness(void);
+    char n[40];
+    sprintf((char *)&n[0],"Brightness %i%%",dingoo_get_brightness());
+    set_message((char *)&n[0], 40);
+}
+
+static void show_volumen(void)
+{
+    extern int dingoo_get_volumen(void);
+    char n[40];
+    sprintf((char *)&n[0],"Volumen %i%%",dingoo_get_volumen());
+    set_message((char *)&n[0], 40);
+}
+
+static void inc_dingoo_mhz(void)
+{
+	extern void dingoo_set_clock(unsigned int);
+	extern unsigned int dingoo_get_clock(void);
+	dingoo_set_clock(dingoo_get_clock()+25);
+	show_mhz();
+}
+
+static void dec_dingoo_mhz(void)
+{
+	extern void dingoo_set_clock(unsigned int);
+	extern unsigned int dingoo_get_clock(void);
+	dingoo_set_clock(dingoo_get_clock()-25);
+	show_mhz();
+}
+
+static void inc_dingoo_brightness(void)
+{
+	extern void dingoo_set_brightness(int);
+	extern int dingoo_get_brightness(void);
+	dingoo_set_brightness(dingoo_get_brightness()+5);
+	show_brightness();
+}
+
+static void dec_dingoo_brightness(void)
+{
+	extern void dingoo_set_brightness(int);
+	extern int dingoo_get_brightness(void);
+	dingoo_set_brightness(dingoo_get_brightness()-5);
+	show_brightness();
+}
+
+static void inc_dingoo_volumen(void)
+{
+	extern void dingoo_set_volumen(int);
+	extern int dingoo_get_volumen(void);
+	dingoo_set_volumen(dingoo_get_volumen()+5);
+	show_volumen();
+}
+
+static void dec_dingoo_volumen(void)
+{
+	extern void dingoo_set_volumen(int);
+	extern int dingoo_get_volumen(void);
+	dingoo_set_volumen(dingoo_get_volumen()-5);
+	show_volumen();
+}
+
+#endif
 
 /*--------------------------------------------------------------------------*/
 void input_init(void) {
@@ -235,6 +311,13 @@ void input_init(void) {
 
     input_reset();
     input_initted=1;
+#ifdef DINGOO
+    static int yet=0;
+    if (!yet) {
+	    show_mhz();
+	    yet++;
+    }
+#endif
 }
 
 void input_reinit(void)
@@ -275,11 +358,17 @@ INPUT_STATIC_INLINE void goMenu(void)
 	sound_enable();
 	init_autoframeskip();
 	pulsando_menu=0;
+#ifdef DINGOO
+	pulsando_escape=0;
+#endif
 #else
 	if (keys==~0)
 	{
     		int nook=1;
 		pulsando_menu=0;
+#ifdef DINGOO
+		pulsando_escape=0;
+#endif
 #ifdef PROFILER_NEO4ALL
 		neo4all_prof_show();
 #endif
@@ -299,6 +388,10 @@ INPUT_STATIC_INLINE void goMenu(void)
 				cdda_resume();
 				SDL_Delay(100);
 				cdda_stop();
+#ifdef CDISO
+				if (cas==2)
+					neogeo_cdrom_init1();
+#endif
 #else
 				if (cas==2)
 				{
@@ -355,12 +448,17 @@ INPUT_STATIC_INLINE void specialKey (SDLKey key) {
 	case SDLK_BACKSPACE:
 		pulsando_menu=1;
 		break;
+#ifndef DINGOO
 	case SDLK_F1: video_fullscreen_toggle(); break;
 	case SDLK_F2: insert_coin(0); break;
 	case SDLK_F3: insert_coin(1); break;
         case SDLK_F4: sound_toggle(); break;
         case SDLK_F12: video_save_snapshot(); break;
         case SDLK_ESCAPE: exit(0); break;
+#else
+	case SDLK_TAB: insert_coin(0); break;
+	case SDLK_ESCAPE: pulsando_escape=1; break;
+#endif
 #else
 	case SDLK_TAB: insert_coin(0); break;
 	case SDLK_1: insert_coin(1); break;
@@ -381,14 +479,36 @@ INPUT_STATIC_INLINE void keyDown (SDLKey key) {
     if(!(keyup[key]&SPECIAL)) {
 #endif
 	pulsando_menu=0;
+#ifdef DINGOO
+	if (pulsando_escape) {
+    		switch(key) {
+			case SDLK_RIGHT: inc_dingoo_volumen(); break;
+			case SDLK_LEFT: dec_dingoo_volumen(); break;
+			case SDLK_UP: inc_dingoo_brightness(); break;
+			case SDLK_DOWN: dec_dingoo_brightness(); break;
+			case SDLK_LCTRL: inc_dingoo_mhz(); break;
+			case SDLK_LALT: dec_dingoo_mhz(); break;
+			case SDLK_RETURN: pulsando_menu=1; break;
+		}
+	} else
+#endif
         keys &= keydown[key];
     }
 }
 
 
 INPUT_STATIC_INLINE void keyUp (SDLKey key) {
-    if(!(keyup[key]&SPECIAL))
+    if(!(keyup[key]&SPECIAL)) {
+#ifdef DINGOO
+	if (!pulsando_escape)
+#endif
     	keys |= keyup[key];
+    }
+#ifdef DINGOO
+    else
+	    if (key==SDLK_ESCAPE)
+		    pulsando_escape=0;
+#endif
     pulsando_menu=0;
 }
 
@@ -449,9 +569,11 @@ void processEvents(void) {
     }
     if (pulsando_menu)
     {
+#ifndef DINGOO
     	if (pulsando_menu<15)
 		pulsando_menu++;
 	else
+#endif
 		goMenu();
     }
 #else

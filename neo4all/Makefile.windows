@@ -1,7 +1,7 @@
 O      = o
 RM     = rm -f
-CC     = gcc
-CXX    = g++
+CC     = i686-pc-cygwin-gcc-3
+CXX    = i686-pc-cygwin-g++-3
 STRIP  = strip
 
 CDROM_OBJ=src/cdrom/win32.o
@@ -35,13 +35,13 @@ CFLAGS  = $(DEFAULT_CFLAGS) $(NEO4ALL_CFLAGS) $(MORE_CFLAGS)
 CPPFLAGS = $(CFLAGS)
 
 
-#$(PROG): $(OBJS) $(Z80_OBJS) $(MEMORY_OBJ) $(OBJS_68K)
-#	$(CC) -L/usr/local/lib -L/usr/lib/w32api/ -L/usr/X11R6/lib -lglu32  -lopengl32 -o $(PROG) -lmingw32 $(OBJS) $(OBJS_68K) $(MEMORY_OBJ) $(Z80_OBJS) -lglu32  -lopengl32 -lSDL_static -lGL -lpthread -mwindows -mno-cygwin -luser32 -lgdi32 -lwinmm
-#	$(STRIP) $(PROG)
-
 $(PROG): $(OBJS) $(Z80_OBJS) $(MEMORY_OBJ) $(OBJS_68K)
-	$(CC) -L/usr/local/lib -L/usr/lib/w32api/ -L/usr/X11R6/lib -lglu32  -lopengl32 -o $(PROG) -lmingw32 $(OBJS) $(OBJS_68K) $(MEMORY_OBJ) $(Z80_OBJS) -lglu32  -lopengl32 -lSDL_static_129 -lGL -lpthread -mwindows -mno-cygwin -luser32 -lgdi32 -lwinmm -ldxguid
+	$(CC) -L/usr/lib/mingw -L/usr/local/lib -o $(PROG) -lmingw32 $(OBJS) $(OBJS_68K) $(MEMORY_OBJ) $(Z80_OBJS) -lstdc++ -lSDL_static_129 -mwindows -mno-cygwin -luser32 -lgdi32 -lwinmm -ldxguid
 	$(STRIP) $(PROG)
+
+#$(PROG): $(OBJS) $(Z80_OBJS) $(MEMORY_OBJ) $(OBJS_68K)
+#	$(CC) -L/usr/local/lib -L/usr/lib/w32api/ -L/usr/X11R6/lib -lglu32  -lopengl32 -o $(PROG) -lmingw32 $(OBJS) $(OBJS_68K) $(MEMORY_OBJ) $(Z80_OBJS) -lglu32  -lopengl32 -lSDL_static_129 -lGL -lpthread -mwindows -mno-cygwin -luser32 -lgdi32 -lwinmm -ldxguid
+#	$(STRIP) $(PROG)
 
 
 run: $(PROG)

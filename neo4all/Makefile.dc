@@ -20,7 +20,7 @@ endif
 TARGET = $(NAME)
 
 ifdef AES
-KOS_CFLAGS= -Isrc/mmu_file/kos-patch/kernel/arch/dreamcast/include -O3 -fomit-frame-pointer -ml -m4-single-only -fno-optimize-sibling-calls -I$(KOS_BASE)/../kos-ports/include -I$(KOS_BASE)/include -I$(KOS_BASE)/kernel/arch/dreamcast/include -I$(KOS_BASE)/addons/include -D_arch_dreamcast -D_arch_sub_pristine -Wall -g -fno-builtin -fno-strict-aliasing
+KOS_CFLAGS= -Isrc/mmu_file/kos-patch/kernel/arch/dreamcast/include -O3 -fomit-frame-pointer -ml -m4-single-only -fno-optimize-sibling-calls -I$(KOS_BASE)/include -I$(KOS_BASE)/addons/include -I$(KOS_BASE)/kernel/arch/dreamcast/include -D_arch_dreamcast -D_arch_sub_pristine -Wall -g -fno-builtin -fno-strict-aliasing
 
 KOS_LDFLAGS = -Lsrc/mmu_file/kos-patch/lib/dreamcast -Lsrc/mmu_file/kos-patch/addons/lib/dreamcast -ml -m4-single-only -Wl,-Ttext=0x8c010000 -nostartfiles -nostdlib -L$(KOS_BASE)/lib/dreamcast -L$(KOS_BASE)/addons/lib/dreamcast
 endif
@@ -54,9 +54,9 @@ src/z80/faze/raze.s: src/z80/faze/raze.s.m4
 src/z80/faze/raze.o: src/z80/faze/raze.s
 
 ifdef VIDEOGL
-LIB_SDL= -lSDL_mixer_126 -lSDL_image_124 -lSDL_gl_129 -lgl -lpng_128 -lz_123
+LIB_SDL= -lSDL_mixer_126 -lSDL_image_124 -lSDL_gl_1213 -lkglx -lpng_128 -lz_123
 else
-LIB_SDL= -lSDL_mixer_126 -lSDL_image_124 -lSDL_129 -lpng_128 -lz_123
+LIB_SDL= -lSDL_mixer_126 -lSDL_image_124 -lSDL_1213 -lpng_128 -lz_123
 endif
 
 $(TARGET).elf: $(OBJS) $(Z80_OBJS) $(MEMORY_OBJ) $(OBJS_68K)
@@ -67,8 +67,8 @@ $(TARGET).bin: $(TARGET).elf
 	$(KOS_OBJCOPY) -R .stack -O binary $(TARGET).elf $(TARGET).bin
 
 romdisk.o: romdisk.img
-#	$(KOS_BASE)/utils/bin2o/bin2o romdisk.img data romdisk.o
-	bin2odc romdisk.img romdisk.o
+	$(KOS_BASE)/utils/bin2o/bin2o romdisk.img romdisk romdisk.o
+#	bin2odc romdisk.img romdisk.o
 
 romdisk.img:
 	$(KOS_GENROMFS) -f romdisk.img -d data -v
@@ -79,9 +79,9 @@ else
 #run: $(TARGET).bin example.iso
 run: $(TARGET).bin
 endif
-	$(KOS_LOADER) $(TARGET).bin 
+#	$(KOS_LOADER) $(TARGET).bin 
 #	$(KOS_LOADER) $(TARGET).bin -n
-#	$(KOS_LOADER) $(TARGET).bin -i example.iso
+	$(KOS_LOADER) $(TARGET).bin -i example.iso
 
 clean:
 	$(RM) $(OBJS) src/68k/c68k/cpu68k.o src/z80/z80intrf.o src/z80/faze/raze.s $(MEMORY_OBJ) $(TARGET).elf $(TARGET).bin  romdisk.o romdisk.img

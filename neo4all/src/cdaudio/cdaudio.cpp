@@ -2,6 +2,7 @@
 ****   CDAUDIO.C  -  CD-DA Player  ****
 **************************************/
 
+#ifdef ENABLE_CDDA
 //-- Include files -----------------------------------------------------------
 #include <stdio.h>
 #include <stdlib.h>
@@ -289,3 +290,6 @@ void	cdda_shutdown(void)
 #endif
 }
 
+#else
+int	cdda_disabled=1; // DISABLED CDDA
+#endif

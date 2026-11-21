@@ -2,6 +2,12 @@
 #include <stdio.h>
 #include <string.h>
 
+#if defined(USE_MMAP) && !defined(DREAMCAST)
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/mman.h>
+void *aes4all_mmap;
+#endif
 
 #ifdef DREAMCAST
 #include "mmu_file.h"
@@ -205,14 +211,43 @@ static int load_aes(char *filename)
 	return ret;
 }
 
+#if defined(USE_MMAP) && !defined(DREAMCAST)
+int aes4all_mmap_prefetch(unsigned mem_init, unsigned mem_size, FILE *f)
+{
+	int i,ret=0;
+	int *m=(int *)(((unsigned)aes4all_mmap)+mem_init-aes4all_memory_cpu_init);
+	fseek(f,mem_init,SEEK_SET);
+	for(i=0;i<(mem_size/4);i+=256) {
+#ifdef DEBUG_MMAP_PREFETCH
+		int t;
+		fread(&t,1,4,f);
+		if (t!=m[i]) {
+			printf("ERROR MMAP_FETCH: init=%p, i=%i (%i!=%i)\n",mem_init,i,t,m[i]);
+			exit(0);
+		}
+		fseek(f,255*4,SEEK_CUR);
+#endif
+		ret+=m[i];
+	}
+//printf("aes4all_mmap_prefetch(%i,%i)=%i\n",mem_init,mem_size,ret);fflush(stdout);
+	return ret;
+}
+#endif
+
 int aes4all_load(void)
 {
+#ifdef AUTO_EVENTS
+	aes4all_filename=(char *)&neo4all_image_file[0];
+	strcpy(aes4all_filename,"aof3.aes");
+	int nc=0;
+#else
 	if (!aes4all_filename)
 		return 0;
 	int nc=strlen(aes4all_actual_dir);
 	console_printf("Preloading '%s'...\n",aes4all_filename);
 	if (!nc)
 		return 0;
+#endif
 #ifdef DREAMCAST
 	strcat(aes4all_actual_dir,"/");
 	strcat(aes4all_actual_dir,aes4all_filename);
@@ -242,6 +277,18 @@ int aes4all_load(void)
 	input_init_aes_system(aes4all_system);
 	aes4all_filename=(char *)&neo4all_image_file[0];
 	aes4all_actual_dir[nc]=0;
+#if defined(USE_MMAP) && !defined(DREAMCAST)
+	static int aes4all_mmap_fd=0;
+	static unsigned aes4all_mmap_size=0;
+	if (aes4all_mmap_fd) {
+		munmap(aes4all_mmap,aes4all_mmap_size);
+		close(aes4all_mmap_fd);
+	}
+	aes4all_mmap_fd=open(aes4all_filename,O_RDONLY|O_NONBLOCK);
+	aes4all_mmap_size=aes4all_memory_total;
+	aes4all_mmap=mmap(NULL,aes4all_mmap_size,PROT_READ,MAP_PRIVATE|MAP_NONBLOCK,aes4all_mmap_fd,aes4all_memory_cpu_init);
+//printf("aes4all_mmap_fd=%i, size=%i, offset=%i, mmap=%p\n",aes4all_mmap_fd,aes4all_mmap_size,aes4all_memory_cpu_init,aes4all_mmap);
+#endif
 	return 1;
 }
 

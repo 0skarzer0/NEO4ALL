@@ -8,7 +8,7 @@
 ! This may only be distributed as part of the complete RAZE package.
 ! See RAZE.TXT for license information.
 ! Starting date: Around first quarter of 2005
-! Last update: 10/30/2006
+! Last update: 03/01/2007
 !----------------------------------------------------------------------------!
 
 ! You are not expected to understand this.
@@ -16,7 +16,10 @@
 include(`raze.reg')
 
 !----------------------------------------------------------------------------!
-! Comment these in/out for faster speed (less accurate):
+! Do not use the following lines to enable/disable features
+! They are here as a reference only
+! Define them in the command line as you need instead
+!
 define(`EMULATE_UNDOC_FLAGS')      ! a couple of undocumented flags
 !define(`EMULATE_BITS_3_5')         ! bits 3/5 of the flags (undocumented)
 !define(`EMULATE_WEIRD_STUFF')      ! misc *very obscure* undocumented behaviour
@@ -28,9 +31,14 @@ define(`SINGLE_FETCH')             ! fetch opcodes from a single memory block
 !define(`SINGLE_MEM_HANDLER')       ! use single memory handler
 define(`AUTODOWN_IRQS')            ! autodown IRQ feature
 !define(`EMULATE1')                 ! helpful to debug
-!define(`IRQ_CYCLES')		    ! spend cycles for IRQs
+!define(`IRQ_CYCLES')		        ! spend cycles for IRQs
 define(`NO_PC_LIMIT')
 !define(`BASED_PC')
+!define(`SH2_COMPAT_CODE')          ! generate SH2 compatible code
+!define(`BIG_ENDIAN')               ! big endian target machine
+!define(`GLOBAL_MEM_HANDLERS')      ! export read & write handlers
+!define(`NO_READ_HANDLER')
+
 !----------------------------------------------------------------------------!
 
 ! Notas de desarrollo
@@ -46,6 +54,12 @@ define(`lntag',`0')
 
 !.section .bss
 .data
+
+! Variables
+_z80_ICount: .long 0
+_z80_Initial_ICount: .long 0
+_z80_TempICount: .long 0
+_z80_afterEI: .long 0
 
 ! The current context
 .align 5
@@ -86,6 +100,7 @@ ifdef(`SINGLE_FETCH',
 	.endr
 ')
 
+ifdef(`GLOBAL_MEM_HANDLERS',`.global _z80_Read')
 _z80_Read:
 ifdef(`SINGLE_MEM_BLOCK',
 `
@@ -103,6 +118,8 @@ ifdef(`SINGLE_MEM_BLOCK',
 	')
 ')
 
+
+ifdef(`GLOBAL_MEM_HANDLERS',`.global _z80_Write')
 _z80_Write:
 ifdef(`SINGLE_MEM_BLOCK',
 `
@@ -126,12 +143,6 @@ _z80_RetI: .long 0
 _z80_Fetch_Callback: .long 0
 context_end:
 fill: .long 0     ! safety gap, so z80_reset can use 32-bit transfers
-
-! Variables
-_z80_ICount: .long 0
-_z80_Initial_ICount: .long 0
-_z80_TempICount: .long 0
-_z80_afterEI: .long 0
 
 ifdef(`SINGLE_MEM_BLOCK',`',
 `
@@ -260,9 +271,10 @@ define(`CALLGCC_START',
 	SAVE_REG(`r3')
 	SAVE_REG(`r4')
 	SAVE_REG(`r5')
-SAVE_REG(`r6')
+	SAVE_REG(`r6')
 	SAVE_REG(`r7')
-	ifdef(`EMULATE_BITS_3_5',`SALVAR MACL')
+
+!	ifdef(`EMULATE_BITS_3_5',`SALVAR MACL')
 	sts.l pr,@-r15          ! saving SH procedure register
 ')
 
@@ -271,12 +283,14 @@ SAVE_REG(`r6')
 define(`CALLGCC_END',
 `
 	lds.l @r15+,pr          ! restoring SH procedure register
-	ifdef(`EMULATE_BITS_3_5',`RESTAURAR MACL')
+!	ifdef(`EMULATE_BITS_3_5',`RESTAURAR MACL')
+
 	RESTORE_REG(`r7')
-RESTORE_REG(`r6')
+	RESTORE_REG(`r6')
 	RESTORE_REG(`r5')
 	RESTORE_REG(`r4')
 	RESTORE_REG(`r3')
+
 !	mov.l ezPC_MEM,zPC
 !ifdef(`BASED_PC',`add FETCH_REG,zPC')
 
@@ -349,6 +363,7 @@ extu.w r0,r0
 	',
 	`
 		mov.l @MEM_REG,DIRT_REG
+                $2
 		jsr @DIRT_REG
 		$1
 	')
@@ -367,6 +382,7 @@ extu.w r0,r0
 	',
 	`
 		mov.l @(4,MEM_REG),DIRT_REG
+                $2
 		jsr @DIRT_REG
 		$1
 	')
@@ -413,6 +429,7 @@ define(`ALIGN_DATA',`.align 2')
 define(`DEF',
 `
 	define(`STD_CYCLES',`$3')
+	define(`STD_BACKUP_CYCLES',`$3')
 	define(`EXTRA_CYCLES',`$4')
 $1_$2:
 ')
@@ -473,6 +490,7 @@ ifdef(`IRQ_CYCLES',
 `
 	mov #(_z80_Extra_Cycles - REF),r0
 	mov.l @(r0,REF_REG),DIRT_REG
+	ifdef(`BIG_ENDIAN',`shlr16 DIRT_REG',`')
 	add #$1,DIRT_REG
 	mov.l DIRT_REG,@(r0,REF_REG)
 ')
@@ -685,6 +703,31 @@ define(`DO_BITS_3_5',
 	ifdef(`EMULATE_BITS_3_5',`lds $1,MACL')
 ')
 
+define(`SHLD_OP',
+`
+	ifdef(`SH2_COMPAT_CODE',
+	`
+		ifelse($3,`8',`shll8 $2')
+		ifelse($3,`16',`shll16 $2')
+		ifelse($3,`24',
+		`
+			shll16 $2
+			shll8 $2
+		')
+
+		ifelse($3,`-8',`shlr8 $2')
+		ifelse($3,`-16',`shlr16 $2')
+		ifelse($3,`-24',
+		`
+			shlr16 $2
+			shlr8 $2
+		')
+	',
+	`
+		shld $1,$2
+	')
+')
+
 ! Add/Sub($1) A, r0
 define(`DO_ADDSUB',
 `
@@ -703,26 +746,33 @@ define(`DO_ADDSUB',
 	cmp/hs TMP_REG,FLAGS_ZSP
 	addc zF,zF                          ! set H flag
 
-	mov #24,DIRT_REG             ! to prepare operands
+	ifdef(`SH2_COMPAT_CODE',
+	`
+	',
+	`
+		mov #24,DIRT_REG             ! to prepare operands
+	')
 
 	! VC flag calculation
 	ifelse($1,`cmp',
 	`
 		mov zA,TMP_REG       ! Save A register operand
-		shld DIRT_REG,TMP_REG
+		SHLD_OP(`DIRT_REG',`TMP_REG',24)
 	',
 	`
-		shld DIRT_REG,zA
+		SHLD_OP(`DIRT_REG',`zA',24)
 		mov zA,TMP_REG       ! Save A register operand
 	')
-	shld DIRT_REG,r0      ! Prepare register operand to operate
-	op`v' r0,TMP_REG     ! TMP_REG = result
-	addc zF,zF                ! V flag set
+
+	SHLD_OP(`DIRT_REG',`r0',24)  ! Prepare register operand to operate
+	op`v' r0,TMP_REG             ! TMP_REG = result
+	addc zF,zF                   ! V flag set
 
 	ifelse($1,`cmp',
 	`
 		mov zA,TMP_REG
-		shld DIRT_REG,TMP_REG
+		SHLD_OP(`DIRT_REG',`TMP_REG',24)
+!		shld DIRT_REG,TMP_REG
 	')
 	ifelse($1,`cmp',`subc r0,TMP_REG',`$1c r0,zA')
 	movt FLAGS_C        ! Carry flag set
@@ -730,14 +780,20 @@ define(`DO_ADDSUB',
 	! Resultado presente en zA o TMP_REG
 	! dependiendo del tipo de operacion (add/sub, cmp)
 
-	mov #-24,DIRT_REG
+	ifdef(`SH2_COMPAT_CODE',
+	`
+	',
+	`
+		mov #-24,DIRT_REG
+	')
+
 	ifelse($1,`cmp',
 	`
-		shld DIRT_REG,TMP_REG
+		SHLD_OP(`DIRT_REG',`TMP_REG',-24)
 		SET_ZSP(`TMP_REG')
 	',
 	`
-		shld DIRT_REG,zA
+		SHLD_OP(`DIRT_REG',`zA',-24)
 		SET_ZSP(`zA')
 	')
 
@@ -762,10 +818,17 @@ define(`DO_ADCSBC',
 	addc zF,zF               ! merge partial H flag in
 
 	! V flag calculation
-	mov #24,TMP_REG
-	shld TMP_REG,r0          ! prepare register operands
-	shld TMP_REG,FLAGS_C
-	shld TMP_REG,zA
+
+	ifdef(`SH2_COMPAT_CODE',
+	`
+	',
+	`
+		mov #24,TMP_REG             ! to prepare operands
+	')
+
+	SHLD_OP(`TMP_REG',`r0',24)    ! prepare register operands
+	SHLD_OP(`TMP_REG',`FLAGS_C',24)
+	SHLD_OP(`TMP_REG',`zA',24)
 	mov zA,FLAGS_ZSP         ! save zA to get C flag
 	$1v r0,zA
 	movt TMP_REG             ! partial V flag
@@ -783,8 +846,14 @@ define(`DO_ADCSBC',
 
 
 	! Get result
-	mov #-24,TMP_REG
-	shld TMP_REG,zA
+	ifdef(`SH2_COMPAT_CODE',
+	`
+	',
+	`
+		mov #-24,TMP_REG             ! to prepare operands
+	')
+
+	SHLD_OP(`TMP_REG',`zA',-24)
 	
 	! Set ZSP flags
 	SET_ZSP(`zA')
@@ -910,12 +979,16 @@ define(`DO_ADD16',
 	`
 		mov r0,DIRT_REG
 	')
-	shll16 r0          ! prepare 1st operand
+
+	ifdef(`BIG_ENDIAN',`',`shll16 r0')          ! prepare 1st operand
 	clrt               ! T = 0 (required by the carry operation)
-	shll16 TMP_REG     ! prepare 2nd operand
+
+	ifdef(`BIG_ENDIAN',`',`shll16 TMP_REG')     ! prepare 2nd operand
 
 	addc TMP_REG,r0    ! do it
 	shlr16 r0          ! get the result to the lower word
+
+	ifdef(`BIG_ENDIAN',`shlr16 DIRT_REG',`')
 	movt FLAGS_C       ! set carry flag
 	mov.w r0,z$1       ! writeback result
 
@@ -950,10 +1023,11 @@ define(`DO_ADCSBC16',
 	SET_iVN(`op')
 	mov.l z$3,TMP_REG     ! second operand
 
-	shll16 r0             ! prepare first operand
+	ifdef(`BIG_ENDIAN',`',`shll16 r0')             ! prepare first operand
 	shll zF                 !  H = 0
 	mov r0,FLAGS_ZSP      ! save 1st operand to get C
-	shll16 TMP_REG        ! prepare second operand
+
+	ifdef(`BIG_ENDIAN',`',`shll16 TMP_REG')        ! prepare second operand
 	shll16 FLAGS_C        ! prepare C flag
 
 	! V flag calculation
@@ -1093,9 +1167,19 @@ define(`DO_ROT',
 		shlr r0
 		movt TMP_REG       ! TMP_REG = C
 		exts.b r0,r0
-		mov #7,DIRT_REG
-		mov TMP_REG,FLAGS_C   ! set carry
-		shld DIRT_REG,TMP_REG
+
+		ifdef(`SH2_COMPAT_CODE',
+		`
+			mov TMP_REG,FLAGS_C   ! set carry
+			shll8 TMP_REG
+			shlr TMP_REG
+		',
+		`
+			mov #7,DIRT_REG
+			mov TMP_REG,FLAGS_C   ! set carry
+			shld DIRT_REG,TMP_REG
+		')
+
 		and #0x7F,r0
 		mov #0,zF    ! N,H,V = 0
 		or TMP_REG,r0
@@ -1294,6 +1378,7 @@ define(`CPX',
 !	mov #FLAG_C,DIRT_REG
 !	and DIRT_REG,zF     ! isolate C flag
 	mov.l zHL,r0            ! Read from (HL)
+	ifdef(`BIG_ENDIAN',`shlr16 r0',`')
 	SET_iVN(`sub')
 	MEMREAD(`exts.b zA,zA')
 
@@ -1346,15 +1431,17 @@ define(`CPXR',
 `cpir_loop'ln:
 
 	! Read from (HL)
+
 	MEMREAD(`mov.w zHL,r0')
 
 	mov.l zBC,DIRT_REG
+	ifdef(`BIG_ENDIAN',`shlr16 DIRT_REG',`')
 
 	! post-xcrement HL register
 	ifelse($1,`I',`add #1,r0',`add #-1,r0')
 	mov.w r0,zHL               ! writeback HL
 	dt DIRT_REG                ! decrement BC
-	extu.w DIRT_REG,DIRT_REG
+	ifdef(`BIG_ENDIAN',`shll16 DIRT_REG',`extu.w DIRT_REG,DIRT_REG')
 	bt/s `cpir_end_bc'ln       ! end due to BC = 0
 	mov.l DIRT_REG,zBC
 
@@ -1467,12 +1554,14 @@ define(`LDXR',
 	DEF_LN
 
 `ldxr_loop'ln:
-	MEMREAD(`mov.l zHL,r0')
+	ifdef(`BIG_ENDIAN',`MEMREAD(`shlr16 r0',`mov.l zHL,r0')',`MEMREAD(`mov.l zHL,r0')')
 	ifdef(`EMULATE_BITS_3_5',`! TODO')
-	MEMWRITE(`mov.l zDE,r0            ! r0 = DE register')
+	ifdef(`BIG_ENDIAN',`MEMWRITE(`shlr16 r0',`mov.l zDE,r0')',`MEMWRITE(`mov.l zDE,r0')')              ! r0 = DE register
 	
 	mov.l zHL,DIRT_REG      ! DIRT_REG = HL register
 	mov.l zBC,TMP_REG       ! TMP_REG = BC register
+	ifdef(`BIG_ENDIAN',`shlr16 DIRT_REG',`')
+	ifdef(`BIG_ENDIAN',`shlr16 TMP_REG',`')
 
 	ifelse($1,`I',
 	`
@@ -1486,11 +1575,14 @@ define(`LDXR',
 
 	dt TMP_REG               ! decrement BC
 	mov.w r0,zDE             ! writeback zDE register
-	extu.w DIRT_REG,DIRT_REG ! no sign extension required
-	extu.w TMP_REG,TMP_REG   ! no sign extension required
+	ifdef(`BIG_ENDIAN',`',`extu.w DIRT_REG,DIRT_REG') ! no sign extension required
+	ifdef(`BIG_ENDIAN',`',`extu.w TMP_REG,TMP_REG')   ! no sign extension required
+
+	ifdef(`BIG_ENDIAN',`shll16 TMP_REG',`')
+	ifdef(`BIG_ENDIAN',`shll16 DIRT_REG',`')
 	mov.l TMP_REG,zBC        ! writeback zBC register
 	bt/s `ldxr_zero'ln
-	mov.l DIRT_REG,zHL       ! writeback zHL register
+        mov.l DIRT_REG,zHL       ! writeback zHL register
 	
 	add #-EXTRA_CYCLES,ICOUNT_REG
 	ifdef(`EMULATE_R_REGISTER',`add #1,zR')
@@ -1541,6 +1633,7 @@ define(`INX',
 	SET_ZSP(`r0')
 	
 	! Write to (HL)
+
 	MEMWRITE(`mov.w zHL,r0')
 
 	! Writeback HL register
@@ -1565,8 +1658,16 @@ define(`INX',
 		
 	`no_carry'ln:
 		mov TMP_REG,r0
-		mov #-6,DIRT_REG
-		shld DIRT_REG,r0
+		ifdef(`SH2_COMPAT_CODE',
+		`
+			shlr2 r0
+			shlr2 r0
+			shlr2 r0
+		',
+		`
+			mov #-6,DIRT_REG
+			shld DIRT_REG,r0
+		')
 		and #FLAG_N,r0
 		or r0,zF
 	')
@@ -1576,6 +1677,74 @@ define(`INX',
 ! INXR operation
 define(`INXR',
 `
+ DEF_LN
+`linxr_loop'ln:
+	! In from BC
+	mov.b zC,r0
+	extu.b r0,r0            ! high byte clear? (documentation is fuzzy)
+	IOREAD(`r0')
+	mov r0,TMP_REG
+
+	ifdef(`EMULATE_WEIRD_STUFF',`SAVE_REG(`TMP_REG')')
+
+	! Decrease B
+	mov.b zB,r0
+	add #-1,r0
+	mov.b r0,zB
+	DO_BITS_3_5(`r0')
+	SET_ZSP(`r0')
+	
+	! Write to (HL)
+	MEMWRITE(`mov.w zHL,r0')
+
+	! Writeback HL register
+	ifelse($1,`I',`add #1,r0',`add #-1,r0')
+	mov.w r0,zHL
+
+    ! This is a prime example of the weirdness of the Z80...
+	ifdef(`EMULATE_WEIRD_STUFF',
+	`
+		mov.b zC,r0
+		extu.b r0,r0
+		RESTORE_REG(`TMP_REG')
+		extu.b TMP_REG,TMP_REG
+		add #1,r0
+		add TMP_REG,r0
+		shlr8 r0          ! Test to see if there is any data in the upper bits
+		tst r0,r0
+		bt `no_carry'ln
+		
+		mov #(FLAG_H|FLAG_C),DIRT_REG
+		or DIRT_REG,zF
+
+		
+	cmp/pl ICOUNT_REG
+	bt `linxr_loop'ln        
+
+
+	`no_carry'ln:
+		mov TMP_REG,r0
+		ifdef(`SH2_COMPAT_CODE',
+		`
+			shlr2 r0
+			shlr2 r0
+			shlr2 r0
+		',
+		`
+			mov #-6,DIRT_REG
+			shld DIRT_REG,r0
+		')
+		and #FLAG_N,r0
+		or r0,zF
+	')
+
+ALIGN
+	`_z80_In_'ln: .long _z80_Out
+ALIGN
+`linxr_zero'ln:
+nop
+
+
 ')
 
 ! Out from (HL) into BC, xcrease HL, decrease B
@@ -1583,7 +1752,7 @@ define(`INXR',
 define(`OUTX',
 `
 	! Read from (HL)
-	MEMREAD(`mov.l zHL,r0')
+	ifdef(`BIG_ENDIAN',`MEMREAD(`shlr16 r0',`mov.l zHL,r0')',`MEMREAD(`mov.l zHL,r0')')
 
 	ifdef(`EMULATE_WEIRD_STUFF',`SAVE_REG(`TMP_REG')')
 
@@ -1621,8 +1790,18 @@ define(`OUTX',
 		
 	`no_carry'ln:
 		mov TMP_REG,r0
-		mov #-6,DIRT_REG
-		shld DIRT_REG,r0
+
+		ifdef(`SH2_COMPAT_CODE',
+		`
+			shlr2 r0
+			shlr2 r0
+			shlr2 r0
+		',
+		`
+			mov #-6,DIRT_REG
+			shld DIRT_REG,r0
+		')
+
 		and #FLAG_N,r0
 		or r0,zF
 	')
@@ -1632,7 +1811,48 @@ define(`OUTX',
 ! OTXR operation
 define(`OTXR',
 `
+DEF_LN
+!!`lotxr_loop'ln:
+
+	! Read from (HL)
+        MEMREAD(`shlr16 r0',`mov.l zHL,r0')
+
+	ifdef(`EMULATE_WEIRD_STUFF',`SAVE_REG(`TMP_REG')')
+
+	! Writeback HL register
+	ifelse($1,`I',`add #1,r0',`add #-1,r0')
+	mov.w r0,zHL
+	
+	! Out to BC
+	mov.b zC,r0
+	extu.b r0,r0            ! high byte clear? (documentation is fuzzy)
+!vbt à corriger        
+	IOWRITE(`r0',`TMP_REG')
+
+	! Decrease B
+	mov.b zB,r0
+	dt r0
+	bt/s `lotxr_zero'ln
+	mov.b r0,zB
+
+	add #-5,ICOUNT_REG        
+	add #-2,zPC
+	bra `lotxr_end'ln:
+
+`lotxr_zero'ln:
+	SET_ZSP(`r0')
+	DO_BITS_3_5(`r0')
+
+ALIGN
+`lotxr_end'ln:
+
+DO_CYCLES_NEXT
+
+!ALIGN
+	`_z80_Out_'ln: .long _z80_Out
 ')
+
+
 
 ! Shift left logically/arithmetically
 ! SHL operation
@@ -1650,13 +1870,15 @@ define(`SHLX',
 define(`LDX',
 `
 	! Read from (HL)
+
 	MEMREAD(`mov.w zHL,r0')
 	! Post-xcrement HL register
 	ifelse($1,`I',`add #1,r0',`add #-1,r0')
 	mov.w r0,zHL
 
 	! Write to (DE)
-	MEMWRITE(`mov.w zDE,r0')
+
+	MEMWRITE(`mov.w zDE,r0')        
 	! Post-xcrement DE register
 	ifelse($1,`I',`add #1,r0',`add #-1,r0')
 	mov.w r0,zDE
@@ -1844,12 +2066,12 @@ define(`LD_mRR_R',
 	ifelse($2,`A',
 	`
 		mov.l z$1,r0
-		MEMWRITE(`mov z$2,TMP_REG')
+		ifdef(`BIG_ENDIAN',`MEMWRITE(`shlr16 r0',`mov z$2,TMP_REG')',`MEMWRITE(`mov z$2,TMP_REG')')
 	',
 	`
 		mov.b z$2,r0
 		mov r0,TMP_REG
-		MEMWRITE(`mov.l z$1,r0')
+		ifdef(`BIG_ENDIAN',`MEMWRITE(`shlr16 r0',`mov.l z$1,r0')',`MEMWRITE(`mov.l z$1,r0')')
 	')
 
 	DO_CYCLES_NEXT
@@ -1883,7 +2105,8 @@ define(`LD_mXY_R',
 define(`LD_mRR_N',
 `
 	GETDISP(`TMP_REG')
-	MEMWRITE(`mov.l z$1,r0')
+
+	ifdef(`BIG_ENDIAN',`MEMWRITE(`shlr16 r0',`mov.l z$1,r0')',`MEMWRITE(`mov.l z$1,r0')')
 
 	DO_CYCLES_NEXT
 ')
@@ -1910,6 +2133,7 @@ define(`LD_R_mNN',
 	ifelse($1,`A',
 	`
 		mov TMP_REG,z$1
+
 	',
 	`
 		mov TMP_REG,r0
@@ -1931,7 +2155,6 @@ define(`LD_mNN_R',
 	`
 		MEMWRITE(`mov.l z$1,TMP_REG')
 	')
-
 	DO_CYCLES_NEXT
 ')
 
@@ -2056,7 +2279,6 @@ define(`LD_RR_NN',
 `
 	GETWORD(`r0')
 	mov.w r0,z$1
-
 	DO_CYCLES_NEXT
 ')
 
@@ -2072,8 +2294,8 @@ define(`LD_RR_mNN',
 	shll8 TMP_REG
 	extu.b r0,r0
 	or TMP_REG,r0
+   
 	mov.w r0,z$1
-
 	DO_CYCLES_NEXT
 ')
 
@@ -2082,8 +2304,10 @@ define(`LD_RR_mNN',
 define(`LD_mNN_RR',
 `
 	GETWORD(`r0')    ! r0 = address
-	MEMWRITE(`mov.l z$1,TMP_REG    ! data')
+
+	ifdef(`BIG_ENDIAN',`MEMWRITE(`shlr16 TMP_REG',`mov.l z$1,TMP_REG')',`MEMWRITE(`mov.l z$1,TMP_REG')')    ! data
 	mov.l z$1,TMP_REG
+	ifdef(`BIG_ENDIAN',`shlr16 TMP_REG',`')
 	add #1,r0
 	MEMWRITE(`shlr8 TMP_REG')
 
@@ -2135,6 +2359,7 @@ define(`PUSH_RR',
 	`
 		mov.w zSP,r0
 		mov zA,TMP_REG
+
 		MEMWRITE(`add #-1,r0')       ! First write
 
 		SAVE_REG(`zF')
@@ -2146,9 +2371,13 @@ define(`PUSH_RR',
 	`
 		mov.w zSP,r0    ! address
 		mov.l z$1,TMP_REG
+
+		ifdef(`BIG_ENDIAN',`shlr16 TMP_REG',`')
 		add #-1,r0
 		MEMWRITE(`shlr8 TMP_REG')    ! First write
 		mov.l z$1,TMP_REG
+
+		ifdef(`BIG_ENDIAN',`shlr16 TMP_REG',`')
 		MEMWRITE(`add #-1,r0')     ! Second write
 	')
 
@@ -2165,13 +2394,15 @@ ALIGN_DATA
 ! POP_RR      s16               s16 = src reg
 define(`POP_RR',
 `
-	MEMREAD(`mov.l zSP,r0')
+	ifdef(`BIG_ENDIAN',`MEMREAD(`shlr16 r0',`mov.l zSP,r0')',`MEMREAD(`mov.l zSP,r0')')
 	ifelse($1,`AF',
 	`
 		DO_BITS_3_5(`TMP_REG')
 		mov TMP_REG,zF
 		CACHE_CCR
+
 		mov.l zSP,r0
+		ifdef(`BIG_ENDIAN',`shlr16 r0',`')
 		MEMREAD(`add #1,r0')
 		mov TMP_REG, zA
 		add #1,r0
@@ -2201,7 +2432,7 @@ define(`POP_RR',
 ! POP_IY
 define(`POP_IY',
 `
-	MEMREAD(`mov.l zSP,r0')
+	ifdef(`BIG_ENDIAN',`MEMREAD(`shlr16 r0',`mov.l zSP,r0')',`MEMREAD(`mov.l zSP,r0')')
 	SAVE_REG(`TMP_REG')
 	MEMREAD(`add #1,r0')
 	add #1,r0
@@ -2224,8 +2455,11 @@ define(`EX_RR_RR',
 `
 	mov.l z$1,r0
 	mov.l z$2,TMP_REG
+
 	mov.l r0,z$2
 	mov.l TMP_REG,z$1
+	ifdef(`BIG_ENDIAN',`shlr16 r0',`')
+	ifdef(`BIG_ENDIAN',`shlr16 TMP_REG',`')
 	DO_CYCLES_NEXT
 ')
 
@@ -2289,12 +2523,14 @@ define(`EXX',
 ! EX_RR_mRR     d16, m16      d16 = dest reg, m16 = memory reg
 define(`EX_RR_mRR',
 `
-	MEMREAD(`mov.l z$2,r0')      ! Load memory reg
+	ifdef(`BIG_ENDIAN',`MEMREAD(`shlr16 r0',`mov.l z$2,r0')',`MEMREAD(`mov.l z$2,r0')')      ! Load memory reg
+
 	SAVE_REG(`TMP_REG')           ! save low byte read
-	MEMWRITE(`mov.l z$1,TMP_REG')
+	ifdef(`BIG_ENDIAN',`MEMWRITE(`shlr16 TMP_REG',`mov.l z$1,TMP_REG')',`MEMWRITE(`mov.l z$1,TMP_REG')')
 	MEMREAD(`add #1,r0')
 	SAVE_REG(`TMP_REG')           ! save high byte read
 	mov.l z$1,TMP_REG
+	ifdef(`BIG_ENDIAN',`shlr16 TMP_REG',`')
 	MEMWRITE(`shlr8 TMP_REG')   
 	RESTORE_REG(`r0')                ! restore high byte read
 	shll8 r0
@@ -2311,7 +2547,7 @@ define(`EX_RR_mRR',
 ! EX_IY_mRR     m16      m16 = memory reg
 define(`EX_IY_mRR',
 `
-	MEMREAD(`mov.w z$1,r0')       ! Load memory reg
+        MEMREAD(`mov.w z$1,r0')       ! Load memory reg
 	SAVE_REG(`TMP_REG')           ! save low byte read
 	mov.w zIY,r0
 	mov r0,TMP_REG
@@ -2472,7 +2708,7 @@ define(`ART_mRR',
 `
 	DEF_LN
 
-	MEMREAD(`mov.l z$2,r0')
+	ifdef(`BIG_ENDIAN',`MEMREAD(`shlr16 r0',`mov.l z$2,r0')',`MEMREAD(`mov.l z$2,r0')')
 	mov TMP_REG,r0
 	DO_ART($1,`r0')
 
@@ -2531,7 +2767,6 @@ define(`LOG_N',
 define(`LOG_mRR',
 `
 	DEF_LN
-
 	MEMREAD(`mov.w z$2,r0')
 	mov TMP_REG,r0
 	DO_LOG($1,`r0')
@@ -2598,8 +2833,7 @@ define(`CP_N',
 define(`CP_mRR',
 `
 	DEF_LN
-
-	MEMREAD(`mov.l z$1,r0')
+	ifdef(`BIG_ENDIAN',`MEMREAD(`shlr16 r0',`mov.l z$1,r0')',`MEMREAD(`mov.l z$1,r0')')
 	mov TMP_REG,r0
 	DO_CP
 	
@@ -2661,12 +2895,11 @@ ALIGN_DATA
 define(`DECINC_mRR',
 `
 	DEF_LN
-
-	MEMREAD(`mov.l z$2,r0')
+	ifdef(`BIG_ENDIAN',`MEMREAD(`shlr16 r0',`mov.l z$2,r0')',`MEMREAD(`mov.l z$2,r0')')
 	exts.b TMP_REG,r0         ! requires to be sign-extended
 	DO_$1
 	mov r0,TMP_REG
-	MEMWRITE(`mov.l z$2,r0')
+	ifdef(`BIG_ENDIAN',`MEMWRITE(`shlr16 r0',`mov.l z$2,r0')',`MEMWRITE(`mov.l z$2,r0')')
 
 	DO_CYCLES_NEXT
 
@@ -2748,11 +2981,11 @@ define(`ROT_R',
 ! ROT_mRR method, src16
 define(`ROT_mRR',
 `
-	MEMREAD(`mov.l z$2,r0')
+	ifdef(`BIG_ENDIAN',`MEMREAD(`shlr16 r0',`mov.l z$2,r0')',`MEMREAD(`mov.l z$2,r0')')
 	exts.b TMP_REG,r0
 	DO_ROT($1)
 	mov r0,TMP_REG
-	MEMWRITE(`mov.l z$2,r0')
+	ifdef(`BIG_ENDIAN',`MEMWRITE(`shlr16 r0',`mov.l z$2,r0')',`MEMWRITE(`mov.l z$2,r0')')
 
 	DO_CYCLES_NEXT
 ')
@@ -2805,12 +3038,11 @@ define(`SHF_R',
 define(`SHF_mRR',
 `
 	DEF_LN
-
-	MEMREAD(`mov.l z$2,r0')
+	ifdef(`BIG_ENDIAN',`MEMREAD(`shlr16 r0',`mov.l z$2,r0')',`MEMREAD(`mov.l z$2,r0')')
 	exts.b TMP_REG,r0
 	DO_SHF($1)
 	mov r0,TMP_REG
-	MEMWRITE(`mov.l z$2,r0')
+	ifdef(`BIG_ENDIAN',`MEMWRITE(`shlr16 r0',`mov.l z$2,r0')',`MEMWRITE(`mov.l z$2,r0')')
 
 	DO_CYCLES_NEXT
 ')
@@ -2851,8 +3083,7 @@ define(`SHF_mXY_R',
 define(`RLD',
 `
 	DEF_LN
-	
-	MEMREAD(`mov.l zHL,r0')
+	ifdef(`BIG_ENDIAN',`MEMREAD(`shlr16 r0',`mov.l zHL,r0')',`MEMREAD(`mov.l zHL,r0')')
 
 	mov #0,zF
 	mov #0x0f,r0               ! mask for A register value
@@ -2870,7 +3101,7 @@ define(`RLD',
 	or DIRT_REG,zA       ! merge in high order bits of memory operand
 	SET_ZSP(`zA')
 	DO_BITS_3_5(`zA')
-	MEMWRITE(`mov.l zHL,r0')
+	ifdef(`BIG_ENDIAN',`MEMWRITE(`shlr16 r0',`mov.l zHL,r0')',`MEMWRITE(`mov.l zHL,r0')')
 
 	DO_CYCLES_NEXT
 ')
@@ -2880,8 +3111,8 @@ define(`RLD',
 define(`RRD',
 `
 	DEF_LN
-	
-	MEMREAD(`mov.l zHL,r0')
+
+	ifdef(`BIG_ENDIAN',`MEMREAD(`shlr16 r0',`mov.l zHL,r0')',`MEMREAD(`mov.l zHL,r0')')
 
 	mov #FLAG_C,DIRT_REG
 	mov #0x0f,r0               ! mask for A register value
@@ -2900,7 +3131,7 @@ define(`RRD',
 	or DIRT_REG,zA       ! merge in high order bits of memory operand
 	SET_ZSP(`zA')
 	DO_BITS_3_5(`zA')
-	MEMWRITE(`mov.l zHL,r0')
+	ifdef(`BIG_ENDIAN',`MEMWRITE(`shlr16 r0',`mov.l zHL,r0')',`MEMWRITE(`mov.l zHL,r0')')
 
 	DO_CYCLES_NEXT
 ')
@@ -2919,7 +3150,7 @@ define(`BIT_R_b',
 ! BIT_mRR_b reg, bit
 define(`BIT_mRR_b',
 `
-	MEMREAD(`mov.l z$1,r0')
+	ifdef(`BIG_ENDIAN',`MEMREAD(`shlr16 r0',`mov.l z$1,r0')',`MEMREAD(`mov.l z$1,r0')')
 	mov TMP_REG,r0
 
 	DO_BIT(`$2')
@@ -2952,7 +3183,7 @@ define(`RES_R_b',
 ! RES_mRR_b src16, bit
 define(`RES_mRR_b',
 `
-	MEMREAD(`mov.l z$1,r0')
+	ifdef(`BIG_ENDIAN',`MEMREAD(`shlr16 r0',`mov.l z$1,r0')',`MEMREAD(`mov.l z$1,r0')')
 	DO_RES(`TMP_REG',$2)
 	MEMWRITE(`nop')
 
@@ -3004,7 +3235,7 @@ define(`SET_R_b',
 ! SET_mRR_b src16, bit
 define(`SET_mRR_b',
 `
-	MEMREAD(`mov.l z$1,r0')
+	ifdef(`BIG_ENDIAN',`MEMREAD(`shlr16 r0',`mov.l z$1,r0')',`MEMREAD(`mov.l z$1,r0')')
 	DO_SET(`TMP_REG',$2)
 	MEMWRITE(`nop')
 
@@ -3083,7 +3314,9 @@ ifdef(`BASED_PC',`add FETCH_REG,zPC')
 define(`JR_N',
 `
 	GETDISP(`r0')
-	add r0,zPC
+
+        add r0,zPC
+	
 	ifdef(`NO_PC_LIMIT',`',`extu.w zPC,zPC')
 
 	DO_CYCLES_NEXT
@@ -3098,12 +3331,14 @@ define(`JR_cc_N',
 	TEST_CONDITION(`$2')
 	b$1 `dont_take_jump'ln
 
+	define(`STD_CYCLES',`EXTRA_CYCLES')
 	JR_N
 
 	ALIGN
 `dont_take_jump'ln:
 	add #1,zPC        ! skip over the displacement
 	ifdef(`NO_PC_LIMIT',`',`extu.w zPC,zPC')
+	define(`STD_CYCLES',`STD_BACKUP_CYCLES')
 
 	DO_CYCLES_NEXT
 ')
@@ -3113,6 +3348,7 @@ define(`JR_cc_N',
 define(`JP_RR',
 `
 	mov.l z$1,r0
+	ifdef(`BIG_ENDIAN',`shlr16 r0',`')
 	extu.w r0,zPC
 ifdef(`BASED_PC',`add FETCH_REG,zPC')
 
@@ -3145,15 +3381,16 @@ define(`DJNZ_N',
 ')
 
 ! Call an absolute address
-! CALL_NN
-define(`CALL_NN',
+define(`DO_CALL_NN',
 `
 	GETWORD(`TMP_REG')
 
 	! Write the PC
 	mov.l zSP,r0
+
+	ifdef(`BIG_ENDIAN',`shlr16 r0',`')
 	SAVE_REG(`TMP_REG')     ! Save the new PC into the stack
-	mov zPC,TMP_REG
+	mov zPC,TMP_REG        
 
 ifdef(`BASED_PC',`sub FETCH_REG,TMP_REG')       ! Un-base PC
 
@@ -3168,7 +3405,13 @@ ifdef(`BASED_PC',`sub FETCH_REG,zPC')       ! Un-base PC
 	mov.w r0,zSP            ! Writeback SP
 	extu.w zPC,zPC          ! Prepare PC
 ifdef(`BASED_PC',`add FETCH_REG,zPC')       ! Base PC
+')
 
+! Call an absolute address
+! CALL_NN
+define(`CALL_NN',
+`
+	DO_CALL_NN
 	DO_CYCLES_NEXT
 ')
 
@@ -3181,7 +3424,8 @@ define(`CALL_cc_NN',
 	TEST_CONDITION(`$2')
 	b$1 `dont_take_call_'ln
 	
-	CALL_NN
+	DO_CALL_NN
+	DO_EXTRA_CYCLES_NEXT
 
 `dont_take_call_'ln:
 	add #2,zPC
@@ -3208,7 +3452,8 @@ define(`RET_cc',
 	TEST_CONDITION(`$2')
 	b$1 `dont_take_ret_'ln
 
-	RET
+	POP_PC
+	DO_EXTRA_CYCLES_NEXT
 
 `dont_take_ret_'ln:
 	DO_CYCLES_NEXT
@@ -3249,6 +3494,7 @@ define(`RETN',
 
 	! Restore IFF1 & signal the BUS
 	mov.l `_z80_IFF2_'ln,r0
+
 	mov.b @r0,TMP_REG
 	dt r0                ! IFF1 is immediately before IFF2
 	mov.b TMP_REG,@r0
@@ -3266,6 +3512,7 @@ define(`RST',
 `
 	! Write the PC
 	mov.w zSP,r0
+
 	mov zPC,TMP_REG
 ifdef(`BASED_PC',`sub FETCH_REG,TMP_REG')    ! Un-base PC
 	add #-1,r0
@@ -3302,7 +3549,7 @@ define(`OUT_N_R',
 	or DIRT_REG,r0
 
 	IOWRITE(`r0',`TMP_REG')
-	
+
 	DO_CYCLES_NEXT
 
 ALIGN_DATA
@@ -3390,6 +3637,7 @@ define(`OUT_R',
 	DEF_LN
 
 	mov.l zBC,TMP_REG
+	ifdef(`BIG_ENDIAN',`shlr16 TMP_REG',`')
 	ifelse($1,`A',
 	`
 		IOWRITE(`TMP_REG',`zA')
@@ -3501,7 +3749,6 @@ ALIGN_DATA
 define(`OTIR',
 `
 	OTXR(`I')
-
 	DO_CYCLES_NEXT
 ')
 
@@ -3509,7 +3756,6 @@ define(`OTIR',
 define(`OTDR',
 `
 	OTXR(`D')
-	
 	DO_CYCLES_NEXT
 ')
 
@@ -3529,7 +3775,7 @@ define(`DAA',
 
 	mov.l `daatbl_offset_'ln,DIRT_REG
 	add DIRT_REG,TMP_REG
-	
+
 .daa_nh_set:
 	shll r0
 	mov.w @(r0,TMP_REG),zA
@@ -3766,6 +4012,7 @@ DEF(`dd',`cb',`0',`0')
 	shll2 DIRT_REG
 	mov.l @(r0,DIRT_REG),DIRT_REG
 	mov.l zIX,r0
+	ifdef(`BIG_ENDIAN',`shlr16 r0',`')
 	ifdef(`EMULATE_R_REGISTER',`add #1,zR')
 	jmp @DIRT_REG
 	add TMP_REG,r0
@@ -3816,7 +4063,7 @@ ifdef(BASED_PC',`sub FETCH_REG,zPC')    ! Un-base PC
 	! Revisar este codigo
 	mov.l _z80_ICount_zf,r0
 	mov.l @(_z80_TempICount-_z80_ICount,r0),DIRT_REG
-	add DIRT_REG,ICOUNT_REG
+	mov DIRT_REG,ICOUNT_REG
 
 	mov #0,r0
 	mov.b r0,@TMP_REG    ! _z80_afterEI = 0
@@ -3853,7 +4100,15 @@ really_finish:
 	! Writeback PC & calculate cycles executed
 	mov.l _z80_ICount_zf,r0
 	mov.l ICOUNT_REG,@r0
+
+ifdef(`BIG_ENDIAN',
+`
+!	shll16 zPC
+',
+`
 	extu.w zPC,zPC
+')
+
 	mov.l @(_z80_Initial_ICount - _z80_ICount,r0),r0
 	mov.l zPC,ezPC_MEM
 	sub ICOUNT_REG,r0
@@ -3922,16 +4177,17 @@ _z80_memread:
 		mov.l _z80_Read_mr,MEM_REG
 		shll TMP_REG
 		add MEM_REG,TMP_REG
-		mov.l @TMP_REG,MEM_REG
-		tst MEM_REG,MEM_REG
-		bf .use_rhandler
-
+		ifdef(`NO_READ_HANDLER',`',`
+			mov.l @TMP_REG,MEM_REG
+			tst MEM_REG,MEM_REG
+			bf .use_rhandler
+		')
 		mov.l @(4,TMP_REG),TMP_REG
 		mov.l _z80_memread_mr,MEM_REG    ! restore MEM_REG address
 		rts
 		mov.b @(r0,TMP_REG),TMP_REG
-
-	ALIGN
+ifdef(`NO_READ_HANDLER',`',
+	`ALIGN
 	.use_rhandler:
 		SAVE_REG(`r0')
 		CALLGCC_START
@@ -3942,7 +4198,7 @@ _z80_memread:
 		exts.b r0,TMP_REG
 		rts
 		RESTORE_REG(`r0')
-
+      ')
 	ALIGN_DATA
 		_z80_Read_mr:    .long _z80_Read
 		_z80_memread_mr: .long _z80_Mem_Handlers
@@ -4059,7 +4315,14 @@ _z80_emulate:
 	SAVE_REG(`r10')
 	mov.l _OpTable_emul,OPTABLE_REG    ! Load opcode table
 	SAVE_REG(`r11')
-	pref @REF_REG                      ! Prefetch z80 registers
+
+	ifdef(`SH2_COMPAT_CODE',
+	`
+	',
+	`
+		pref @REF_REG                      ! Prefetch z80 registers
+	')
+
 	SAVE_REG(`r12')
 	SAVE_REG(`r13')
 	ifdef(`EMULATE_R_REGISTER',`SAVE_REG(`zR')')
@@ -4067,6 +4330,7 @@ _z80_emulate:
 
 	! Cache de registros z80
 	mov.l @r0,zF                   ! zF
+	ifdef(`BIG_ENDIAN',`shlr16 zF',`')
 	mov.l z80_fdl_emul,ZFINISH     ! Load fdl address to execute fdl
 	mov zF,zA
 	mov.l @(_z80_PC-_z80_AF,r0),ezPC    ! ezPC
@@ -4081,7 +4345,9 @@ _z80_emulate:
 	')
 
 	mov.l _z80_Fetch_emul,FETCH_REG    ! FETCH_REG
+	
 	mov.l _z80_Mem_Handlers_emul,MEM_REG
+	
 	ifdef(`SINGLE_FETCH',`mov.l @FETCH_REG,FETCH_REG')
 
 	mov.l _z80_halted_emul,DIRT_REG
@@ -4133,25 +4399,32 @@ ifdef(`BASED_PC',`add FETCH_REG,zPC')
 ALIGN
 .global _z80_reset
 _z80_reset:
-	mov #0,r0       ! just zero it all
 	mov.l context_start_reset,r1
-	mov.l registers_end_reset,r2
+	mov #0,r0
+	mov.l r0,@(_z80_PC-context_start,r1)   ! PC = 0
 
-rloop:
-	mov.l r0,@-r2
-	cmp/eq r1,r2
-	bf rloop
-
-	mov #-1,r0                             ! r0 = -1
-	mov.w r0,@(_z80_IX-context_start,r1)   ! IX = 0xFFFF
-	mov.w r0,@(_z80_IY-context_start,r1)   ! IY = 0xFFFF
-	mov #0x40,r0
+	mov.l `_z80_IFF1_'ln,r2
+	mov.w r0,@r2    ! Loads zero in zIFF1 and zIFF2
+	mov.l `_z80_IM_'ln,r2
+	mov.b r0,@r2    ! IM = 0
+	mov.l `_z80_I_'ln,r2
+	mov.b r0,@r2    ! I = 0
+	mov.l `_z80_R_'ln,r2
+	mov.b r0,@r2    ! R = 0
+	mov.l `_z80_IRQLine_'ln,r2
+	mov.b r0,@r2    ! IRQLine = 0
+	mov.l `_z80_halted_'ln,r2
 	rts
-	mov.b r0,@(_z80_AF-context_start,r1) ! AF = 0x0040
+	mov.b r0,@r2    ! halted = 0
 
 	ALIGN_DATA
 	context_start_reset: .long context_start
-	registers_end_reset: .long registers_end
+	GEN_MT(`_z80_IFF1',ln)
+	GEN_MT(`_z80_IM',ln)
+	GEN_MT(`_z80_I',ln)
+	GEN_MT(`_z80_R',ln)
+	GEN_MT(`_z80_IRQLine',ln)
+	GEN_MT(`_z80_halted',ln)
 
 
 ! void z80_raise_IRQ(UBYTE vector)
@@ -4273,13 +4546,14 @@ ifdef(`EMULATE_R_REGISTER',
 	! Add extra cycles
 	mov.l _z80_Extra_Cycles_cnmi,r0
 	mov.l @r0,r1
+	ifdef(`BIG_ENDIAN',`shlr16 r1',`')
 	add #11,r1
 	mov.l r1,@r0
 
 	mov.l _z80_PC_cnmi,r4
 	mov.l _z80_Mem_Handlers_cnmi,MEM_REG    ! Necesario para las escrituras
-	mov.w @r4,TMP_REG
-	mov.l _z80_SP_cnmi,r5
+	ifdef(`BIG_ENDIAN',`mov.l @r4,TMP_REG',`mov.w @r4,TMP_REG')
+ 	mov.l _z80_SP_cnmi,r5
 	mov.w @r5,r0
 	add #-1,r0
 	shlr8 TMP_REG
@@ -4287,11 +4561,11 @@ ifdef(`EMULATE_R_REGISTER',
 
 	add #-1,r7
 	mov r7,r0
-	MEMWRITE(`mov.w @r4,TMP_REG')
+	ifdef(`BIG_ENDIAN',`MEMWRITE(`mov.l @r4,TMP_REG')',`MEMWRITE(`mov.w @r4,TMP_REG')')
 
 	mov.w r7,@r5    ! Store the new SP
 	mov #0x66,r1
-	mov.w r1,@r4    ! Set the new PC to 66h
+	ifdef(`BIG_ENDIAN',`mov.l r1,@r4',`mov.w r1,@r4')    ! Set the new PC to 66h
 
 	lds.l @r15+,pr          ! restoring SH procedure register
 	RESTORE_REG(`REF_REG')
@@ -4479,8 +4753,17 @@ _z80_get_reg:
 	! Normal register loading
 	mov.l _context_start_gr,r0
 	shll2 r4
+        
+ifdef(`BIG_ENDIAN',
+`
+	mov.l @(r0,r4),r0
+	rts
+	swap.w r0,r0
+',
+`
 	rts
 	mov.l @(r0,r4),r0
+')
 
 .nirreg:
 	mov #Z80_REG_IFF1,r1
@@ -4661,6 +4944,7 @@ _z80_set_reg:
 	! Fijar registro IR
 	! No se puede cargar como palabra larga por alineamiento
 	mov.l _sreg_z80_R,r0
+
 	mov r5,r1
 	mov.w r5,@r0        ! first R word
 	shlr16 r1
@@ -4777,6 +5061,7 @@ _z80_end_memmap:
 ALIGN
 .global _z80_map_fetch
 _z80_map_fetch:
+
 	extu.w r4,r4    ! 16-bit start address
 	mov.l _z80_Fetch_addr,r0
 	sub r4,r6
@@ -4843,7 +5128,14 @@ ifdef(`SINGLE_MEM_BLOCK',
 	`
 		mov #1,r1
 		extu.w r5,r5
-		mov #3,r3      ! 2^3 ancho datos descriptores
+
+		ifdef(`SH2_COMPAT_CODE',
+		`
+		',
+		`
+			mov #3,r3      ! 2^3 ancho datos descriptores
+		')
+
 		shll8 r1       ! r1 = incr. banco = 256
 		mov #0,r2
 
@@ -4854,7 +5146,15 @@ ifdef(`SINGLE_MEM_BLOCK',
 	
 		cmp/hi r5,r4
 		bt/s mr_finish
-		shld r3,r7
+
+		ifdef(`SH2_COMPAT_CODE',
+		`
+			shll2 r7
+			shll r7
+		',
+		`
+			shld r3,r7
+		')
 
 		mov.l r2,@(r0,r7)    ! volcar 0
 		add #4,r7
@@ -4904,7 +5204,14 @@ ifdef(`SINGLE_MEM_BLOCK',
 	`
 		mov #1,r1
 		extu.w r5,r5
-		mov #3,r3      ! 2^3 ancho datos descriptores
+
+		ifdef(`SH2_COMPAT_CODE',
+		`
+		',
+		`
+			mov #3,r3      ! 2^3 ancho datos descriptores
+		')
+
 		shll8 r1       ! r1 = incr. banco = 256
 		mov #0,r2
 
@@ -4915,7 +5222,15 @@ ifdef(`SINGLE_MEM_BLOCK',
 
 		cmp/hi r5,r4
 		bt/s mw_finish
-		shld r3,r7
+
+		ifdef(`SH2_COMPAT_CODE',
+		`
+			shll2 r7
+			shll r7
+		',
+		`
+			shld r3,r7
+		')
 
 		mov.l r2,@(r0,r7)
 		add #4,r7
@@ -4940,76 +5255,78 @@ ifdef(`SINGLE_MEM_HANDLER',`',
 ! start/end = the area it covers
 ! method = 0 for direct, 1 for handled
 ! data = RAM for direct, handler for handled
-ALIGN
-.global _z80_add_read
-_z80_add_read:
 
-ifdef(`SINGLE_MEM_BLOCK',
-`
-	rts
-	nop
-',
-`
-	ifdef(`SINGLE_MEM_HANDLER',
+ifdef(`NO_READ_HANDLER',`',
+	`ALIGN
+	.global _z80_add_read
+	_z80_add_read:
+
+	ifdef(`SINGLE_MEM_BLOCK',
 	`
-		tst r6,r6    ! test direct access
-		bt ar_finish
-
-		mov.l _z80_Read_ar,r0
-		rts
-		mov.l r7,@r0
-	',
-	`
-		extu.w r4,r4
-		mov.l _z80_Read_ar,r0
-		mov #1,r1
-		extu.w r5,r5
-
-		! if direct, subtract the start from the memory area
-		tst r6,r6
-
-		bf/s ar_dont_adjust
-		shll8 r1       ! r1 = incr. banco = 256
-
-		mov #0,r2
-
-		sub r4,r7
-		bra ar_loop
-		mov r7,r6
-
-	ar_dont_adjust:
-		mov #0,r6
-		mov r7,r2
-
-	ar_loop:
-		! if theres no area left inbetween, stop now.
-		mov r4,r7
-		shlr8 r7
-	
-		cmp/hi r5,r4
-		bt/s ar_finish	
-		shll2 r7
-		shll r7
-
-		mov.l r2,@(r0,r7)
-		add #4,r7
-		mov.l r6,@(r0,r7)
-		bra ar_loop          ! continuar
-		add r1,r4            ! incr. banco
-
-	')
-
-	ar_finish:
 		rts
 		nop
-')
+	',
+	`
+		ifdef(`SINGLE_MEM_HANDLER',
+		`
+			tst r6,r6    ! test direct access
+			bt ar_finish
 
-ifdef(`SINGLE_MEM_BLOCK',`',
-`
-	ALIGN_DATA
-	_z80_Read_ar: .long _z80_Read
-')
+			mov.l _z80_Read_ar,r0
+			rts
+			mov.l r7,@r0
+		',
+		`
+			extu.w r4,r4
+			mov.l _z80_Read_ar,r0
+			mov #1,r1
+			extu.w r5,r5
 
+			! if direct, subtract the start from the memory area
+			tst r6,r6
+
+			bf/s ar_dont_adjust
+			shll8 r1       ! r1 = incr. banco = 256
+
+			mov #0,r2
+
+			sub r4,r7
+			bra ar_loop
+			mov r7,r6
+
+		ar_dont_adjust:
+			mov #0,r6
+			mov r7,r2
+
+		ar_loop:
+			! if theres no area left inbetween, stop now.
+			mov r4,r7
+			shlr8 r7
+		
+			cmp/hi r5,r4
+			bt/s ar_finish	
+			shll2 r7
+			shll r7
+
+			mov.l r2,@(r0,r7)
+			add #4,r7
+			mov.l r6,@(r0,r7)
+			bra ar_loop          ! continuar
+			add r1,r4            ! incr. banco
+
+		')
+
+		ar_finish:
+			rts
+			nop
+	')
+
+	ifdef(`SINGLE_MEM_BLOCK',`',
+	`
+		ALIGN_DATA
+		_z80_Read_ar: .long _z80_Read
+	')
+')
 
 ! void z80_add_write(UWORD start, UWORD end, int method, void *data)
 ! Add a WRITE memory handler to the memory map

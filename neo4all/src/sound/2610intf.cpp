@@ -90,7 +90,7 @@ void YM2610UpdateRequest(void)
 int YM2610_sh_start(void)
 {
     int j;
-    int rate = SAMPLE_RATE;
+    int rate = (SAMPLE_RATE*80)/100;
     void *pcmbufa, *pcmbufb;
     int pcmsizea, pcmsizeb;
 
@@ -128,7 +128,7 @@ int YM2610_sh_start(void)
        pcmbufa,pcmsizea,pcmbufb,pcmsizeb,
        TimerHandler,IRQHandler) == 0)
      */
-    if (YM2610Init(8000000, rate,
+    if (YM2610Init((8000000*80)/100, rate,
 		   pcmbufa, pcmsizea, pcmbufb, pcmsizeb,
 		   TimerHandler, IRQHandler) == 0)
 	return 0;

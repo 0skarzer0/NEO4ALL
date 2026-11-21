@@ -41,8 +41,6 @@ ISO9660 systems, as these were used as references as well.
 #include <string.h>
 #include <malloc.h>
 
-CVSID("$Id: fs_iso9660.c,v 1.2 2003/07/15 07:55:01 bardtx Exp $");
-
 static int init_percd();
 static int percd_done;
 
@@ -406,7 +404,7 @@ static iso_dirent_t *find_object(const char *fn, int dir,
 
 	/* If this is a Joliet CD, then UCSify the name */
 	if (joliet)
-		utf2ucs(ucsname, fn);
+		utf2ucs(ucsname, (uint8 *)fn);
 	
 	while (size_left > 0) {
 		c = biread(dir_extent);
@@ -419,7 +417,7 @@ static iso_dirent_t *find_object(const char *fn, int dir,
 
 			/* Try the Joliet filename if the CD is a Joliet disc */
 			if (joliet) {
-				if (!ucscompare(de->name, ucsname, de->name_len)) {
+				if (!ucscompare((uint8 *)de->name, ucsname, de->name_len)) {
 					if (!((dir << 1) ^ de->flags))
 						return de;
 				}
@@ -436,9 +434,9 @@ static iso_dirent_t *find_object(const char *fn, int dir,
 					pnt++; len--;
 				}
 				while ((len >= 4) && ((pnt[3] == 1) || (pnt[3] == 2))) {
-					if (strncmp(pnt, "NM", 2) == 0) {
+					if (strncmp((char *)pnt, "NM", 2) == 0) {
 						rrnamelen = pnt[2] - 5;
-						strncpy(rrname, pnt+5, rrnamelen);
+						strncpy(rrname, (char *)(pnt+5), rrnamelen);
 						rrname[rrnamelen] = 0;
 					}
 					len -= pnt[2];
@@ -455,7 +453,7 @@ static iso_dirent_t *find_object(const char *fn, int dir,
 					else
 						fnlen = strlen(fn);
 				
-					if (!strnicmp(rrname, fn, fnlen)) {
+					if (!strnicmp(rrname, fn, fnlen) && ! *(rrname + fnlen)) {
 						if (!((dir << 1) ^ de->flags))
 							return de;
 					}
@@ -546,7 +544,6 @@ static void iso_break_all() {
 		fh[i].broken = 1;
 	mutex_unlock(fh_mutex);
 }
-
 
 /* Open a file or directory */
 void * __kos__iso_open(vfs_handler_t * vfs, const char *fn, int mode) {
@@ -739,7 +736,7 @@ static void fn_postprocess(char *fnin) {
 }
 
 /* Read a directory entry */
-static dirent_t *__kos__iso_readdir(void * h) {
+dirent_t *__kos__iso_readdir(void * h) {
 	int		c;
 	iso_dirent_t	*de;
 
@@ -778,7 +775,7 @@ static dirent_t *__kos__iso_readdir(void * h) {
 	}
 
 	if (joliet) {
-		ucs2utfn(fh[fd].dirent.name, de->name, de->name_len);
+		ucs2utfn((uint8 *)fh[fd].dirent.name, (uint8 *)de->name, de->name_len);
 	} else {
 		/* Fill out the VFS dirent */
 		strncpy(fh[fd].dirent.name, de->name, de->name_len);
@@ -792,8 +789,8 @@ static dirent_t *__kos__iso_readdir(void * h) {
 			pnt++; len--;
 		}
 		while ((len >= 4) && ((pnt[3] == 1) || (pnt[3] == 2))) {
-			if (strncmp(pnt, "NM", 2) == 0) {
-				strncpy(fh[fd].dirent.name, pnt+5, pnt[2] - 5);
+			if (strncmp((char *)pnt, "NM", 2) == 0) {
+				strncpy(fh[fd].dirent.name, (char *)(pnt+5), pnt[2] - 5);
 				fh[fd].dirent.name[pnt[2] - 5] = 0;
 			}
 			len -= pnt[2];
@@ -801,11 +798,14 @@ static dirent_t *__kos__iso_readdir(void * h) {
 		}
 	}
 
-	if (de->flags & 2)
+	if (de->flags & 2) {
 		fh[fd].dirent.size = -1;
-	else
+		fh[fd].dirent.attr = O_DIR;
+	} else {
 		fh[fd].dirent.size = iso_733(de->size);
-	
+		fh[fd].dirent.attr = 0;
+	}
+
 	fh[fd].ptr += de->length;
 	
 	return &fh[fd].dirent;
