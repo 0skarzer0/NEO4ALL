@@ -1,8 +1,8 @@
 /*****************************************************************************/
 /* FAME Fast and Accurate Motorola 68000 Emulation Core                      */
-/* (c) 2004 Oscar Orallo Pelaez                                              */
-/* Version: 1.2                                                              */
-/* Date: 11-13-2004                                                          */
+/* (c) 2005 Oscar Orallo Pelaez                                              */
+/* Version: 1.21                                                             */
+/* Date: 02-19-2005                                                          */
 /* See FAME.HTML for documentation and license information                   */
 /*****************************************************************************/
 
@@ -52,10 +52,10 @@ extern "C" {
     #define M68K_SPURIOUS_IRQ -2
 #endif
 #ifndef M68K_AUTO_LOWER_IRQ
-	#define M68K_AUTO_LOWER_IRQ 1
+	#define M68K_AUTO_LOWER_IRQ 0
 #endif
 #ifndef M68K_MANUAL_LOWER_IRQ
-	#define M68K_MANUAL_LOWER_IRQ 0
+	#define M68K_MANUAL_LOWER_IRQ 1
 #endif
 
 /* Defines to specify address space */
@@ -160,11 +160,11 @@ unsigned m68k_get_cpu_state(void);
 int      m68k_fetch(unsigned address, unsigned memory_space);
 
 /* Interrupt handling functions */
-int m68k_raise_irq(int level, int vector);
-int m68k_lower_irq(int level);
-void m68k_set_irq_type(int type);
-int m68k_get_irq_vector(int level);
-int m68k_change_irq_vector(int level, int vector);
+int  m68k_raise_irq(int level, int vector);
+int  m68k_lower_irq(int level);
+void m68k_set_irq_type(void *context, int type);
+int  m68k_get_irq_vector(int level);
+int  m68k_change_irq_vector(int level, int vector);
 
 /* CPU context handling functions */
 int  m68k_get_context_size(void);

@@ -9,13 +9,19 @@
 
 #define REFRESHTIME 1000/60
 
-#define NEO4ALL_Z80_UNDER_CYCLES	 66666
+//#define NEO4ALL_Z80_UNDER_CYCLES	 66666
+#define NEO4ALL_Z80_UNDER_CYCLES	 33333
+//#define NEO4ALL_Z80_UNDER_CYCLES	 22222
 #define NEO4ALL_68K_UNDER_CYCLES	166666
 
-#define NEO4ALL_Z80_NORMAL_CYCLES	100000
+//#define NEO4ALL_Z80_NORMAL_CYCLES	100000
+#define NEO4ALL_Z80_NORMAL_CYCLES	 66666
+//#define NEO4ALL_Z80_NORMAL_CYCLES	 44444
 #define NEO4ALL_68K_NORMAL_CYCLES	200000
 
-#define NEO4ALL_Z80_OVER_CYCLES		133333
+//#define NEO4ALL_Z80_OVER_CYCLES	133333
+#define NEO4ALL_Z80_OVER_CYCLES	 	 99999
+//#define NEO4ALL_Z80_OVER_CYCLES	 88888
 #define NEO4ALL_68K_OVER_CYCLES		233333
 
 #define SAMPLE_RATE    22050
@@ -57,7 +63,10 @@ extern char	*neogeo_fix_memory;
 extern char	*neogeo_spr_memory;
 extern char	*neogeo_pcm_memory;
 
-extern unsigned char neogeo_memorycard[8192];
+extern unsigned char neogeo_memorycard[];
+void memcard_init(void);
+void memcard_shutdown(void);
+void memcard_update(void);
 
 extern int      neogeo_ipl_done;
 extern int	neogeo_sound_enable;
@@ -68,6 +77,9 @@ extern Uint32 neo4all_68k_cycles;
 
 void neogeo_adjust_frameskip(int new_frameskip);
 void neogeo_adjust_cycles(int new_68k, int new_z80);
+void print_frameskip(void);
+void show_icon(void);
+
 
 extern char	neogeo_region;
 

@@ -34,19 +34,25 @@ static __inline__ void draw_font(unsigned short *br, unsigned short *paldata, un
 
 static __inline__ void create_font(unsigned int tileno,int color,unsigned short *_br)
 {
-   unsigned short *br=(unsigned short*)neo4all_texture_buffer;
-//printf("DRAW_TILE %i\n",tileno);
-    unsigned short *paldata=(unsigned short *)&video_paletteram_pc[color];
+#ifdef DEBUG_GL
+    tiles_fail++;
+#endif
+    unsigned short *br=_br;
+//   unsigned short *br=(unsigned short*)neo4all_texture_buffer;
+//printf("DRAW_TILE %i, color=0x%X\n",tileno,color);
+    unsigned short *paldata=(unsigned short *)&video_paletteram_pc[color<<4];
     unsigned int *gfxdata = (unsigned int *)&neogeo_fix_memory[tileno<<5];
 
     paldata[0]=0; // BLEND !!!
 
     draw_font(br,paldata,gfxdata);
+/*
 #ifdef DREAMCAST
     pvr_txr_load(neo4all_texture_buffer,_br,8*8*2);
 #else
     memcpy(_br,neo4all_texture_buffer,8*8*2);
 #endif
+*/
 }
 
 #ifdef DREAMCAST
@@ -56,7 +62,7 @@ static pvr_dr_state_t  dr_state;
 
 static __inline__ void prepara_pvr(void *texture_mem)
 {
-	gl_poly_cxt.txr.filter= PVR_FILTER_NONE;
+	gl_poly_cxt.txr.filter= neo4all_filter;
 	gl_poly_cxt.gen.alpha = PVR_ALPHA_DISABLE;
 	gl_poly_cxt.txr.alpha = PVR_TXRALPHA_ENABLE;
 	gl_poly_cxt.blend.src = PVR_BLEND_SRCALPHA; //PVR_BLEND_ONE;
@@ -73,93 +79,39 @@ static __inline__ void prepara_pvr(void *texture_mem)
 
 #endif
 
-
-
 //---------------------------------------------------------------------------- 
 void   video_draw_font(unsigned int code, unsigned int color, int sx, int sy)
 {
-//printf("font sx=%i sy=%i\n",sx,sy);
-
-   void *font_buffer;
-   unsigned int sel=code&FCACHE_MASK;
-//printf("CODE=%i, SEL=%i, COL=%i\n",code,sel,color);
-
-#ifndef DREAMCAST
-   glBindTexture(GL_TEXTURE_2D,font_cache[sel].tex);
-   loadTextureParams();
+//printf("font %i, sx=%i sy=%i, color=%i\n",code,sx,sy,color);
+   unsigned ntile=n_tile_list+n_font_list;
+   register unsigned key=((code<<16)|(video_palette_selected+color));
+   void *font_buffer=fcache_hash_find(key);
+   if (!font_buffer)
+   {
+	font_buffer=fcache_hash_insert(key);
+   	if (!font_buffer)
+	{
+#ifdef DEBUG_GL
+puts("FONT CACHE OVERRUN!!!!!!");
 #endif
-
-   if (font_cache[sel].tileno!=code || font_cache[sel].pal!=color)
-   {
-	   if (font_used[sel])
-	   {
-		   if (font_l2_ptr>FCACHE_L2_MASK)
-				return;
-		   font_buffer=neo4all_font_l2_buffer+(font_l2_ptr*8*8*2);
-		   font_l2_ptr++;
-	   }
-	   else
-	   {
-		   font_buffer=font_cache[sel].buffer;
-		   font_used[sel]=1;
-	   	   font_cache[sel].tileno=code;
-	    	   font_cache[sel].pal=color;
-	   }
-	   create_font(code,color,font_buffer);
-   }
-   else
-   {
-	   font_used[sel]=1;
-	   font_buffer=font_cache[sel].buffer;
+		return;
+	}
+	create_font(code,color,font_buffer);
    }
 
-#ifndef DREAMCAST
-    glTexImage2D(GL_TEXTURE_2D, 0, 4, 8, 8, 0, 
-	     GL_RGBA, GL_UNSIGNED_SHORT_1_5_5_5_REV, font_buffer);
-#else
-//    glKosTex2D(GL_RGB565,8,8,font_buffer);
-
-    prepara_pvr(font_buffer);
+#ifdef DEBUG_GL
+  ntiles++;
 #endif
 
-#ifndef DREAMCAST
-   glBegin(GL_QUADS);
-#endif
+   tile_list[ntile].sx=sx;
+   tile_list[ntile].sy=sy;
 /*
-   if (!flipx)
-   {
-	   if (flipy)
-	   {
-		   VERTICE_FLIP_XY
-	   }
-	   else
-	   {
-		   VERTICE_FLIP_X
-	   }
-   }
-   else
-   {
-	   if (flipy)
-	   {
-		   VERTICE_FLIP_Y
-	   }
-	   else
-	   {
+   tile_list[ntile].zx=8;
+   tile_list[ntile].zy=8;
+   tile_list[ntile].type=3;
 */
-int zx=8;
-int zy=8;
-		   VERTICE_FLIP_NONE
-/*
-	   }
-   }
-*/
-#ifndef DREAMCAST
-   glEnd();
-   tile_z+=0.0000001;
-#else
-//   tile_z+=1.1f;
-   tile_z+=0.0000001;
-#endif
+   tile_list[ntile].buffer=font_buffer;
+   n_font_list++;
 }
 
 
@@ -174,7 +126,7 @@ void video_draw_fix(void)
 		for (x = 0; x < 40; x++)
 		{
 			code = fixarea[x << 5];
-			colour = (code&0xf000)>>8;
+			colour = (code&0xf000)>>12;
 			code  &= 0xfff;
 
 			if (video_fix_usage[code])
@@ -183,3 +135,45 @@ void video_draw_fix(void)
 		fixarea++;
 	}
 }
+
+
+void video_draw_font_textures(void)
+{
+#ifdef DEBUG_GL
+	static unsigned minimo=0x12345678;
+	unsigned actual=fcache_hash_unused();
+	static unsigned maximo=0;
+	if (n_font_list>maximo)
+		maximo=n_tile_list;
+	if (actual<minimo)
+		minimo=actual;
+	printf("- %i font_textures (%i max). Cache: %i fonts unused (%i min).\n",n_font_list,maximo,actual,minimo);
+#endif
+
+   unsigned i,j;
+
+   for(i=n_tile_list,j=0;j<n_font_list;i++,j++)
+   {
+	register void *font_buffer=tile_list[i].buffer;
+	register int sx=tile_list[i].sx;
+	register int sy=tile_list[i].sy;
+	register int zx=8;
+	register int zy=8;
+
+#ifndef DREAMCAST
+	glBindTexture(GL_TEXTURE_2D, tile_opengl_tex[i]);
+	loadTextureParams();
+	glTexImage2D(GL_TEXTURE_2D, 0, 4, 8, 8, 0, 
+		GL_RGBA, GL_UNSIGNED_SHORT_1_5_5_5_REV, font_buffer);
+	glBegin(GL_QUADS);
+#else
+	prepara_pvr(font_buffer);
+#endif
+	VERTICE_FLIP_NONE
+#ifndef DREAMCAST
+	glEnd();
+#endif
+	tile_z+=0.0001;
+   }
+}
+

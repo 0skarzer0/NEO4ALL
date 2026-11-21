@@ -10,6 +10,7 @@
 
 /*-- input.c functions -----------------------------------------------------*/
 void input_init(void);
+void input_reset(void);
 void input_shutdown(void);
 
 void processEvents(void);

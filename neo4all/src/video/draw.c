@@ -19,6 +19,8 @@
 
 unsigned char	video_shrinky[17];
 
+unsigned eficiencia_media=50;
+
 #ifdef DREAMCAST
 #include<kos.h>
 #else
@@ -43,11 +45,6 @@ extern Uint32 profiler_media3;
 extern Uint32 profiler_media4;
 #endif
 
-/*
-unsigned ntiles=0;
-unsigned cacheados=0;
-*/
-
 
 void blitter(void) {
 	used_blitter=1;
@@ -64,44 +61,7 @@ Uint32 prof_actual=SDL_GetTicks();
 profiler_media4+=(SDL_GetTicks()-prof_actual);
 #endif
 #else
-#ifndef DREAMCAST
-    SDL_GL_SwapBuffers();
-#else
-    glKosFinishFrame();
-#endif
-#endif
-/*
-if (ntiles)
-printf("NTILES=%i, CACHEADOS=%i, EFICIENCIA %i%%\n",ntiles,cacheados,(cacheados*100)/ntiles);
-puts("NTILES=0");
-*/
-//printf("tile_l2_ptr=%i\n",tile_l2_ptr); fflush(stdout);
-}
 
-void video_draw_blank(void)
-{
-#ifndef USE_VIDEO_GL
-	SDL_FillRect(screen,NULL,0);
-#else
-    	glClearColor(0.0, 0.0, 0.0, 0.0);
-    	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-#endif
-	blitter();
-}
-
-static __inline__ void video_draw_screen_first(void)
-{
-//ntiles=cacheados=0;
-#ifdef PROFILER
-Uint32 prof_actual=SDL_GetTicks();
-#endif
-
-   int    a;
-
-#ifndef USE_VIDEO_GL
-  for (a=0; a<224; a++) 
-  	sq_set16(video_line_ptr[a], video_paletteram_pc[4095], 320*2);  
-#else
 #ifndef DREAMCAST
   glClearColor( ((video_paletteram_pc[4095]>>0)&0x1F),
 		((video_paletteram_pc[4095]>>5)&0x1F),
@@ -122,20 +82,68 @@ Uint32 prof_actual=SDL_GetTicks();
   glKosFinishList();
 #endif
 
+  video_draw_tile_textures();
+  video_draw_font_textures();
+
+#ifndef DREAMCAST
+    SDL_GL_SwapBuffers();
+#else
+    glKosFinishFrame();
+#endif
+    neo4all_glframes++;
+#endif
+#ifdef DEBUG_GL
+    if (ntiles)
+    {
+	unsigned eficiencia=100-((tiles_fail*100)/ntiles);
+	eficiencia_media=(eficiencia_media+eficiencia)/2;
+	printf("NTILES=%i, FALLADOS=%i, EFICIENCIA %i%%, EFICIENCIA MEDIA %i%%\n",ntiles,tiles_fail,eficiencia, eficiencia_media);
+    }
+    ntiles=0;
+    tiles_fail=0;
+#endif
+}
+
+void video_draw_blank(void)
+{
+#ifndef USE_VIDEO_GL
+	SDL_FillRect(screen,NULL,0);
+	blitter();
+#endif
+/*
+#ifndef USE_VIDEO_GL
+	SDL_FillRect(screen,NULL,0);
+#else
+    	glClearColor(0.0, 0.0, 0.0, 0.0);
+    	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+#endif
+	blitter();
+*/
+}
+
+static __inline__ void video_draw_screen_first(void)
+{
+//ntiles=cacheados=0;
+#ifdef PROFILER
+Uint32 prof_actual=SDL_GetTicks();
+#endif
+
+   int    a;
+
+#ifndef USE_VIDEO_GL
+  for (a=0; a<224; a++) 
+  	sq_set16(video_line_ptr[a], video_paletteram_pc[4095], 320*2);  
+#else
   if (video_palette_dirty)
   {
-  	for(a=0;a<TCACHE_SIZE;a++)
-		if (video_palette_use[tile_cache[a].pal])
-			tile_cache[a].pal=-1;
-	memset(video_palette_use,0,0x100);
+	tcache_hash_pal_cleaner();
+	fcache_hash_pal_cleaner();
+	memset(video_palette_use,0,0x200);
 	video_palette_dirty=0;
   }
-  tile_l2_ptr=0;
-  font_l2_ptr=0;
-  memset(tile_used,0,TCACHE_SIZE);
-  memset(font_used,0,FCACHE_SIZE);
   tile_z=1.0;
-
+  n_font_list=0;
+  n_tile_list=0;
 #endif
 
 }
@@ -594,9 +602,8 @@ void video_flip(SDL_Surface *surface)
 #else
   if (used_blitter)
   {
-	unsigned a;
-  	for(a=0;a<TCACHE_SIZE;a++)
-		tile_cache[a].pal=-1;
+	tcache_hash_init();
+	fcache_hash_init();
 	if (view_console)
 		console_draw_all_background();
   }
@@ -613,22 +620,22 @@ void video_flip(SDL_Surface *surface)
 
 #ifndef DREAMCAST
   glTexImage2D(GL_TEXTURE_2D, 0, 3, 512, 512, 0, 
-    GL_RGB, GL_UNSIGNED_SHORT_5_6_5, neo4all_texture_real_buffer+TCACHE_SIZE);
+    GL_RGB, GL_UNSIGNED_SHORT_5_6_5, neo4all_texture_real_buffer);
 #else
-  glKosTex2D(GL_RGB565,512,512,neo4all_texture_real_buffer+TCACHE_SIZE);
+  glKosTex2D(GL_RGB565,512,512,neo4all_texture_real_buffer);
 #endif
   glBegin(GL_QUADS);
   	glTexCoord2f(0.0,0.0);
-	glVertex3f(0.0,0.0,1.5);
+	glVertex3f(0.0,0.0,0.5);
 	
   	glTexCoord2f(1.0,0.0);
-	glVertex3f(512.0,0.0,1.5);
+	glVertex3f(512.0,0.0,0.5);
 
   	glTexCoord2f(1.0,1.0);
-	glVertex3f(512.0,512.0,1.5);
+	glVertex3f(512.0,512.0,0.5);
 
   	glTexCoord2f(0.0,1.0);
-	glVertex3f(0.0,512.0,1.5);
+	glVertex3f(0.0,512.0,0.5);
   glEnd();
 
 #ifndef DREAMCAST

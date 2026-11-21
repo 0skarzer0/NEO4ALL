@@ -1,0 +1,201 @@
+#ifndef FCACHE_H
+#define FCACHE_H
+
+extern unsigned neo4all_glframes;
+extern char	video_palette_use[0x200];
+
+#define FCACHE_HASH_SIZE 127
+#define FCACHE_SIZE 512
+
+#define FCACHE_BREAKTIME 64
+
+#define fcache_compEq(a,b) (a == b)
+#define fcache_hash(key) (key % FCACHE_HASH_SIZE)
+
+typedef void * fcache_rec_t;
+
+typedef struct fcache_nodeTag {
+	struct fcache_nodeTag *next;
+	unsigned used;
+	union{
+		unsigned key;
+		struct {unsigned short col, fontno;};
+	};
+	fcache_rec_t rec;
+}fcache_node_t;
+
+extern fcache_node_t *fcache_hash_table[FCACHE_HASH_SIZE];
+extern fcache_node_t cache_font[FCACHE_SIZE];
+extern fcache_node_t *first_font, *last_font;
+
+
+static __inline__ void fcache_hash_init(void)
+{
+	unsigned i;
+	for(i=0;i<FCACHE_HASH_SIZE;i++)
+		fcache_hash_table[i]=NULL;
+	for(i=0;i<FCACHE_SIZE;i++)
+	{
+		cache_font[i].used=0;
+		cache_font[i].next=&cache_font[i+1];
+	}
+	cache_font[FCACHE_SIZE-1].next=NULL;
+	first_font=&cache_font[0];
+	last_font=&cache_font[FCACHE_SIZE-1];
+}
+
+
+static __inline__ void fcache_hash_old_cleaner(void)
+{
+#ifdef DEBUG_GL
+    	puts("FONT cache Cleaner");;
+#endif
+	unsigned breaktime=neo4all_glframes-FCACHE_BREAKTIME;
+	unsigned i;
+	for(i=0;i<FCACHE_HASH_SIZE;i++)
+	{
+		fcache_node_t *p=fcache_hash_table[i];
+		fcache_node_t *p0=p;
+		while(p)
+		{
+			fcache_node_t *next=p->next;
+			if (p->used < breaktime)
+			{
+				p->next=NULL;
+				if (first_font)
+				{
+					last_font->next=p;
+					last_font=p;
+				}
+				else
+				{
+					first_font=p;
+					last_font=p;
+				}
+				if (p==fcache_hash_table[i])
+					fcache_hash_table[i]=next;
+				else
+					p0->next=next;
+			}
+			else
+				p0=p;
+			p=next;
+		}
+	}
+}
+
+static __inline__ void fcache_hash_pal_cleaner(void)
+{
+	unsigned i;
+	for(i=0;i<FCACHE_HASH_SIZE;i++)
+	{
+		fcache_node_t *p=fcache_hash_table[i];
+		fcache_node_t *p0=p;
+		while(p)
+		{
+			fcache_node_t *next=p->next;
+			if (video_palette_use[p->col])
+			{
+				p->next=NULL;
+				if (first_font)
+				{
+					last_font->next=p;
+					last_font=p;
+				}
+				else
+				{
+					first_font=p;
+					last_font=p;
+				}
+				if (p==fcache_hash_table[i])
+					fcache_hash_table[i]=next;
+				else
+					p0->next=next;
+			}
+			else
+				p0=p;
+			p=next;
+		}
+	}
+}
+static __inline__ fcache_rec_t fcache_hash_insert(unsigned key)
+{
+	fcache_node_t *p, *p0;
+	unsigned bucket=fcache_hash(key);
+	
+	if (!first_font)
+	{
+		fcache_hash_old_cleaner();
+		if (!first_font)
+		{
+			last_font=NULL;
+			return NULL;
+		}
+	}
+	p=first_font;
+	first_font=p->next;
+	p0=fcache_hash_table[bucket];
+	fcache_hash_table[bucket] = p;
+	p->next = p0;
+	p->used = neo4all_glframes;
+	p->key = key;
+	return p->rec;
+}
+
+static __inline__ int fcache_hash_delete(unsigned key)
+{
+	fcache_node_t *p0=NULL, *p;
+	unsigned bucket=fcache_hash(key);
+	p=fcache_hash_table[bucket];
+	while (p && !fcache_compEq(p->key,key))
+	{
+		p0 = p;
+		p = p->next;
+	}
+	if (!p)
+		return 0;
+	if (p0)
+		p0->next = p->next;
+	else
+		fcache_hash_table[bucket] = p->next;
+	p->next=NULL;
+	if (first_font)
+	{
+		last_font->next=p;
+		last_font=p;
+	}
+	else
+	{
+		first_font=p;
+		last_font=p;
+	}
+	return 1;
+}
+
+static __inline__ fcache_rec_t fcache_hash_find(unsigned key)
+{
+	fcache_node_t *p;
+
+	p = fcache_hash_table[fcache_hash(key)];
+	while (p && !fcache_compEq(p->key, key))
+		p = p->next;
+	if (!p)
+		return NULL;
+	p->used=neo4all_glframes;
+	return p->rec;
+}
+
+static __inline__ unsigned fcache_hash_unused(void)
+{
+	unsigned ret=0;
+	fcache_node_t *p=first_font;
+	while(p)
+	{
+		ret++;
+		p=p->next;
+	}
+	return ret;
+}
+
+
+#endif

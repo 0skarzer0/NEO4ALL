@@ -43,14 +43,18 @@ static __inline__ void draw_tile(unsigned short *br, unsigned short *paldata, un
 
 static __inline__ void create_tile(unsigned int tileno,int color,unsigned short *_br)
 {
+#ifdef DEBUG_GL
+    tiles_fail++;
+#endif
+//    unsigned short *br=_br;
     unsigned short *br=(unsigned short*)neo4all_texture_buffer;
 //printf("DRAW_TILE %i\n",tileno);
     unsigned short *paldata=(unsigned short *)&video_paletteram_pc[color<<4];
     unsigned int *gfxdata = (unsigned int *)&neogeo_spr_memory[tileno<<7];
 
     paldata[0]=0; // BLEND !!!
-
     draw_tile(br,paldata,gfxdata);
+
 #ifdef DREAMCAST
     pvr_txr_load(neo4all_texture_buffer,_br,16*16*2);
 #else
@@ -65,7 +69,7 @@ static pvr_dr_state_t  dr_state;
 
 static __inline__ void prepara_pvr(void *texture_mem)
 {
-	gl_poly_cxt.txr.filter= PVR_FILTER_NONE;
+	gl_poly_cxt.txr.filter= neo4all_filter;
 	gl_poly_cxt.gen.alpha = PVR_ALPHA_DISABLE;
 	gl_poly_cxt.txr.alpha = PVR_TXRALPHA_ENABLE;
 	gl_poly_cxt.blend.src = PVR_BLEND_SRCALPHA; //PVR_BLEND_ONE;
@@ -82,94 +86,108 @@ static __inline__ void prepara_pvr(void *texture_mem)
 
 #endif
 
-
-
 //---------------------------------------------------------------------------- 
 void   video_draw_spr(unsigned int code, unsigned int color, int flipx, 
          int flipy, int sx, int sy, int zx, int zy) 
 {
-//ntiles++;
-//printf("spr fx=%i fy=%i sx=%i sy=%i zx=%i zy=%i\n",flipx,flipy,sx,sy,zx,zy);
   if (zx<=0 || zy<=0)
 	  return;
   zx++;
 //  if (zx==15) zx=16;
 
-   void *texture_buffer;
-   unsigned int sel=code&TCACHE_MASK;
-   unsigned short pal=video_palette_selected+color;
-//printf("CODE=%i, SEL=%i, COL=%i\n",code,sel,color);
+   register unsigned key=((code<<16)|(video_palette_selected+color));
+   void *texture_buffer=tcache_hash_find(key);
+   if (!texture_buffer)
+   {
+	texture_buffer=tcache_hash_insert(key);
+   	if (!texture_buffer)
+	{
+#ifdef DEBUG_GL
+puts("TILE CACHE OVERRUN!!!!!!");
+#endif
+		return;
+	}
+	create_tile(code,color,texture_buffer);
+   }
 
-#ifndef DREAMCAST
-   glBindTexture(GL_TEXTURE_2D,tile_cache[sel].tex);
-   loadTextureParams();
+#ifdef DEBUG_GL
+  ntiles++;
 #endif
 
-   if (tile_cache[sel].tileno!=code || tile_cache[sel].pal!=pal)
+   tile_list[n_tile_list].sx=sx;
+   tile_list[n_tile_list].sy=sy;
+   tile_list[n_tile_list].zx=zx;
+   tile_list[n_tile_list].zy=zy;
+   tile_list[n_tile_list].type=flipx|flipy;
+   tile_list[n_tile_list].buffer=texture_buffer;
+   n_tile_list++;
+}
+
+video_draw_tile_textures(void)
+{
+#ifdef DEBUG_GL
+	static unsigned minimo=0x12345678;
+	unsigned actual=tcache_hash_unused();
+	static unsigned maximo=0;
+	if (n_tile_list>maximo)
+		maximo=n_tile_list;
+	if (actual<minimo)
+		minimo=actual;
+	printf("- %i tile_textures (%i max). Cache: %i tiles unused (%i min).\n",n_tile_list,maximo,actual,minimo);
+#endif
+   unsigned i;
+
+   for(i=0;i<n_tile_list;i++)
    {
-	   if (tile_used[sel])
-	   {
-		   if (tile_l2_ptr>TCACHE_L2_MASK)
-			return;
-		   texture_buffer=neo4all_texture_l2_buffer+(tile_l2_ptr*16*16*2);
-		   tile_l2_ptr++;
-	   }
-	   else
-	   {
-		   texture_buffer=tile_cache[sel].buffer;
-		   tile_used[sel]=1;
-	   	   tile_cache[sel].tileno=code;
-	    	   tile_cache[sel].pal=pal;
-	   }
-	   create_tile(code,color,texture_buffer);
+	register void *texture_buffer=tile_list[i].buffer;
+	register int sx=tile_list[i].sx;
+	register int sy=tile_list[i].sy;
+	register int zx=tile_list[i].zx;
+	register int zy=tile_list[i].zy;
+#ifndef DREAMCAST
+	glBindTexture(GL_TEXTURE_2D, tile_opengl_tex[i]);
+	loadTextureParams();
+
+	glTexImage2D(GL_TEXTURE_2D, 0, 4, 16, 16, 0, 
+		GL_RGBA, GL_UNSIGNED_SHORT_1_5_5_5_REV, texture_buffer);
+        glBegin(GL_QUADS);
+#else
+	prepara_pvr(texture_buffer);
+#endif
+
+	switch(tile_list[i].type)
+	{
+		case 0:
+		   	VERTICE_FLIP_X
+			break;
+		case 1:
+			VERTICE_FLIP_NONE
+			break;
+		case 2:
+			VERTICE_FLIP_XY
+			break;
+		default:
+			VERTICE_FLIP_Y
+	}
+#ifndef DREAMCAST
+	glEnd();
+#endif
+	tile_z+=0.0001;
+   }
+
+#ifdef CACHE_GL_AUTOCLEAN
+   if (!(neo4all_glframes&63))
+   {
+	   tcache_hash_old_cleaner();
+#ifdef DEBUG_GL
+	   unsigned ahora=tcache_hash_unused();
+	   printf("  glframes=%i, ELIMINADOS=%i\n",neo4all_glframes,ahora-actual);
    }
    else
    {
-	   tile_used[sel]=1;
-	   texture_buffer=tile_cache[sel].buffer;
-   }
-
-#ifndef DREAMCAST
-    glTexImage2D(GL_TEXTURE_2D, 0, 4, 16, 16, 0, 
-	     GL_RGBA, GL_UNSIGNED_SHORT_1_5_5_5_REV, texture_buffer);
-#else
-//    glKosTex2D(GL_RGB565,16,16,texture_buffer);
-
-    prepara_pvr(texture_buffer);
+	   printf("  glframes=%i\n",neo4all_glframes);
 #endif
-
-#ifndef DREAMCAST
-   glBegin(GL_QUADS);
-#endif
-   if (!flipx)
-   {
-	   if (flipy)
-	   {
-		   VERTICE_FLIP_XY
-	   }
-	   else
-	   {
-		   VERTICE_FLIP_X
-	   }
    }
-   else
-   {
-	   if (flipy)
-	   {
-		   VERTICE_FLIP_Y
-	   }
-	   else
-	   {
-		   VERTICE_FLIP_NONE
-	   }
-   }
-#ifndef DREAMCAST
-   glEnd();
-   tile_z+=0.0000001;
-#else
-//   tile_z+=1.1f;
-//   tile_z+=8.0f;
-   tile_z+=0.0000001;
 #endif
 }
 

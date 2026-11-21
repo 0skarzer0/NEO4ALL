@@ -1,5 +1,17 @@
 #ifndef	Z80INTRF_H
-#define Z80INRTF_H
+#define	Z80INTRF_H
+
+void z80_init(void);
+
+
+extern Uint32 sound_code;
+extern Uint32 result_code;
+extern Uint32 pending_command;
+extern Uint32 z80_cycles;
+extern Uint16 z80_bank[4];
+extern Uint8 mame_z80mem[0x10000];
+extern Uint8 subcpu_memspace[0x10000];
+
 
 #ifdef USE_MAMEZ80
 
@@ -19,6 +31,11 @@ extern cz80_struc neo4all_cz80_struc;
 #define _z80lower() Cz80_Clear_IRQ(&neo4all_cz80_struc)
 #define _z80exec(CIC) Cz80_Exec(&neo4all_cz80_struc,CIC)
 #define _z80nmi() Cz80_Set_NMI(&neo4all_cz80_struc)
+static __inline__ void _z80reset(void)
+{
+	memcpy(mame_z80mem,subcpu_memspace,0x10000);
+	Cz80_Reset(&neo4all_cz80_struc);
+}
 
 void cz80_z80_writeport16(Uint16 PortNo, Uint8 data);
 Uint8 cz80_z80_readport16(Uint16 PortNo);
@@ -34,18 +51,6 @@ Uint8 cz80_z80_readport16(Uint16 PortNo);
 #endif
 #endif
 
-void z80_init(void);
-
-
-extern Uint8 mame_z80mem[0x10000];
-#define subcpu_memspace mame_z80mem
-
-extern Uint32 sound_code;
-extern Uint32 result_code;
-extern Uint32 pending_command;
-extern Uint32 z80_cycles;
-
-extern Uint16 z80_bank[4];
 
 #endif /* Z80INTRF_H */
 

@@ -50,6 +50,7 @@ extern unsigned int	neogeo_frame_counter_speed;
 
 /*-- video.c functions ----------------------------------------------------*/
 int  video_init(void);
+void video_reset(void);
 void video_shutdown(void);
 int  video_set_mode(int);
 void video_draw_screen1(void);

@@ -14,9 +14,13 @@ KOS_INIT_ROMDISK(romdisk);
 #include <string.h>
 
 #include "neocd.h"
-#include "icon.h"
 
 #include "console.h"
+
+#ifdef DEBUG_FRAMESKIP
+static unsigned total_frameskip=0;
+static unsigned total_frames=0;
+#endif
 
 #ifndef BEGINTRACE
 #define BEGINTRACE 0
@@ -50,7 +54,6 @@ char			*neogeo_spr_memory = NULL;
 char			*neogeo_pcm_memory = NULL;
 
 char			global_error[80];
-unsigned char		neogeo_memorycard[8192];
 int			neogeo_prio_mode = 0;
 int			neogeo_ipl_done = 0;
 char			neogeo_region=REGION;
@@ -84,12 +87,31 @@ void	neogeo_cdda_control(void);
 void	neogeo_do_cdda( int command, int trck_number_bcd);
 void	neogeo_read_gamename(void);
 
+
+void print_frameskip(void)
+{
+#ifdef DEBUG_FRAMESKIP
+	double p=(((double)total_frameskip)*((double)100.0))/((double)total_frames);
+	printf("Total frames=%i, skipped=%i (%.2f%%).\n",total_frames,total_frameskip,p);
+#endif
+}
+
+void init_autoframeskip(void)
+{
+	/* update neocd time */
+	neocd_time=SDL_GetTicks()+REFRESHTIME;
+	neo4all_skip_next_frame=0;
+#ifdef Z80_EMULATED
+	my_timer();
+	z80_cycles = neo4all_z80_cycles >> 8;
+	_z80raise(0);
+#endif
+}
+
 //----------------------------------------------------------------------------
 int	main(int argc, char* argv[])
 {
 	FILE			*fp;
-	SDL_RWops	*iconfp;
-	SDL_Surface *icon;
 	int				result;
 	//int				a, b, c,w,h,i;
 	
@@ -115,17 +137,8 @@ int	main(int argc, char* argv[])
 		console_puts(global_error);
 		return 0;
 	}
-#ifndef DREAMCAST
-	//set window title
-	SDL_WM_SetCaption(neocd_wm_title,neocd_wm_title);	
 
-	//Hide Mouse Pointer
-	SDL_ShowCursor(SDL_DISABLE);
-	//set up window icon
-	iconfp=SDL_RWFromMem((void*)rawicon, sizeof(rawicon));
-	icon=SDL_LoadBMP_RW(iconfp,0);
-	SDL_WM_SetIcon(icon,NULL);
-#endif
+	show_icon();
 
 	// Allocate needed memory buffers
 	
@@ -163,13 +176,7 @@ int	main(int argc, char* argv[])
 	
 	// Initialize Memory Mapping
 	initialize_memmap();
-
-	// Read memory card
-	fp = fopen(DATA_PREFIX "memcard.bin", "rb");
-	if (fp!=NULL) {
-		fread(neogeo_memorycard, 1, 8192, fp);
-		fclose(fp);
-	}
+	memcard_init();
 
 	// Load BIOS
 	fp = fopen(ROM_PREFIX "neocd.bin", "rb");
@@ -244,6 +251,7 @@ int	main(int argc, char* argv[])
 #ifdef Z80_EMULATED
 	// Sound init
 	init_sdl_audio();
+	_z80_init();
 #endif
 
 	init_text(1);
@@ -263,7 +271,6 @@ int	main(int argc, char* argv[])
 	
 	// Initialize everything
 	neogeo_init();
-	pd4990a_init();
 	neogeo_run();
 	neogeo_shutdown();
 	return 0;
@@ -279,8 +286,24 @@ void	neogeo_init(void)
 //----------------------------------------------------------------------------
 void	neogeo_hreset(void)
 {
+	console_pag();
+	console_println();
+	console_puts("Reset!\n");
+	sound_unmute();
+	pd4990a_init();
+	video_reset();
+	input_reset();
+#ifdef Z80_EMULATED
+	_z80reset();
+	YM2610_sh_reset();
+	AY8910_reset();
+	_z80exec(100000);
+	my_timer();
+	_z80exec(100000);
+#endif
+	SDL_Delay(333);
+	sound_mute();
 	neogeo_ipl_done = 0;
-	sound_disable();
 	while(!neogeo_ipl_done)
 	{
 		neogeo_cdrom_load_title();
@@ -355,9 +378,13 @@ void	neogeo_hreset(void)
 	cdda_get_disk_info();
 
 #ifdef Z80_EMULATED
-	_z80_init();
+	_z80reset();
+	_z80exec(100000);
+	YM2610_sh_reset();
+	AY8910_reset();
 #endif
-	sound_enable();
+	sound_unmute();
+	init_autoframeskip();
 }	
 
 //----------------------------------------------------------------------------
@@ -383,7 +410,7 @@ void	neogeo_reset(void)
 
 	cdda_current_track = 0;
 #ifdef Z80_EMULATED
-	_z80_init();
+	_z80reset();
 #endif
 }
 
@@ -392,6 +419,8 @@ void	neogeo_shutdown(void)
 {
 	FILE	*fp;
 	
+	console_println();
+	console_printf("NEOGEO: System Shutdown.\n");
 	// Close everything and free memory
 	cdda_shutdown();
 	neogeo_cdrom_shutdown();
@@ -400,16 +429,8 @@ void	neogeo_shutdown(void)
 #endif
 	input_shutdown();
 	video_shutdown();
+	memcard_shutdown();
 
-	console_printf("NEOGEO: System Shutdown.\n");
-
-	fp = fopen(DATA_PREFIX "memcard.bin", "wb");
-	if (fp != NULL) {	
-		fwrite(neogeo_memorycard, 1, 8192, fp);
-		fclose(fp);
-	} else {
-		console_printf("Error: Couldn't open memcard.bin for writing.\n");
-	}
 
 	free(neogeo_prg_memory);
 	free(neogeo_rom_memory);
@@ -450,9 +471,9 @@ void	neogeo_exit(void)
 
 void neogeo_adjust_frameskip(int new_frameskip)
 {
-    	neocd_time=SDL_GetTicks()+REFRESHTIME;
 	neogeo_frameskip=new_frameskip;
 	neogeo_frameskip_count=0;
+	init_autoframeskip();
 }
 
 void neogeo_adjust_cycles(int new_68k, int new_z80)
@@ -502,15 +523,10 @@ void	neogeo_run(void)
 		neogeo_hreset();
 
 	/* get time for speed throttle */
-    	neocd_time=SDL_GetTicks()+REFRESHTIME;
+	init_autoframeskip();
 	
 	tiempoactual=SDL_GetTicks();
 	// Main loop
-#ifdef Z80_EMULATED
-	my_timer();
-	z80_cycles = neo4all_z80_cycles >> 8;
-	_z80raise(0);
-#endif
 	unsigned long long ciclo=0;
 #ifdef PROFILER
 #endif
@@ -533,21 +549,8 @@ profiler_actual=SDL_GetTicks();
 #endif
 	if (neogeo_sound_enable)
 	{
-/*
 		// Execute Z80 timeslice (one VBL)
 		_z80raise(0);
-		
-		if (SDL_GetAudioStatus()==SDL_AUDIO_PLAYING) {
-		    for (i = 0; i < 256; i++) {
-			if (z80_cycles>0) {
-			    _z80exec(z80_cycles);
-			    z80_cycles=0;
-			    my_timer();
-			}
-			z80_cycles += neo4all_z80_cycles >> 8;
-		    }
-		}
-*/
 		for (i = 0; i < 256; i++) {
 			_z80exec(neo4all_z80_cycles >> 8);
 			my_timer();
@@ -633,20 +636,20 @@ profiler_media2+=(SDL_GetTicks()-profiler_actual);
 		    }
 		}
 		
-		/* check for memcard writes */
-		if (memcard_write > 0) {
-		   memcard_write--;
-		   if(memcard_write==0) {
-		     /* write memory card here */
-			 /* if you need to keep file up to date */
-		   }
-		}
+		memcard_update();
+
+#ifdef DEBUG_FRAMESKIP
+		total_frames++;
+		total_frameskip+=neo4all_skip_next_frame;
+#endif
+
 
 		// Call display routine
 		if (neogeo_prio_mode)
 			video_draw_screen2();
 		else
 			video_draw_screen1();
+
 
 		// Check if there are pending commands for CDDA
 		neogeo_cdda_check();
@@ -694,13 +697,13 @@ profiler_media2+=(SDL_GetTicks()-profiler_actual);
 				break;
 			default:
 				now=SDL_GetTicks();
+#ifndef DREAMCAST
 				if (now+3 < neocd_time) {
 					neo4all_skip_next_frame=0;
-#ifndef DREAMCAST
 					SDL_Delay(neocd_time-now);
-#endif
 				}
 				else
+#endif
 				if (now > neocd_time-10) {
 					if (!neo4all_skip_next_frame)
 						neo4all_skip_next_frame=1;

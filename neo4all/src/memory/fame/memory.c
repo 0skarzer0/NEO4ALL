@@ -251,19 +251,8 @@ void initialize_memmap(void) {
 	neogeo_memmap_write_8[0].data=neogeo_prg_memory;
 #endif
 
-#ifndef DREAMCAST
-neogeo_program[1].offset+=0xc00000;
-neogeo_memmap_read_16[2].data+=0x400000;
-neogeo_memmap_read_16[3].data+=0x800000;
-neogeo_memmap_read_16[4].data+=0xc00000;
-neogeo_memmap_read_8[5].data+=0x400000;
-neogeo_memmap_read_8[6].data+=0x800000;
-neogeo_memmap_read_8[7].data+=0xc00000;
-#endif
-
-
 	m68k_set_context(&neogeo_context);
-	m68k_set_irq_type(M68K_AUTO_LOWER_IRQ);
+//	m68k_set_irq_type(NULL,M68K_AUTO_LOWER_IRQ);
 }
 
 
@@ -394,7 +383,7 @@ void m68k_write_memory_8_320000(unsigned int offset, unsigned int data) {
                 sound_code=data&0xff;
                 pending_command=1;
                 _z80nmi();
-                _z80exec(300);
+                _z80exec(192); //300);
                 my_timer();
            }
 #endif
@@ -407,7 +396,7 @@ void m68k_write_memory_16_320000(unsigned int offset, unsigned int data) {
                 sound_code=(data>>8)&0xff;
                 pending_command=1;
                 _z80nmi();
-                _z80exec(300);
+                _z80exec(192); //300);
                 my_timer();
            }
 #endif
@@ -717,14 +706,14 @@ static int cpu_readcoin(int addr)
     if (addr == 0x0) {
         int res = 0;
 #ifdef Z80_EMULATED
-   	if (neogeo_sound_enable)
+	if (neogeo_sound_enable)
 	{
-        	res |= result_code;
-        	if (!pending_command)
-            		res &= 0x7f;
-        	else
-            		res |= 0x01;
-        }
+		res |= result_code;
+		if (pending_command)
+			res &= 0x7f;
+	}
+	else
+		res |= 0x01;
 #endif
         return res;
     }
@@ -869,6 +858,6 @@ static void write_memcard(int offset, int data) {
     neogeo_memorycard[(offset&0x3fff)>>1]=(char)data; 
 
     /* signal that memory card has been written */
-    memcard_write=3; 
+    memcard_write=16; 
 }
 

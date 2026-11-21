@@ -57,7 +57,8 @@ void streams_sh_stop(void)
     int i;
 
     for (i = 0; i < MIXER_MAX_CHANNELS; i++) {
-	free(stream[i].buffer);
+	if (stream[i].buffer)
+		free(stream[i].buffer);
 	stream[i].buffer = 0;
     }
 }

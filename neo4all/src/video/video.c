@@ -86,6 +86,35 @@ void	video_save_snapshot(void);
 void	video_setup(void);
 
 
+void video_reset(void)
+{
+	unsigned i;
+
+	video_precalc_lut();
+
+	memset(video_palette_bank0_ng, 0, 8192);
+	memset(video_palette_bank1_ng, 0, 8192);
+	memset(video_palette_bank0_pc, 0, 8192);
+	memset(video_palette_bank1_pc, 0, 8192);
+
+	video_paletteram_ng = video_palette_bank0_ng;
+	video_paletteram_pc = video_palette_bank0_pc;
+
+	video_modulo = 0;
+	video_pointer = 0;
+
+	video_palette_dirty=0;
+	memset(video_palette_use,0,0x200);
+	video_palette_selected=0;
+
+        for(i=0;i<32768;i++)
+            video_spr_usage[i]=1;
+#ifdef USE_VIDEO_GL
+	video_reset_gl();
+#endif
+	init_autoframeskip();
+}
+
 //----------------------------------------------------------------------------
 int	video_init(void)
 {
@@ -101,19 +130,8 @@ int	video_init(void)
 		return	0;
 	}
 
-	memset(video_palette_bank0_ng, 0, 8192);
-	memset(video_palette_bank1_ng, 0, 8192);
-	memset(video_palette_bank0_pc, 0, 8192);
-	memset(video_palette_bank1_pc, 0, 8192);
-
-	video_paletteram_ng = video_palette_bank0_ng;
-	video_paletteram_pc = video_palette_bank0_pc;
-	video_modulo = 0;
-	video_pointer = 0;
-
-        for(i=0;i<32768;i++)
-            video_spr_usage[i]=1;
-
+	video_reset();
+	
 	if (video_set_mode(VIDEO_NORMAL)==0)
 		return 0;
 
@@ -237,9 +255,6 @@ void	video_precalc_lut(void)
 			}
 		}
 	}
-	memset(video_palette_use,0,0x200);
-	video_palette_dirty=0;
-	
 }
 
 

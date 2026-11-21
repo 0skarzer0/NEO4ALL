@@ -26,9 +26,13 @@
 
 extern SDL_AudioSpec desired;
 int init_sdl_audio(void);
+void sound_stop(void);
+void sound_reset(void);
 void sound_shutdown(void);
-void sound_toggle(void);
 void sound_enable(void);
 void sound_disable(void);
+void sound_mute(void);
+void sound_unmute(void);
+void sound_toggle(void);
 
 #endif

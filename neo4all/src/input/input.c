@@ -75,7 +75,6 @@ Uint32 joyset [NUMJOYSTICKS][NUMAXES][AXISMAX];
 /*--------------------------------------------------------------------------*/
 void input_init(void) {
     int i;
-    SDL_Event event;
     
     SDL_EventState(SDL_MOUSEMOTION, SDL_IGNORE);
     
@@ -86,8 +85,8 @@ void input_init(void) {
     keyup[SDLK_RIGHT] =P1RIGHT;
     keyup[SDLK_LCTRL] =P1A;            joyup[0][0]=P1A;
     keyup[SDLK_LALT]  =P1B;            joyup[0][1]=P1B;
-    keyup[SDLK_SPACE] =P1C;            joyup[0][2]=P1C;
-    keyup[SDLK_LSHIFT]=P1D;            joyup[0][3]=P1D;
+    keyup[SDLK_LSHIFT]=P1C;            joyup[0][2]=P1C;
+    keyup[SDLK_SPACE] =P1D;            joyup[0][3]=P1D;
     keyup[SDLK_RETURN]=P1START;        joyup[0][8]=P1START;
     keyup[SDLK_TAB]   =P1SEL;          joyup[0][9]=P1SEL;
 
@@ -166,8 +165,8 @@ void input_init(void) {
     for(i=0; i<SDL_NumJoysticks() && i<NUMJOYSTICKS; i++) {
         joystick[i]=SDL_JoystickOpen(i);
         if(joystick[i]!=NULL) {
-            printf("\nOpened Joystick %d\n",i);
 #ifndef DREAMCAST
+            printf("\nOpened Joystick %d\n",i);
             printf("Name: %s\n", SDL_JoystickName(i));
             printf("Number of Axes: %d\n", SDL_JoystickNumAxes(joystick[i]));
             printf("Number of Buttons: %d\n", SDL_JoystickNumButtons(joystick[i]));
@@ -177,8 +176,8 @@ void input_init(void) {
 #ifdef DREAMCAST
     __sdl_dc_emulate_keyboard=1;
 #endif
-    while(SDL_PollEvent(&event)) 
-	    SDL_Delay(10);
+
+    input_reset();
 }
 
 
@@ -198,9 +197,13 @@ void input_shutdown(void) {
 INLINE void specialKey (SDLKey key) {
     switch(key) {
 	case SDLK_BACKSPACE:
+		print_frameskip();
 		sound_disable();
+		cdda_pause();
 		if (run_mainMenu()==2)
 			neogeo_hreset();
+		else
+			cdda_resume();
 		sound_enable();
 		break;
 	case SDLK_F1: video_fullscreen_toggle(); break;
@@ -300,3 +303,11 @@ unsigned char read_pl12_startsel(void) {
 }
 
 
+void input_reset(void)
+{
+    SDL_Event event;
+
+    keys   =~0;
+    while(SDL_PollEvent(&event)) 
+	    SDL_Delay(10);
+}

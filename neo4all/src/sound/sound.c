@@ -25,8 +25,8 @@
 #include "../neocd.h"
 #include "streams.h"
 
-int sound=1;
-SDL_AudioSpec desired;
+static unsigned char sound_muted=0x3;
+static SDL_AudioSpec desired;
 
 #include "sound.h"
 
@@ -41,12 +41,18 @@ extern Uint16 play_buffer[BUFFER_LEN];
 
 void update_sdl_stream(void *userdata, Uint8 * stream, int len)
 {
-    streamupdate(len);
-    memcpy(stream, (Uint8 *) play_buffer, len);
+#ifdef Z80_EMULATED
+    if (!sound_muted)
+    {
+    	streamupdate(len);
+    	memcpy(stream, (Uint8 *) play_buffer, len);
+    }
+#endif
 }
 
 int init_sdl_audio(void)
 {
+#ifdef Z80_EMULATED
     desired.freq = SAMPLE_RATE;
     desired.samples = NB_SAMPLES;
     
@@ -61,38 +67,75 @@ int init_sdl_audio(void)
     SDL_OpenAudio(&desired, NULL);
     SDL_PauseAudio(1);
     
-    //init rest of audio
-    streams_sh_start();
-    YM2610_sh_start();
-    SDL_PauseAudio(1);
-    
+    sound_reset();
+#endif    
     return 1;
 }
 
-void sound_toggle(void) {
-//SDL_PauseAudio(1);
-	SDL_PauseAudio(sound);
-	sound^=1;
-}
-
 void sound_enable(void) {
-//SDL_PauseAudio(1);
-	SDL_PauseAudio(0);
-	sound=1;
+#ifdef Z80_EMULATED
+	if ((sound_muted&0x1)&&(!(sound_muted&0x2)))
+		SDL_PauseAudio(0);
+	sound_muted&=0xFE;
+#endif
 }
 
 void sound_disable(void) {
-	SDL_PauseAudio(1);
-	sound=0;
+#ifdef Z80_EMULATED
+	if (!(sound_muted&0x3))
+		SDL_PauseAudio(1);
+	sound_muted|=0x1;
+#endif
+}
+
+void sound_toggle(void) {
+#ifdef Z80_EMULATED
+	if (!(sound_muted&0x2))
+	{
+		if (sound_muted&0x1)
+			sound_enable();
+		else
+			sound_disable();
+	}
+#endif
 }
 
 void sound_shutdown(void) {
-    SDL_PauseAudio(1);
+#ifdef Z80_EMULATED
+    sound_stop();
     SDL_CloseAudio();
-    
-    streams_sh_stop();
-    YM2610_sh_stop();
+#endif
 }
 
+void sound_stop(void) {
+#ifdef Z80_EMULATED
+    sound_mute();
+    streams_sh_stop();
+    YM2610_sh_stop();
+    SDL_Delay(100);
+#endif
+}
 
+void sound_reset(void) {
+#ifdef Z80_EMULATED
+    streams_sh_start();
+    YM2610_sh_start();
+    sound_unmute();
+#endif
+}
 
+void sound_mute(void){
+#ifdef Z80_EMULATED
+	if (!(sound_muted&0x2))
+		SDL_PauseAudio(1);
+	sound_muted=0x3;
+#endif
+}
+
+void sound_unmute(void){
+#ifdef Z80_EMULATED
+	if (sound_muted&0x2)
+		SDL_PauseAudio(0);
+	sound_muted=0;
+#endif
+}

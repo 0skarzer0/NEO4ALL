@@ -1,15 +1,23 @@
+#include<stdio.h>
+#include<stdlib.h>
+#include<string.h>
+
 #include	"../neocd.h"
 #include 	<stdio.h>
 #include 	<stdlib.h>
 #include	"z80intrf.h"
+#include	"sound/2610intf.h"
 
-
-
-#ifdef USE_Z80_MAP
-Uint8 memory_z80mem[0x40000];
 Uint16 z80_bank[4];
 static Uint8 *z80map1, *z80map2, *z80map3, *z80map4;
-#endif
+
+Uint8 mame_z80mem[0x10000];
+Uint8 subcpu_memspace[0x10000];
+
+Uint32 sound_code;
+Uint32 result_code;
+Uint32 pending_command;
+Uint32 z80_cycles;
 
 
 #ifndef USE_MAMEZ80
@@ -76,13 +84,6 @@ CONTEXTMZ80	subcpu_context;
 #endif
 #endif
 
-Uint8 mame_z80mem[0x10000];
-
-Uint32 sound_code;
-Uint32 result_code;
-Uint32 pending_command;
-Uint32 z80_cycles;
-
 int cpu_z80_irq_callback(int a)
 {
 	neogeo_sound_irq(a);
@@ -92,16 +93,14 @@ int cpu_z80_irq_callback(int a)
 
 void _z80_init(void)
 {
-#ifdef USE_Z80_MAP
-	z80map1 = memory_z80mem + 0x8000;
-	z80map2 = memory_z80mem + 0xc000;
-	z80map3 = memory_z80mem + 0xe000;
-	z80map4 = memory_z80mem + 0xf000;
+	z80map1 = subcpu_memspace + 0x8000;
+	z80map2 = subcpu_memspace + 0xc000;
+	z80map3 = subcpu_memspace + 0xe000;
+	z80map4 = subcpu_memspace + 0xf000;
 	z80_bank[0]=0x8000;
 	z80_bank[1]=0xc000;
 	z80_bank[2]=0xe000;
 	z80_bank[3]=0xf000;
-#endif
 
 #ifndef USE_MAMEZ80
 #ifdef USE_CZ80
@@ -119,7 +118,7 @@ void _z80_init(void)
 	Cz80_Reset(&neo4all_cz80_struc);
 //	Cz80_Exec(&neo4all_cz80_struc,100000);
 #else
-	subcpu_context.z80Base = subcpu_memspace;
+	subcpu_context.z80Base = mame_z80mem;
 	
 	subcpu_context.z80IoRead  = ReadPorts;
 	subcpu_context.z80IoWrite = WritePorts;
@@ -218,32 +217,33 @@ Uint8 mame_z80_readport16(Uint16 PortNo)
 		return YM2610_status_port_0_B_r(0);
 		break;
 
-#ifdef USE_Z80_MAP
 	case 0x08: // cpu_z80_switchbank(3, PortNo);
-		z80map4 =  memory_z80mem + (0x0800 * ((PortNo >> 8) & 0x7f));
+		z80_bank[3]=PortNo;
+		z80map4 =  subcpu_memspace + (0x0800 * ((PortNo >> 8) & 0x7f));
 		memcpy(mame_z80mem + 0xf000, z80map4, 0x0800);
 		return 0;
 		break;
 		
 	case 0x09: // cpu_z80_switchbank(2, PortNo);
-		z80map3 = memory_z80mem + (0x1000 * ((PortNo >> 8) & 0x3f));
+		z80_bank[2]=PortNo;
+		z80map3 = subcpu_memspace + (0x1000 * ((PortNo >> 8) & 0x3f));
 		memcpy(mame_z80mem + 0xe000, z80map3, 0x1000);
 		return 0;
 		break;
 		
 	case 0x0a: // cpu_z80_switchbank(1, PortNo);
-		z80map2 = memory_z80mem + (0x2000 * ((PortNo >> 8) & 0x1f));
+		z80_bank[1]=PortNo;
+		z80map2 = subcpu_memspace + (0x2000 * ((PortNo >> 8) & 0x1f));
 		memcpy(mame_z80mem + 0xc000, z80map2, 0x2000);
 		return 0;
 		break;
 
 	case 0x0b: // cpu_z80_switchbank(0, PortNo);
-		z80map1 = memory_z80mem + (0x4000 * ((PortNo >> 8) & 0x0f));
+		z80_bank[0]=PortNo;
+		z80map1 = subcpu_memspace + (0x4000 * ((PortNo >> 8) & 0x0f));
 		memcpy(mame_z80mem + 0x8000, z80map1, 0x4000);
 		return 0;
 		break;
-#endif
-
 /*
 	default:
 		//printf("Unimplemented Z80 Read Port: %d\n",PortNo&0xff);

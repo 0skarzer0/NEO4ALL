@@ -10,6 +10,8 @@
 
 SDL_Surface *text_screen, *text_image, *text_background, *text_window_background;
 
+static Uint32 menu_inv_color=0, menu_win0_color=0, menu_win1_color=0;
+
 void write_text_pos(int x, int y, char * str);
 void write_num(int x, int y, int v);
 int menu_msg_pos=330;
@@ -161,6 +163,9 @@ void init_text(int splash)
 		text_draw_background();
 		text_flip();
 	}
+	menu_inv_color=SDL_MapRGB(text_screen->format, 0x20, 0x20, 0x40);
+	menu_win0_color=SDL_MapRGB(text_screen->format, 0x10, 0x08, 0x08);
+	menu_win1_color=SDL_MapRGB(text_screen->format, 0x20, 0x10, 0x10);
 	menu_msg_time=SDL_GetTicks();
 }
 
@@ -232,8 +237,7 @@ void write_text_pos(int x, int y, char * str)
 	  dest.w = 8;
 	  dest.h = 1;
 	  
-	  SDL_FillRect(text_screen, &dest,
-		       SDL_MapRGB(text_screen->format, 0xCC, 0xCC, 0xCC));
+	  SDL_FillRect(text_screen, &dest, menu_inv_color);
 	}
     }
 }
@@ -297,8 +301,7 @@ void write_text(int x, int y, char * str)
 	  dest.w = 8;
 	  dest.h = 1;
 	  
-	  SDL_FillRect(text_screen, &dest,
-		       SDL_MapRGB(text_screen->format, 0xCC, 0xCC, 0xCC));
+	  SDL_FillRect(text_screen, &dest, menu_inv_color);
 	}
     }
 }
@@ -316,7 +319,7 @@ void write_text_inv(int x, int y, char * str)
   dest.w = (strlen(str) * 8) + 4;
   dest.h = 12;
 
-  SDL_FillRect(text_screen, &dest, 0xCCCC); //SDL_MapRGB(text_screen->format, 32, 32, 64));
+  SDL_FillRect(text_screen, &dest, menu_inv_color);
 
   write_text(x, y, str);
 }
@@ -356,7 +359,7 @@ void write_num_inv(int x, int y, int v)
   dest.w = (l * 8) + 4;
   dest.h = 12;
 
-  SDL_FillRect(text_screen, &dest, 0xCCCC); //SDL_MapRGB(text_screen->format, 32, 32, 64));
+  SDL_FillRect(text_screen, &dest, menu_inv_color);
 
   write_num(x, y, v);
 }
@@ -381,13 +384,13 @@ void text_draw_window(int x, int y, int w, int h, char *title)
 	dest.y = ry - 4;
 	dest.w = rw + 6;
 	dest.h = rh + 18;
-	SDL_FillRect(text_screen, &dest, SDL_MapRGB(text_screen->format, 0x20, 0x40, 0x20));
+	SDL_FillRect(text_screen, &dest, menu_win0_color);
 
 	dest.x = rx - 2;
 	dest.y = ry - 10; //12;
 	dest.w = rw + 4;
 	dest.h = rh + 14; //16;
-	SDL_FillRect(text_screen, &dest, SDL_MapRGB(text_screen->format, 0x40, 0x60, 0x40));
+	SDL_FillRect(text_screen, &dest, menu_win1_color);
 
 	for(i=0;i<r32w;i++)
 		for(j=0;j<r24h;j++)

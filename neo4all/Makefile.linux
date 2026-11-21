@@ -17,8 +17,13 @@ CZ80_CORE=1
 
 VIDEOGL=1
 
-DEFAULT_CFLAGS = `sdl-config --cflags` -D_REENTRANT -DINLINE="static inline" -DLOWERCASEFILES -DDATA_PREFIX=\"data/\" -DROM_PREFIX=\"data/\"
+DEFAULT_CFLAGS = `sdl-config --cflags` -D_REENTRANT -DINLINE="static inline" -DLOWERCASEFILES -DDATA_PREFIX=\"data/\" -DROM_PREFIX=\"data/\" -DMEMCARD_PREFIX=\"data/\"
 LDFLAGS        = `sdl-config --libs`
+
+
+#DEFAULT_CFLAGS+=-DDEBUG_GL
+#DEFAULT_CFLAGS+=-DDEBUG_FRAMESKIP
+#DEFAULT_CFLAGS+=-DUSE_MEMCARD
 
 ifdef Z80_EMULATED
 DEFAULT_CFLAGS+= -DZ80_EMULATED
@@ -74,9 +79,12 @@ OBJS =	\
 	src/sound/ymdeltat.o \
 	src/sound/timer.o \
 	src/neocd.o \
+	src/icon.o \
+	src/memcard.o \
 	src/pd4990a.o 
 
 ifdef VIDEOGL
+#DEFAULT_CFLAGS+= -DCACHE_GL_AUTOCLEAN
 	OBJS+=	src/video/sprgl.o \
 		src/video/videogl.o \
 		src/video/draw_fixgl.o
