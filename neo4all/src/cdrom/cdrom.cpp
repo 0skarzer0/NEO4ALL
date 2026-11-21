@@ -9,6 +9,7 @@
 #include <ctype.h>
 
 #include <string.h>
+#include <unistd.h>
 
 #include "cdrom.h"
 #include "../neocd.h"
@@ -20,7 +21,12 @@
 #include "video/videogl.h"
 #endif
 
+#ifndef LOWERCASEFILES
 #define LOWERCASEFILES
+#endif
+
+
+#define MIN_TEXT_DRAW 2
 
 #ifdef LOWERCASEFILES
 
@@ -262,7 +268,7 @@ int    neogeo_cdrom_load_fix_file(char *FileName, unsigned int Offset)
     printf("FIX Lectura desde la posicion %i (%i bytes), resto=%i\n",Ptr-neogeo_fix_memory,Readed,0x20000-(Ptr-neogeo_fix_memory));
 #endif
         Src = neogeo_cdrom_buffer;
-        fix_conv(Src, Ptr, Readed, video_fix_usage + (Offset>>5));
+        fix_conv((unsigned char *)Src, (unsigned char *)Ptr, Readed, (unsigned char *)(video_fix_usage + (Offset>>5)));
         Ptr += Readed;
         Offset += Readed;
     } while( Readed == BUFFER_SIZE );
@@ -306,7 +312,7 @@ int    neogeo_cdrom_load_spr_file(char *FileName, unsigned int Offset)
 #ifdef DEBUG_CDROM
     printf("SPR Lectura desde la posicion %i (%i bytes), resto=%i\n",Ptr-neogeo_spr_memory,Readed,0x400000-(Ptr-neogeo_spr_memory));
 #endif
-        spr_conv(neogeo_cdrom_buffer, Ptr, Readed, video_spr_usage + (Offset>>7));
+        spr_conv((unsigned char*)neogeo_cdrom_buffer, (unsigned char *)Ptr, Readed, (unsigned char *)(video_spr_usage + (Offset>>7)));
         Offset += Readed;
         Ptr += Readed;
     } while( Readed == BUFFER_SIZE );
@@ -594,10 +600,6 @@ unsigned int motorola_peek(unsigned char *address)
 	return (a|b|c|d);
 }
 
-#ifdef PROFILER
-extern Uint32 profiler_actual;
-#endif
-
 static unsigned neogeo_cdrom_test_files(int check)
 {
     unsigned ret=0;
@@ -634,7 +636,7 @@ static unsigned neogeo_cdrom_test_files(int check)
             i++;
 
 
-        Off = motorola_peek(&Entry[i]);
+        Off = motorola_peek((unsigned char *)&Entry[i]);
         i += 4;
         Ptr += i;
 
@@ -670,7 +672,6 @@ static unsigned neogeo_cdrom_test_files(int check)
 	else
 	{
         	console_printf("Loading File: %s %02x %08x\n", FileName, Bnk, Off);
-		text_draw_loading(ret,check);
         	Type = recon_filetype(Ext);
         	switch( Type ) {
         	  case PRG_TYPE:
@@ -706,11 +707,6 @@ void    neogeo_cdrom_load_files(void)
 {
     unsigned nfiles=0;
 
-    sound_disable();
-#ifdef PROFILER
-    Uint32 ahora=SDL_GetTicks();
-#endif
-    
     if (m68k_read_memory_8(_68k_get_register(_68K_REG_A0))==0)
     {
     	sound_enable();
@@ -718,8 +714,8 @@ void    neogeo_cdrom_load_files(void)
     }
 
 
+    SDL_PauseAudio(1);
     cdda_stop();
-    menu_raise();
     cdda_current_track = 0;
 
     m68k_write_memory_32(0x10F68C, 0x00000000);
@@ -739,8 +735,8 @@ void    neogeo_cdrom_load_files(void)
 
     if (nfiles)
     {
-	if (nfiles>5)
-		sound_play_loading();
+	if (nfiles>MIN_TEXT_DRAW)
+		text_draw_cdload();
 	neogeo_cdrom_test_files(nfiles);
     }
 /*
@@ -751,12 +747,8 @@ ERROR !!!!!!!!!!!!!!!!!!
 #ifndef USE_VIDEO_GL
     	video_draw_blank();
 #endif
-#ifdef PROFILER
-    profiler_actual+=(SDL_GetTicks()-ahora);
-#endif
 
-    menu_unraise();
-    sound_enable();
+    SDL_PauseAudio(0);
     init_autoframeskip();
     z80_cycles_inited=0;
 }
@@ -894,7 +886,7 @@ void spr_conv(unsigned char *src, unsigned char *dst, int len, unsigned char *us
         else
             offset=(i&0xfff80)+((i&0x7f)<<1)-128;
 
-        extract8(src,dst+offset);
+        extract8((char *)src,(char *)(dst+offset));
         src+=4;
     }
 }
@@ -935,8 +927,8 @@ printf("neogeo_upload: Zone=0x%X\n",Zone); fflush(stdout);
 #ifdef DEBUG_CDROM
 puts("neogeo_upload: PRG");fflush(stdout);
 #endif
-        Source = neogeo_prg_memory + m68k_read_memory_32(0x10FEF8);
-        Dest = neogeo_prg_memory + m68k_read_memory_32(0x10FEF4);
+        Source = (unsigned char *)(neogeo_prg_memory + m68k_read_memory_32(0x10FEF8));
+        Dest = (unsigned char *)(neogeo_prg_memory + m68k_read_memory_32(0x10FEF4));
         Taille = m68k_read_memory_32(0x10FEFC);
 
         memcpy(Dest, Source, Taille);
@@ -950,16 +942,16 @@ puts("neogeo_upload: PRG");fflush(stdout);
 puts("neogeo_upload: SPR");fflush(stdout);
 #endif
         Banque = m68k_read_memory_8(0x10FEDB);
-        Source = neogeo_prg_memory + m68k_read_memory_32(0x10FEF8);
+        Source = (unsigned char *)(neogeo_prg_memory + m68k_read_memory_32(0x10FEF8));
         Offset = m68k_read_memory_32(0x10FEF4) + (Banque<<20);
-        Dest = neogeo_spr_memory + Offset;
+        Dest = (unsigned char *)(neogeo_spr_memory + Offset);
         Taille = m68k_read_memory_32(0x10FEFC);
         
         do {
             memset(neogeo_cdrom_buffer, 0, BUFFER_SIZE);
             swab(Source, neogeo_cdrom_buffer, min(BUFFER_SIZE, Taille));
-            spr_conv(neogeo_cdrom_buffer, Dest, min(BUFFER_SIZE, Taille), 
-                video_spr_usage+(Offset>>7));
+            spr_conv((unsigned char *)neogeo_cdrom_buffer, (unsigned char *)Dest, min(BUFFER_SIZE, Taille), 
+                (unsigned char *)(video_spr_usage+(Offset>>7)));
             Source += min(BUFFER_SIZE, Taille);
             Dest += min(BUFFER_SIZE, Taille);
             Offset += min(BUFFER_SIZE, Taille);
@@ -989,16 +981,16 @@ puts("neogeo_upload: SPR");fflush(stdout);
 #ifdef DEBUG_CDROM
 puts("neogeo_upload: FIX");fflush(stdout);
 #endif
-        Source = neogeo_prg_memory + m68k_read_memory_32(0x10FEF8);
+        Source = (unsigned char *)(neogeo_prg_memory + m68k_read_memory_32(0x10FEF8));
         Offset = m68k_read_memory_32(0x10FEF4)>>1;
-        Dest = neogeo_fix_memory + Offset;
+        Dest = (unsigned char *)(neogeo_fix_memory + Offset);
         Taille = m68k_read_memory_32(0x10FEFC);
 
         do {
             memset(neogeo_cdrom_buffer, 0, BUFFER_SIZE);
             swab(Source, neogeo_cdrom_buffer, min(BUFFER_SIZE, Taille));
-            fix_conv(neogeo_cdrom_buffer, Dest, min(BUFFER_SIZE, Taille), 
-                video_fix_usage + (Offset>>5));
+            fix_conv((unsigned char *)neogeo_cdrom_buffer, Dest, min(BUFFER_SIZE, Taille), 
+                (unsigned char *)(video_fix_usage + (Offset>>5)));
             Source += min(BUFFER_SIZE, Taille);
             Dest += min(BUFFER_SIZE, Taille);
             Offset += min(BUFFER_SIZE, Taille);
@@ -1020,7 +1012,7 @@ puts("neogeo_upload: Z80");fflush(stdout);
 #endif
 
 #ifdef Z80_EMULATED
-        Source = neogeo_prg_memory + m68k_read_memory_32(0x10FEF8);
+        Source = (unsigned char *)(neogeo_prg_memory + m68k_read_memory_32(0x10FEF8));
         Dest = subcpu_memspace + (m68k_read_memory_32(0x10FEF4)>>1);
         Taille = m68k_read_memory_32(0x10FEFC);
         
@@ -1036,7 +1028,7 @@ puts("neogeo_upload: Z80");fflush(stdout);
 puts("neogeo_upload: Z80 patch");fflush(stdout);
 #endif
 
-        Source = neogeo_prg_memory + m68k_read_memory_32(0x10FEF8);
+        Source = (unsigned char *)(neogeo_prg_memory + m68k_read_memory_32(0x10FEF8));
         neogeo_cdrom_apply_patch((short*)Source, m68k_read_memory_32(0x10FEF4), m68k_read_memory_8(0x10FEDB));
 
         break;
@@ -1046,9 +1038,9 @@ puts("neogeo_upload: Z80 patch");fflush(stdout);
 puts("neogeo_upload: PCM");fflush(stdout);
 #endif
         Banque = m68k_read_memory_8(0x10FEDB);
-        Source = neogeo_prg_memory + m68k_read_memory_32(0x10FEF8);
+        Source = (unsigned char *)(neogeo_prg_memory + m68k_read_memory_32(0x10FEF8));
         Offset = (m68k_read_memory_32(0x10FEF4)>>1) + (Banque<<19);
-        Dest = neogeo_pcm_memory + Offset;
+        Dest = (unsigned char *)(neogeo_pcm_memory + Offset);
         Taille = m68k_read_memory_32(0x10FEFC);
         
         swab( Source, Dest, Taille);        
@@ -1119,7 +1111,7 @@ void neogeo_cdrom_load_title(void)
 #ifdef DEBUG_CDROM
     	printf("TITLE Lectura desde la posicion %i (%i bytes)\n",0,Readed);
 #endif
-    	spr_conv(neogeo_cdrom_buffer, Ptr, Readed, video_spr_usage);
+    	spr_conv((unsigned char *)neogeo_cdrom_buffer, (unsigned char *)Ptr, Readed, (unsigned char *)video_spr_usage);
     	fclose(fp);
 
 #if defined(DREAMCAST) && defined(USE_VIDEO_GL)
@@ -1192,7 +1184,7 @@ FILE *fopen_s(char *filename, char *mode)
 {
 	FILE *ret=fopen(filename,mode);
 	unsigned len=strlen(filename);
-	char *tmp=calloc(len+1,1);
+	char *tmp=(char *)calloc(len+1,1);
 	if (!ret)
 	{
 		int i,j;

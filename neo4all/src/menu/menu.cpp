@@ -1,3 +1,7 @@
+#ifdef DREAMCAST
+#include<kos.h>
+#endif
+
 #include<stdio.h>
 #include<stdlib.h>
 #include<string.h>
@@ -9,11 +13,19 @@
 #include "fade.h"
 #include "sound/sound.h"
 
+#include <SDL_mixer.h>
+
 #ifdef USE_VIDEO_GL
 #include "video/videogl.h"
 #endif
 
-SDL_Surface *text_screen, *text_image, *text_image_inv, *text_background, *text_window_background;
+SDL_Surface *text_screen=NULL;
+
+static SDL_Surface *text_image=NULL;
+static SDL_Surface *text_image_inv=NULL;
+static SDL_Surface *text_background=NULL;
+static SDL_Surface *text_window_background=NULL;
+static SDL_Surface *text_cdrom=NULL;
 
 static Uint32 menu_inv_color=0, menu_win0_color=0, menu_win1_color=0;
 static Uint32 menu_barra0_color=0, menu_barra1_color=0;
@@ -61,7 +73,7 @@ void menu_unraise(void)
 }
 
 
-static __inline__ void update_window_color(void)
+static void update_window_color(void)
 {
 	static int cambio=0;
 	static int spin=0;
@@ -96,7 +108,7 @@ static __inline__ void update_window_color(void)
 	}
 }
 
-static __inline__ void text_draw_menu_msg()
+static void text_draw_menu_msg()
 {
 /*
 	Uint32 now=SDL_GetTicks();
@@ -112,7 +124,7 @@ static __inline__ void text_draw_menu_msg()
 	write_text_pos_inv(menu_msg_pos,0,menu_msg);
 }
 
-static __inline__ void text_draw_real_background()
+static void text_draw_real_background()
 {
 	static int pos_x=12345678;
 	static int pos_y=12345678;
@@ -217,71 +229,93 @@ static void obten_colores(void)
 
 void init_text(int splash)
 {
-	SDL_Surface *tmp;
-
-	text_screen=SDL_CreateRGBSurface(screen->flags,screen->w,screen->h,screen->format->BitsPerPixel,screen->format->Rmask,screen->format->Gmask,screen->format->Bmask,screen->format->Amask);
-	tmp=SDL_LoadBMP(MENU_FILE_TEXT);
-	if (text_screen==NULL || tmp==NULL)
+	if (!text_screen)
 	{
-		puts("No se pudo crear el SDL_Surface text_screen o cargar " MENU_FILE_TEXT);
-		exit(-1);
+		text_screen=SDL_CreateRGBSurface(screen->flags,screen->w,screen->h,screen->format->BitsPerPixel,screen->format->Rmask,screen->format->Gmask,screen->format->Bmask,screen->format->Amask);
+		if (!text_screen)
+		{
+#ifdef STDOUTPUT
+			puts("No se pudo crear el SDL_Surface text_screen");
+#endif
+			exit(-1);
+		}
 	}
-	text_image=SDL_DisplayFormat(tmp);
-	SDL_FreeSurface(tmp);
-	if (text_image==NULL)
+	if (!text_image)
 	{
-		puts("Fue imposible convertir text_image");
-		exit(-2);
+		SDL_Surface *tmp=SDL_LoadBMP(MENU_FILE_TEXT);
+		if (!tmp)
+		{
+#ifdef STDOUTPUT
+			puts("No se pudo cargar " MENU_FILE_TEXT);
+#endif
+			exit(-1);
+		}
+		text_image=SDL_DisplayFormat(tmp);
+		SDL_FreeSurface(tmp);
+		SDL_SetColorKey(text_image,(SDL_SRCCOLORKEY | SDL_RLEACCEL),SDL_MapRGB(text_image -> format, 0, 0, 0));
 	}
-	SDL_SetColorKey(text_image,(SDL_SRCCOLORKEY | SDL_RLEACCEL),SDL_MapRGB(text_image -> format, 0, 0, 0));
-	tmp=SDL_LoadBMP(MENU_FILE_TEXT_INV);
-	if (text_screen==NULL || tmp==NULL)
+	if (!text_image_inv)
 	{
-		puts("No se pudo crear el SDL_Surface text_screen o cargar " MENU_FILE_TEXT_INV);
-		exit(-1);
+		SDL_Surface *tmp=SDL_LoadBMP(MENU_FILE_TEXT_INV);
+		if (!tmp)
+		{
+#ifdef STDOUTPUT
+			puts("No se pudo cargar " MENU_FILE_TEXT_INV);
+#endif
+			exit(-1);
+		}
+		text_image_inv=SDL_DisplayFormat(tmp);
+		SDL_FreeSurface(tmp);
+		SDL_SetColorKey(text_image_inv,(SDL_SRCCOLORKEY | SDL_RLEACCEL),SDL_MapRGB(text_image -> format, 0, 0, 0));
 	}
-	text_image_inv=SDL_DisplayFormat(tmp);
-	SDL_FreeSurface(tmp);
-	if (text_image_inv==NULL)
+	if (!text_background)
 	{
-		puts("Fue imposible convertir text_image_inv");
-		exit(-2);
+		SDL_Surface *tmp=SDL_LoadBMP(MENU_FILE_BACKGROUND);
+		if (!tmp)
+		{
+#ifdef STDOUTPUT
+			puts("No se pudo cargar " MENU_FILE_BACKGROUND);
+#endif
+			exit(-3);
+		}
+		text_background=SDL_DisplayFormat(tmp);
+		SDL_FreeSurface(tmp);
 	}
-	SDL_SetColorKey(text_image_inv,(SDL_SRCCOLORKEY | SDL_RLEACCEL),SDL_MapRGB(text_image -> format, 0, 0, 0));
-	tmp=SDL_LoadBMP(MENU_FILE_BACKGROUND);
-	if (tmp==NULL)
+	if (!text_cdrom)
 	{
-		puts("No se pudo cargar " MENU_FILE_BACKGROUND);
-		exit(-3);
+		SDL_Surface *tmp=SDL_LoadBMP(MENU_FILE_LOADING);
+		if (!tmp)
+		{
+#ifdef STDOUTPUT
+			puts("No se pudo cargar " MENU_FILE_BACKGROUND);
+#endif
+			exit(-3);
+		}
+		text_cdrom=SDL_DisplayFormat(tmp);
+		SDL_FreeSurface(tmp);
 	}
-	text_background=SDL_DisplayFormat(tmp);
-	SDL_FreeSurface(tmp);
-	if (text_background==NULL)
+	if (!text_window_background)
 	{
-		puts("No se pudo convertir text_background");
-		exit(-3);
-	}
-	tmp=SDL_LoadBMP(MENU_FILE_WINDOW);
-	if (tmp==NULL)
-	{
-		puts("No se pudo cargar " MENU_FILE_WINDOW);
-		exit(-4);
-	}
-	text_window_background=SDL_DisplayFormat(tmp);
-	SDL_FreeSurface(tmp);
-	if (text_window_background==NULL)
-	{
-		puts("No se pudo convertir text_window_background");
-		exit(-5);
+		SDL_Surface *tmp=SDL_LoadBMP(MENU_FILE_WINDOW);
+		if (!tmp)
+		{
+#ifdef STDOUTPUT
+			puts("No se pudo cargar " MENU_FILE_WINDOW);
+#endif
+			exit(-4);
+		}
+		text_window_background=SDL_DisplayFormat(tmp);
+		SDL_FreeSurface(tmp);
 	}
 	sound_play_menu_music();
+#ifndef AUTO_EVENTS
 	if (splash)
 	{
 		SDL_Surface *sur;
 		SDL_Rect r;
 		int i,j;
 
-		tmp=SDL_LoadBMP(MENU_FILE_SPLASH);
+		SDL_Surface *tmp=SDL_LoadBMP(MENU_FILE_SPLASH);
 		if (tmp==NULL)
 		{
 			puts("No se pudo cargar " MENU_FILE_SPLASH);
@@ -332,6 +366,7 @@ void init_text(int splash)
 
 	}
 	else
+#endif
 	{
 		text_draw_background();
 		text_flip();
@@ -343,10 +378,12 @@ void init_text(int splash)
 
 void quit_text(void)
 {
+/*
 	SDL_FreeSurface(text_image);
 	SDL_FreeSurface(text_background);
 	SDL_FreeSurface(text_window_background);
 	SDL_FreeSurface(text_screen);
+*/
 }
 
 static void write_text_pos_common(int x, int y, char * str, SDL_Surface *txt_scr)
@@ -583,6 +620,18 @@ void text_draw_loading(int per, int max)
 	text_draw_window(80,64,172,32,"Loading");
 	text_draw_barra(84, 78, 150, 6, per, max);
 	write_text(14,9,"Please wait");
+	text_flip();
+}
+
+void text_draw_cdload(void)
+{
+	SDL_Rect r;
+	SDL_FillRect(text_screen,NULL,0);
+	r.x=(text_screen->w-text_cdrom->w)-20;
+	r.y=(text_screen->h-text_cdrom->h)-20;
+	r.w=text_cdrom->w;
+	r.h=text_cdrom->h;
+	SDL_BlitSurface(text_cdrom,NULL,text_screen,&r);
 	text_flip();
 }
 

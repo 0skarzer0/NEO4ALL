@@ -5,7 +5,14 @@
 
 #include "video.h"
 #include "../neocd.h"
+
+#ifndef CACHE_INLINE
+#define CACHE_INLINE
+#define CACHE_STATIC_INLINE
+#endif
+
 #include "videogl.h"
+
 
 static SDL_Surface *gl_screen;
 
@@ -38,7 +45,7 @@ void *neo4all_texture_surface=NULL;
 float tile_z=TILE_Z_INIT;
 unsigned neo4all_glframes=8;
 
-static __inline__ void init_cache(void) {
+static void init_cache(void) {
     int i;
     GLuint texture;
 
@@ -74,12 +81,12 @@ static __inline__ void init_cache(void) {
 
 #ifndef DREAMCAST
     for(i=0;i<TCACHE_SIZE+FCACHE_SIZE;i++)
-	glGenTextures(1,&tile_opengl_tex);
+	glGenTextures(1,(GLuint *)&tile_opengl_tex[i]);
 #endif
     video_reset_gl();
 }
 
-static __inline__ void free_cache(void) {
+static void free_cache(void) {
 #ifndef DREAMCAST
     free(neo4all_texture_real_buffer);
 #else
@@ -113,7 +120,7 @@ SDL_bool init_video_gl(void) {
     glLoadIdentity();
 
     init_cache();
-    blitter(); used_blitter=0;
+//    blitter(); used_blitter=0;
 
 #ifdef MENU_ALPHA
 #ifdef DREAMCAST
@@ -127,7 +134,7 @@ SDL_bool init_video_gl(void) {
     SDL_FillRect(screen,NULL,0);
 #endif
 
-    glGenTextures(1,&screen_texture);
+    glGenTextures(1,(GLuint *)&screen_texture);
     glBindTexture(GL_TEXTURE_2D,screen_texture);
     loadTextureParams();
 #ifdef DREAMCAST
@@ -169,3 +176,6 @@ void neogeo_adjust_filter(int filter)
 	else
 		neo4all_filter=NEO4ALL_FILTER_NONE;
 }
+
+
+

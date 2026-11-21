@@ -4,11 +4,15 @@
 #include "SDL.h"
 #include "SDL_opengl.h"
 
+#if defined(CACHE_INLINE) && !defined(CACHE_STATIC_INLINE)
+#define CACHE_STATIC_INLINE static __inline__
+#endif
+
 #include "tile_cache.h"
 #include "font_cache.h"
 
-
 #ifdef DREAMCAST
+
 /*
 #define VIDEO_GL_WIDTH 320
 #define VIDEO_GL_HEIGHT 240
@@ -16,13 +20,20 @@
 #define VIDEO_GL_WIDTH 640
 #define VIDEO_GL_HEIGHT 480
 
+
+#define TILE_Z_INIT 1.0
+#define TILE_Z_INC 0.69
+
 #else
 /*
 #define VIDEO_GL_WIDTH 800
 #define VIDEO_GL_HEIGHT 600
+
 */
 #define VIDEO_GL_WIDTH 640
 #define VIDEO_GL_HEIGHT 480
+#define TILE_Z_INIT 0.1
+#define TILE_Z_INC 0.000069
 #endif
 
 typedef struct TILE_LIST{
@@ -30,9 +41,6 @@ typedef struct TILE_LIST{
 	char type;
 	void *buffer;
 }TILE_LIST;
-
-#define TILE_Z_INIT 1.0
-#define TILE_Z_INC 0.69
 
 extern TILE_LIST tile_list[TCACHE_SIZE+FCACHE_SIZE];
 extern unsigned n_tile_list;
@@ -46,6 +54,8 @@ extern float tile_z;
 SDL_bool init_video_gl(void);
 void video_reset_gl(void);
 void neogeo_adjust_filter(int filter);
+void video_reset_gl(void);
+void video_fullscreen_toggle_gl(void);
 
 #ifndef DREAMCAST
 #define NEO4ALL_FILTER_NONE	GL_NEAREST
@@ -72,6 +82,7 @@ extern unsigned neo4all_glframes;
 extern void *neo4all_font_real_buffer;
 extern void *neo4all_font_l2_buffer;
 
+
 static __inline__ void loadTextureParams(void)
 {
 //    glPixelStorei(GL_UNPACK_ROW_LENGTH, 16);
@@ -85,5 +96,6 @@ static __inline__ void loadTextureParams(void)
     glTexEnvi(GL_TEXTURE_2D,GL_TEXTURE_ENV_MODE, GL_REPLACE);
 }
 
+void neo4all_draw_boders(void);
 
 #endif

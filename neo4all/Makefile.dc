@@ -10,21 +10,21 @@ OBJS+=romdisk.o
 
 TARGET = $(NAME)
 
-KOS_CFLAGS+= -I$(KOS_BASE)/../kos-ports/include/SDL -I$(KOS_BASE)/../kos-ports/zlib-1.2.1 -I$(KOS_BASE)/../kos-ports/libpng-1.2.5
+KOS_CFLAGS+= -I$(KOS_BASE)/addons/include/SDL -I$(KOS_BASE)/addons/include
 
 INLINE='static __inline__'
 
 KOS_CFLAGS+= -DDREAMCAST -DSDL -Isrc -Isrc/68k -Isrc/video -DDATA_PREFIX="/rd/" -DROM_PREFIX="/cd/" -DMEMCARD_PREFIX="/vmu/a1/"
 
 KOS_CFLAGS+=$(NEO4ALL_CFLAGS)
-
+KOS_CPPFLAGS+=$(KOS_CFLAGS)
 
 all: $(TARGET).elf
 
 include $(KOS_BASE)/Makefile.rules
 
 ifdef VIDEOGL
-LIB_SDL= -lSDL_mixer -lSDL_gl_127 -lgl 
+LIB_SDL= -lSDL_mixer -lSDL_gl_129 -lgl 
 else
 LIB_SDL= -lSDL_mixer -lSDL_dma_127
 endif
@@ -45,8 +45,8 @@ romdisk.img:
 
 
 run: $(TARGET).elf example.iso
-#	$(KOS_LOADER) $(TARGET).elf
-	$(KOS_LOADER) $(TARGET).elf -i example.iso
+	$(KOS_LOADER) $(TARGET).elf
+#	$(KOS_LOADER) $(TARGET).elf -i example.iso
 
 clean:
 	$(RM) $(OBJS) src/68k/c68k/cpu68k.o src/z80/z80intrf.o $(MEMORY_OBJ) $(TARGET).elf $(TARGET).bin  romdisk.o romdisk.img

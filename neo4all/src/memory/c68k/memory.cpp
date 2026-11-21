@@ -19,12 +19,6 @@ extern int trazando;
 
 extern unsigned short    *video_paletteram_ng;
 
-#if 0
-    #define logaccess(...) printf(__VA_ARGS__)
-#else
-    #define logaccess(...)
-#endif
-
 /*** Globals ***************************************************************************************/
 int watchdog_counter=-1;
 int memcard_write=0;
@@ -96,10 +90,6 @@ if (trazando) printf("m68k_read_memory_8f(0x%X)\n",off); fflush(stdout);
         case    0xe1:
         case    0xe2:
         case    0xe3:    return read_upload(offset&0xfffff);
-
-        default:
-          //  logaccess("m68k_read_memory_8(0x%x) PC=%x\n",offset,m68k_get_reg(NULL,M68K_REG_PC));
-            break;
     }
     return 0;
 }
@@ -137,12 +127,8 @@ if (trazando) printf("m68k_read_memory_16f(0x%X)\n",off); fflush(stdout);
         case    0xc6:
         case    0xc7:    return *(Uint16*)&neogeo_rom_memory[offset&0x0fffff];
 		
-		case	0xff:	 break;
+//	case	0xff:	 break;
 
-
-        default:
-          //  logaccess("m68k_read_memory_16(0x%x) PC=%x\n",offset,m68k_get_reg(NULL,M68K_REG_PPC));
-            break;
     }
     return 0;
 }
@@ -220,12 +206,9 @@ if (trazando) printf("m68k_write_memory_8f(0x%X,0x%X)\n",off,data); fflush(stdou
         case    0xe2:
         case    0xe3:   write_upload(offset&0xfffff,data); break;
 		
-		/* cdrom */
-		case	0xff:	break;
+	/* cdrom */
+//	case	0xff:	break;
 
-        default:
-       //     logaccess("m68k_write_memory_8(0x%x,0x%x) PC=%x\n",offset,data,m68k_get_reg(NULL,M68K_REG_PC));
-            break;
     }
 }
 
@@ -253,7 +236,7 @@ if (trazando) printf("m68k_write_memory_16f(0x%X,0x%X)\n",off,data); fflush(stdo
 
     switch(offset>>16)
     {
-	case	0x2f:	break;
+//	case	0x2f:	break;
         case    0x3a:    cpu_writeswitch(offset, data); break;
         case    0x3c:    cpu_writevidreg(offset, data); break;
         case    0x40:    offset =(offset&0x1fff)>>1;
@@ -268,11 +251,7 @@ if (trazando) printf("m68k_write_memory_16f(0x%X,0x%X)\n",off,data); fflush(stdo
         case    0xe2:
         case    0xe3:    write_upload_word(offset&0xfffff,data); break;
 		
-		case	0xff: break;
-
-        default:
-          //  logaccess("m68k_write_memory_16(0x%x,0x%x) PC=%x\n",offset,data,m68k_get_reg(NULL,M68K_REG_PC));
-            break;
+//	case	0xff: break;
     }
 }
 
@@ -333,11 +312,7 @@ if (trazando) printf("m68k_write_memory_32f(0x%X,0x%X)\n",off,data); fflush(stdo
         case    0xe2:
         case    0xe3:    write_upload_dword(offset&0xfffff,temp); break;
 		
-		case	0xff:	break;
-
-        default:
-          //  logaccess("m68k_write_memory_32(0x%x,0x%x) PC=%x\n",offset,data,m68k_get_reg(NULL,M68K_REG_PC));
-            break;
+//	case	0xff:	break;
     }
 }
 #endif
@@ -365,11 +340,8 @@ if (trazando) printf("cpu_readvidreg(0x%X)\n",offset); fflush(stdout);
         case    0x3c0008:    return *(Uint16*)&video_vidram[video_pointer<<1]; break;
         case    0x3c000a:    return *(Uint16*)&video_vidram[video_pointer<<1]; break;
 
-        default:
-         //   logaccess("cpu_readvidreg(0x%x) PC=%x\n",offset,m68k_get_reg(NULL,M68K_REG_PC));
-            return 0;
-            break;
     }
+    return 0;
 }
 
 
@@ -391,10 +363,6 @@ if (trazando) printf("cpu_writevidreg(0x%X,0x%X)\n",offset,data); fflush(stdout)
         case    0x3c0008:    /* IRQ position */    break;
         case    0x3c000a:    /* IRQ position */    break;
         case    0x3c000c:    /* IRQ acknowledge */ break;
-
-        default:
-        //    logaccess("cpu_writevidreg(0x%x,0x%x) PC=%x\n",offset,data,m68k_get_reg(NULL,M68K_REG_PC));
-            break;
     }
 }
 
@@ -430,7 +398,6 @@ static void    neogeo_select_game_vectors (void) {
 #ifdef DEBUG_MEMORY
 if (trazando) puts("neogeo_select_game_vectors()"); fflush(stdout);
 #endif
-    logaccess("write game vectors stub\n");
 }
 
 
@@ -459,9 +426,6 @@ if (trazando) printf("cpu_writeswitch(0x%X,0x%X)\n",offset,data); fflush(stdout)
         case 0x3a001e: neogeo_setpalbank0(); break;
         case 0x3a001f: neogeo_setpalbank0(); break;
 
-        default:
-       //     logaccess("cpu_writeswitch(0x%x,0x%x) PC=%x\n",offset,data,m68k_get_reg(NULL,M68K_REG_PC));
-            break;
     }
 }
 
@@ -476,14 +440,10 @@ if (trazando) printf("neogeo_sound_irq(0x%X)\n",irq); fflush(stdout);
 #ifdef Z80_EMULATED
     if (neogeo_sound_enable)
     {
-    	if (irq) {
-        	//logaccess("neogeo_sound_irq %d\n",irq);
+    	if (irq)
         	_z80raise(0);
-    	} else {
+    	else 
 		_z80lower();
-        	//mz80ClearPendingInterrupt();
-        	//logaccess("neogeo_sound_end %d\n",irq);
-	}
     }
 #endif
 }
@@ -524,7 +484,6 @@ static void watchdog_reset_w (void)
 #ifdef DEBUG_MEMORY
 if (trazando) puts("watchdog_reset_w()"); fflush(stdout);
 #endif
-    //if (watchdog_counter == -1) logaccess("Watchdog Armed!\n");
     watchdog_counter=3 * 60;  /* 3s * 60 fps */
 }
 
@@ -549,11 +508,9 @@ if (trazando) printf("read_upload(0x%X)\n",offset); fflush(stdout);
     		if (neogeo_sound_enable)
            	 return mame_z80mem[(offset>>1)&0xFFFF];
 #endif
-	    return -1;
-        default:
-           // logaccess ("read_upload unimplemented zone %x\n",zone);
-            return -1;
+		break;
     }
+    return -1;
 #endif
 }
 
@@ -578,10 +535,6 @@ if (trazando) printf("write_upload(0x%X,0x%X)\n",offset,data); fflush(stdout);
         case 0x11: /* FIX */
             neogeo_fix_memory[offset>>1]=(char)data;
             break;
-/*
-        default:
-         //   logaccess ("write_upload unimplemented zone %x\n",zone); break;
-*/
     }
 }
 
@@ -633,10 +586,6 @@ if (trazando) printf("write_upload_word(0x%X,0x%X)\n",offset,data); fflush(stdou
         case 0x14: /* PCM */
             neogeo_pcm_memory[(offset>>1)+(bank<<19)]=(char)data;
             break;
-/*
-        default:
-         //   logaccess ("write_upload_word unimplemented zone %x\n",zone); break;
-*/
     }
 }
 
@@ -664,10 +613,6 @@ if (trazando) printf("write_upload_dword(0x%X,0x%X)\n",offset,data); fflush(stdo
             extract8(sprbuffer, dest);
 
             break;
-/*
-        default:
-         //   logaccess ("write_upload_dword unimplemented zone %x\n",zone); break;
-*/
     }
 }
 

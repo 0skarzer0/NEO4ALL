@@ -30,6 +30,7 @@ endif
 MORE_CFLAGS = -O3 -fomit-frame-pointer -fstrict-aliasing -Isrc -Isrc/68k -Isrc/video
 
 CFLAGS  = $(DEFAULT_CFLAGS) $(NEO4ALL_CFLAGS) $(MORE_CFLAGS)
+CPPFLAGS = $(CFLAGS)
 
 
 $(PROG): $(OBJS) $(Z80_OBJS) $(MEMORY_OBJ) $(OBJS_68K)

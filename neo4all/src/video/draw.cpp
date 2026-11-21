@@ -40,28 +40,14 @@ static unsigned int   fc=0;
 int used_blitter=0;
 
 
-#ifdef PROFILER
-extern Uint32 profiler_media3;
-extern Uint32 profiler_media4;
-#endif
-
-
 void blitter(void) {
 	used_blitter=1;
-
-#ifdef PROFILER
-profiler_media3+=(SDL_GetTicks()-prof_actual);
-Uint32 prof_actual=SDL_GetTicks();
-#endif
 
 #ifndef USE_VIDEO_GL
 #ifdef DOUBLE_BUFFER
 	SDL_BlitSurface(video_buffer,&src,screen,NULL); // &dest);
 #endif
 	SDL_Flip(screen);
-#ifdef PROFILER
-profiler_media4+=(SDL_GetTicks()-prof_actual);
-#endif
 #else
 
 #ifndef DREAMCAST
@@ -72,9 +58,9 @@ profiler_media4+=(SDL_GetTicks()-prof_actual);
 #else
   glKosBeginFrame();
   {
-  	unsigned r=(video_paletteram_pc[4095]>>10)&0x1F;
-  	unsigned g=(video_paletteram_pc[4095]>>5)&0x1F;
-  	unsigned b=(video_paletteram_pc[4095]>>0)&0x1F;
+  	register unsigned r=(video_paletteram_pc[4095]>>10)&0x1F;
+  	register unsigned g=(video_paletteram_pc[4095]>>5)&0x1F;
+  	register unsigned b=(video_paletteram_pc[4095]>>0)&0x1F;
   	pvr_set_bg_color(	((float)r)/31.9f,
 			  	((float)g)/31.9f,
 				((float)b)/31.9f
@@ -86,6 +72,7 @@ profiler_media4+=(SDL_GetTicks()-prof_actual);
 
   video_draw_tile_textures();
   video_draw_font_textures();
+  neo4all_draw_boders();
 
 #ifndef DREAMCAST
     SDL_GL_SwapBuffers();
@@ -126,9 +113,6 @@ void video_draw_blank(void)
 static __inline__ void video_draw_screen_first(void)
 {
 //ntiles=cacheados=0;
-#ifdef PROFILER
-Uint32 prof_actual=SDL_GetTicks();
-#endif
 
 #ifndef USE_VIDEO_GL
   int    a;
@@ -140,7 +124,7 @@ Uint32 prof_actual=SDL_GetTicks();
   {
 	tcache_hash_pal_cleaner();
 	fcache_hash_pal_cleaner();
-	memset(video_palette_use,0,0x200);
+	bzero(video_palette_use,0x200);
 	video_palette_dirty=0;
   }
   tile_z=TILE_Z_INIT;
@@ -679,3 +663,12 @@ void video_flip(SDL_Surface *surface)
 #endif
 }
 
+/*
+void video_final_flip(void)
+{
+	register unsigned short *p=(unsigned short *)neo4all_texture_surface;
+	register int i;
+	for(i=0;i<(16*16);i++)
+		*p++=0x8000;
+}
+*/

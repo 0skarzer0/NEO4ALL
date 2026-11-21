@@ -14,6 +14,10 @@
 
 #include "console.h"
 
+#ifdef USE_VIDEO_GL
+#include "videogl.h"
+#endif
+
 
 //-- Defines -----------------------------------------------------------------
 #define VIDEO_TEXT		0
@@ -118,12 +122,12 @@ void video_reset(void)
 //----------------------------------------------------------------------------
 int	video_init(void)
 {
-	int		y,i;
+	int		y;
 	unsigned short	*ptr;
 
 	video_precalc_lut();
 
-	video_vidram = calloc(1, 131072);
+	video_vidram = (char *)calloc(1, 131072);
 
 	if (video_vidram==NULL) {
 		strcpy(global_error, "VIDEO: Could not allocate vidram (128k)");
@@ -178,17 +182,12 @@ void	video_shutdown(void)
 	
 }
 #ifdef DREAMCAST
-extern void __sdl_dc_set_blit(int width,int height);
-extern int __sdl_dc_wait_vblank;
-extern int __sdl_dc_no_ask_60hz;
+#include <SDL_dreamcast.h>
 #endif
 
 //----------------------------------------------------------------------------
 int	video_set_mode(int mode)
 {
-#ifdef DREAMCAST
-	__sdl_dc_no_ask_60hz=1;
-#endif
 #ifndef USE_VIDEO_GL
 #ifdef DREAMCAST
 //	if ((screen=SDL_SetVideoMode(320, 240, 16, SDL_HWPALETTE|SDL_HWSURFACE|SDL_DOUBLEBUF))==NULL) {
@@ -209,10 +208,9 @@ int	video_set_mode(int mode)
 		return 0;
 	}
 #ifdef DREAMCAST
-	__sdl_dc_no_ask_60hz=1;
 #ifndef USE_VIDEO_GL
-	__sdl_dc_set_blit(320,240);
-	__sdl_dc_wait_vblank=0;
+	SDL_DC_SetWindow(320,240);
+	SDL_DC_VerticalWait(SDL_FALSE);
 #endif
 #endif
 

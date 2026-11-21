@@ -4,9 +4,10 @@
 extern unsigned neo4all_glframes;
 extern char	video_palette_use[0x200];
 
-#define TCACHE_HASH_SIZE 521
-//#define TCACHE_SIZE 3072
-#define TCACHE_SIZE 4096
+#define TCACHE_HASH_SIZE 701
+#define TCACHE_SIZE 7680
+//#define TCACHE_HASH_SIZE 521
+//#define TCACHE_SIZE 4096
 
 #define TCACHE_BREAKTIME 16
 
@@ -30,7 +31,10 @@ extern tcache_node_t cache_tile[TCACHE_SIZE];
 extern tcache_node_t *first_tile, *last_tile;
 
 
-static __inline__ void tcache_hash_init(void)
+#ifndef CACHE_INLINE
+void tcache_hash_init(void);
+#else
+CACHE_STATIC_INLINE void tcache_hash_init(void)
 {
 	unsigned i;
 	for(i=0;i<TCACHE_HASH_SIZE;i++)
@@ -44,22 +48,26 @@ static __inline__ void tcache_hash_init(void)
 	first_tile=&cache_tile[0];
 	last_tile=&cache_tile[TCACHE_SIZE-1];
 }
+#endif
 
 
-static __inline__ void tcache_hash_old_cleaner(void)
+#ifndef CACHE_INLINE
+void tcache_hash_old_cleaner(int n_frame);
+#else
+CACHE_STATIC_INLINE void tcache_hash_old_cleaner(int n_frame)
 {
 #ifdef DEBUG_GL
-    	puts("TILE cache Cleaner");;
+    	puts("TILE cache Cleaner");
 #endif
-	unsigned breaktime=neo4all_glframes-TCACHE_BREAKTIME;
-	unsigned i;
+	register unsigned breaktime=neo4all_glframes-n_frame;
+	register unsigned i;
 	for(i=0;i<TCACHE_HASH_SIZE;i++)
 	{
-		tcache_node_t *p=tcache_hash_table[i];
-		tcache_node_t *p0=p;
+		register tcache_node_t *p=tcache_hash_table[i];
+		register tcache_node_t *p0=p;
 		while(p)
 		{
-			tcache_node_t *next=p->next;
+			register tcache_node_t *next=p->next;
 			if (p->used < breaktime)
 			{
 				p->next=NULL;
@@ -84,17 +92,21 @@ static __inline__ void tcache_hash_old_cleaner(void)
 		}
 	}
 }
+#endif
 
-static __inline__ void tcache_hash_pal_cleaner(void)
+#ifndef CACHE_INLINE
+void tcache_hash_pal_cleaner(void);
+#else
+CACHE_STATIC_INLINE void tcache_hash_pal_cleaner(void)
 {
-	unsigned i;
+	register unsigned i;
 	for(i=0;i<TCACHE_HASH_SIZE;i++)
 	{
-		tcache_node_t *p=tcache_hash_table[i];
-		tcache_node_t *p0=p;
+		register tcache_node_t *p=tcache_hash_table[i];
+		register tcache_node_t *p0=p;
 		while(p)
 		{
-			tcache_node_t *next=p->next;
+			register tcache_node_t *next=p->next;
 			if (video_palette_use[p->col])
 			{
 				p->next=NULL;
@@ -119,20 +131,31 @@ static __inline__ void tcache_hash_pal_cleaner(void)
 		}
 	}
 }
-static __inline__ tcache_rec_t tcache_hash_insert(unsigned key)
+#endif
+
+
+#ifndef CACHE_INLINE
+tcache_rec_t tcache_hash_insert(unsigned key);
+#else
+CACHE_STATIC_INLINE tcache_rec_t tcache_hash_insert(unsigned key)
 {
-	tcache_node_t *p, *p0;
-	unsigned bucket=tcache_hash(key);
+	register unsigned bucket=tcache_hash(key);
 	
 	if (!first_tile)
 	{
-		tcache_hash_old_cleaner();
+		tcache_hash_old_cleaner(TCACHE_BREAKTIME);
 		if (!first_tile)
 		{
-			last_tile=NULL;
-			return NULL;
+			tcache_hash_old_cleaner(1);
+			if (!first_tile)
+			{
+				last_tile=NULL;
+				return NULL;
+			}
 		}
 	}
+	{
+	register tcache_node_t *p, *p0;
 	p=first_tile;
 	first_tile=p->next;
 	p0=tcache_hash_table[bucket];
@@ -145,12 +168,17 @@ static __inline__ tcache_rec_t tcache_hash_insert(unsigned key)
 	p->used = neo4all_glframes;
 	p->key = key;
 	return p->rec;
+	}
 }
+#endif
 
-static __inline__ int tcache_hash_delete(unsigned key)
+#ifndef CACHE_INLINE
+int tcache_hash_delete(unsigned key);
+#else
+CACHE_STATIC_INLINE int tcache_hash_delete(unsigned key)
 {
-	tcache_node_t *p0=NULL, *p;
-	unsigned bucket=tcache_hash(key);
+	register tcache_node_t *p0=NULL, *p;
+	register unsigned bucket=tcache_hash(key);
 	p=tcache_hash_table[bucket];
 	while (p && !tcache_compEq(p->key,key))
 	{
@@ -176,10 +204,14 @@ static __inline__ int tcache_hash_delete(unsigned key)
 	}
 	return 1;
 }
+#endif
 
-static __inline__ tcache_rec_t tcache_hash_find(unsigned key)
+#ifndef CACHE_INLINE
+tcache_rec_t tcache_hash_find(unsigned key);
+#else
+CACHE_STATIC_INLINE tcache_rec_t tcache_hash_find(unsigned key)
 {
-	tcache_node_t *p;
+	register tcache_node_t *p;
 
 	p = tcache_hash_table[tcache_hash(key)];
 	while (p && !tcache_compEq(p->key, key))
@@ -189,11 +221,15 @@ static __inline__ tcache_rec_t tcache_hash_find(unsigned key)
 	p->used=neo4all_glframes;
 	return p->rec;
 }
+#endif
 
-static __inline__ unsigned tcache_hash_unused(void)
+#ifndef CACHE_INLINE
+unsigned tcache_hash_unused(void);
+#else
+CACHE_STATIC_INLINE unsigned tcache_hash_unused(void)
 {
-	unsigned ret=0;
-	tcache_node_t *p=first_tile;
+	register unsigned ret=0;
+	register tcache_node_t *p=first_tile;
 	while(p)
 	{
 		ret++;
@@ -201,5 +237,6 @@ static __inline__ unsigned tcache_hash_unused(void)
 	}
 	return ret;
 }
+#endif
 
 #endif

@@ -8,6 +8,7 @@
 #define MENU_FILE_WINDOW DATA_PREFIX "window.bmp"
 #define MENU_FILE_TEXT DATA_PREFIX "text.bmp"
 #define MENU_FILE_TEXT_INV DATA_PREFIX "text2.bmp"
+#define MENU_FILE_LOADING DATA_PREFIX "loading.bmp"
 #ifdef DREAMCAST
 #define MENU_DIR_DEFAULT "/cd"
 #else
@@ -29,8 +30,9 @@ void write_text_pos_inv(int x, int y, char * str);
 void text_draw_barra(int x, int y, int w, int h, int per, int max);
 void text_draw_window(int x, int y, int w, int h, char *title);
 void text_draw_loading(int per, int max);
+void text_draw_cdload(void);
 void text_draw_saving(int per, int max);
-void text_draw_menu_msg();
+// void text_draw_menu_msg();
 void text_flip(void);
 void menu_raise(void);
 void menu_unraise(void);
@@ -40,6 +42,9 @@ int run_mainMenu();
 int run_menuLoad();
 int run_menuGame();
 int run_menuControl();
+void drawNoNeoGeoCD(void);
+void drawNoCD(void);
+void drawNoBIOS(void);
 
 #else
 

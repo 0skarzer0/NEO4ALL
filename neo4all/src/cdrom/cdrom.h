@@ -10,7 +10,6 @@
 
 /*-- Exported Variables -----------------------------------------------------*/
 extern	int	neogeo_cdrom_current_drive;
-extern char	cdpath[256];
 extern SDL_Surface	*loading_pict;
 
 

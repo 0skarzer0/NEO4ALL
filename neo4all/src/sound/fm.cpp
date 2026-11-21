@@ -457,7 +457,7 @@ void dump_struct(YM2610 *F2610,int a) {
 
 /* --------------------- subroutines  --------------------- */
 /* status set and IRQ handling */
-inline void FM_STATUS_SET(FM_ST * ST, int flag)
+FM_STATIC_INLINE void FM_STATUS_SET(FM_ST * ST, int flag)
 {
 
     /* set status flag */
@@ -472,7 +472,7 @@ inline void FM_STATUS_SET(FM_ST * ST, int flag)
 }
 
 /* status reset and IRQ handling */
-inline void FM_STATUS_RESET(FM_ST * ST, int flag)
+FM_STATIC_INLINE void FM_STATUS_RESET(FM_ST * ST, int flag)
 {
 
     /* reset status flag */
@@ -488,7 +488,7 @@ inline void FM_STATUS_RESET(FM_ST * ST, int flag)
 }
 
 /* IRQ mask set */
-inline void FM_IRQMASK_SET(FM_ST * ST, int flag)
+FM_STATIC_INLINE void FM_IRQMASK_SET(FM_ST * ST, int flag)
 {
     //printf("irqmask set\n");
     ST->irqmask = flag;
@@ -595,7 +595,7 @@ static void FM_EG_SSG_AR(FM_SLOT * SLOT)
 /* ----- key on of SLOT ----- */
 #define FM_KEY_IS(SLOT) ((SLOT)->eg_next!=FM_EG_Release)
 
-inline void FM_KEYON(FM_CH * CH, int s)
+FM_STATIC_INLINE void FM_KEYON(FM_CH * CH, int s)
 {
     FM_SLOT *SLOT = &CH->SLOT[s];
 
@@ -623,7 +623,7 @@ inline void FM_KEYON(FM_CH * CH, int s)
 }
 
 /* ----- key off of SLOT ----- */
-inline void FM_KEYOFF(FM_CH * CH, int s)
+FM_STATIC_INLINE void FM_KEYOFF(FM_CH * CH, int s)
 {
 
     FM_SLOT *SLOT = &CH->SLOT[s];
@@ -709,7 +709,7 @@ static void setup_connection(FM_CH * CH)
 }
 
 /* set detune & multiple */
-inline void set_det_mul(FM_ST * ST, FM_CH * CH, FM_SLOT * SLOT, int v)
+FM_STATIC_INLINE void set_det_mul(FM_ST * ST, FM_CH * CH, FM_SLOT * SLOT, int v)
 {
     SLOT->mul = MUL_TABLE[v & 0x0f];
     SLOT->DT = ST->DT_TABLE[(v >> 4) & 7];
@@ -717,7 +717,7 @@ inline void set_det_mul(FM_ST * ST, FM_CH * CH, FM_SLOT * SLOT, int v)
 }
 
 /* set total level */
-inline void set_tl(FM_CH * CH, FM_SLOT * SLOT, int v, int csmflag)
+FM_STATIC_INLINE void set_tl(FM_CH * CH, FM_SLOT * SLOT, int v, int csmflag)
 {
     v &= 0x7f;
     v = (v << 7) | v;		/* 7bit -> 14bit */
@@ -728,7 +728,7 @@ inline void set_tl(FM_CH * CH, FM_SLOT * SLOT, int v, int csmflag)
 }
 
 /* set attack rate & key scale  */
-inline void set_ar_ksr(FM_CH * CH, FM_SLOT * SLOT, int v, Sint32 * ar_table)
+FM_STATIC_INLINE void set_ar_ksr(FM_CH * CH, FM_SLOT * SLOT, int v, Sint32 * ar_table)
 {
     SLOT->KSR = 3 - (v >> 6);
     SLOT->AR = (v &= 0x1f) ? &ar_table[v << 1] : RATE_0;
@@ -739,7 +739,7 @@ inline void set_ar_ksr(FM_CH * CH, FM_SLOT * SLOT, int v, Sint32 * ar_table)
 }
 
 /* set decay rate */
-inline void set_dr(FM_SLOT * SLOT, int v, Sint32 * dr_table)
+FM_STATIC_INLINE void set_dr(FM_SLOT * SLOT, int v, Sint32 * dr_table)
 {
     SLOT->DR = (v &= 0x1f) ? &dr_table[v << 1] : RATE_0;
     SLOT->evsd = SLOT->DR[SLOT->ksr];
@@ -748,7 +748,7 @@ inline void set_dr(FM_SLOT * SLOT, int v, Sint32 * dr_table)
 }
 
 /* set sustain rate */
-inline void set_sr(FM_SLOT * SLOT, int v, Sint32 * dr_table)
+FM_STATIC_INLINE void set_sr(FM_SLOT * SLOT, int v, Sint32 * dr_table)
 {
     SLOT->SR = (v &= 0x1f) ? &dr_table[v << 1] : RATE_0;
     SLOT->evss = SLOT->SR[SLOT->ksr];
@@ -757,7 +757,7 @@ inline void set_sr(FM_SLOT * SLOT, int v, Sint32 * dr_table)
 }
 
 /* set release rate */
-inline void set_sl_rr(FM_SLOT * SLOT, int v, Sint32 * dr_table)
+FM_STATIC_INLINE void set_sl_rr(FM_SLOT * SLOT, int v, Sint32 * dr_table)
 {
     SLOT->SL = SL_TABLE[(v >> 4)];
     SLOT->RR = &dr_table[((v & 0x0f) << 2) | 2];
@@ -790,7 +790,7 @@ inline void set_sl_rr(FM_SLOT * SLOT, int v, Sint32 * dr_table)
 #endif
 
 /* ---------- calcrate one of channel ---------- */
-inline void FM_CALC_CH(FM_CH * CH)
+FM_STATIC_INLINE void FM_CALC_CH(FM_CH * CH)
 {
     Uint32 eg_out1, eg_out2, eg_out3, eg_out4;	/*envelope output */
 
@@ -853,7 +853,7 @@ inline void FM_CALC_CH(FM_CH * CH)
 }
 
 /* ---------- frequency counter for operater update ---------- */
-inline void CALC_FCSLOT(FM_SLOT * SLOT, int fc, int kc)
+FM_STATIC_INLINE void CALC_FCSLOT(FM_SLOT * SLOT, int fc, int kc)
 {
     int ksr;
 
@@ -872,7 +872,7 @@ inline void CALC_FCSLOT(FM_SLOT * SLOT, int fc, int kc)
 }
 
 /* ---------- frequency counter  ---------- */
-inline void OPN_CALC_FCOUNT(FM_CH * CH)
+FM_STATIC_INLINE void OPN_CALC_FCOUNT(FM_CH * CH)
 {
     if (CH->SLOT[SLOT1].Incr == -1) {
 	int fc = CH->fc;
@@ -1029,7 +1029,7 @@ static void FMCloseTable(void)
 }
 
 /* OPN/OPM Mode  Register Write */
-inline void FMSetMode(FM_ST * ST, int n, int v)
+FM_STATIC_INLINE void FMSetMode(FM_ST * ST, int n, int v)
 {
     /* b7 = CSM MODE */
     /* b6 = 3 slot mode */
@@ -1080,7 +1080,7 @@ inline void FMSetMode(FM_ST * ST, int n, int v)
 }
 
 /* Timer A Overflow */
-inline void TimerAOver(FM_ST * ST)
+FM_STATIC_INLINE void TimerAOver(FM_ST * ST)
 {
     //printf("TimerAOver\n");
     /* status set if enabled */
@@ -1096,7 +1096,7 @@ inline void TimerAOver(FM_ST * ST)
 }
 
 /* Timer B Overflow */
-inline void TimerBOver(FM_ST * ST)
+FM_STATIC_INLINE void TimerBOver(FM_ST * ST)
 {
     /* status set if enabled */
     if (ST->mode & 0x08)
@@ -1111,7 +1111,7 @@ inline void TimerBOver(FM_ST * ST)
 }
 
 /* CSM Key Controll */
-inline void CSMKeyControll(FM_CH * CH)
+FM_STATIC_INLINE void CSMKeyControll(FM_CH * CH)
 {
     /* all key off */
     /* FM_KEYOFF(CH,SLOT1); */
@@ -1661,7 +1661,7 @@ static void InitOPNB_ADPCMATable(void)
 #endif
 
 /**** ADPCM A (Non control type) ****/
-inline void OPNB_ADPCM_CALC_CHA(YM2610 * F2610, ADPCM_CH * ch)
+FM_STATIC_INLINE void OPNB_ADPCM_CALC_CHA(YM2610 * F2610, ADPCM_CH * ch)
 {
     Uint32 step;
     int data;

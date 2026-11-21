@@ -4325,7 +4325,7 @@ void z80_set_cycle_table (int which, void *new_table)
 #endif
 {
 	if (which >= 0 && which <= Z80_TABLE_ex)
-		cc[which] = new_table;
+		cc[which] = (const unsigned char *)new_table;
 }
 
 /****************************************************************************
@@ -4530,7 +4530,7 @@ const char *z80_info(void *context, int regnum)
 {
 	static char buffer[32][47+1];
 	static int which = 0;
-	Z80_Regs *r = context;
+	Z80_Regs *r = (Z80_Regs *)context;
 
 	which = (which+1) % 32;
 	buffer[which][0] = '\0';

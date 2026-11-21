@@ -13,6 +13,12 @@ void YM2610UpdateRequest( /*int chip */ );
 
 #define   MAX_2610    (2)
 
+#ifndef MAX_8910
+#define MAX_8910 5
+typedef Uint32(*mem_read_handler) (Uint32 offset);
+typedef void (*mem_write_handler) (Uint32 offset, Uint32 data);
+#endif
+
 #ifndef VOL_YM3012
 /* #define YM3014_VOL(Vol,Pan) VOL_YM3012((Vol)/2,Pan,(Vol)/2,Pan) */
 #define YM3012_VOL(LVol,LPan,RVol,RPan) (MIXER(LVol,LPan)|(MIXER(RVol,RPan) << 16))
@@ -21,7 +27,7 @@ void YM2610UpdateRequest( /*int chip */ );
 struct YM2610interface {
     int num;			/* total number of 8910 in the machine */
     int baseclock;
-    int volumeSSG[MAX_8910];	/* for SSG sound */
+    int volumeSSG[MAX_8910];
     mem_read_handler portAread[MAX_8910];
     mem_read_handler portBread[MAX_8910];
     mem_write_handler portAwrite[MAX_8910];

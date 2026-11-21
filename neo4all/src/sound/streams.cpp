@@ -18,12 +18,16 @@
 
 extern int frame;
 
-Uint16 left_buffer[BUFFER_LEN];
-Uint16 right_buffer[BUFFER_LEN];
 Uint16 play_buffer[BUFFER_LEN];
+static Sint16 *tmp_sound_buf[MIXER_MAX_CHANNELS];
+static Uint16 left_right_buffer[BUFFER_LEN*2];
+static Uint16 *left_buffer=&left_right_buffer[0];
+static Uint16 *right_buffer=&left_right_buffer[BUFFER_LEN];
 
 
-int SamplePan[] = { 0, 255, 128, 0, 255 };
+
+
+static int SamplePan[] = { 0, 255, 128, 0, 255 };
 
 
 static int stream_joined_channels[MIXER_MAX_CHANNELS];
@@ -63,82 +67,89 @@ void streams_sh_stop(void)
     }
 }
 
+#define MAX_AUDIOVAL ((1<<(16-1))-1)
+#define MIN_AUDIOVAL -(1<<(16-1))
+
+static __inline__ void mixaudio(Sint16 *dst, const Sint16 *src, Uint32 len)
+{
+	register unsigned l=len;
+	while ( l-- ) {
+		register int dst_sample=(*src++)+(*dst);
+		if (dst_sample>MAX_AUDIOVAL)
+			dst_sample=MAX_AUDIOVAL;
+		else if (dst_sample<MIN_AUDIOVAL)
+			dst_sample=MIN_AUDIOVAL;
+		*dst++=dst_sample;
+	}
+}
+
 void streamupdate(int len)
 {
     /*static int current_pos;*/
-    int channel, i;
-    Uint16 *bl, *br;
-    Uint16 *pl;
+    int channel;
+    int buflen = len >> 2;
 
+    if (buflen<=0)
+	return;
 
-/*
-    if (len+current_pos >= (desired->samples<<2))
-	len = (desired->samples<<2) - current_pos;
-*/
     /* update all the output buffers */
-    memset(left_buffer, 0, len);
-    memset(right_buffer, 0, len);
+    bzero(left_buffer, len);
+    bzero(right_buffer, len);
 
     for (channel = 0; channel < MIXER_MAX_CHANNELS;
 	 channel += stream_joined_channels[channel]) {
 	if (stream[channel].buffer) {
-	    int buflen;
-
-
-	    buflen = len >> 2;	// BUFFER_LEN; // newpos - stream_buffer_pos[channel];
 
 	    if (stream_joined_channels[channel] > 1) {
-		Sint16 *buf[MIXER_MAX_CHANNELS];
-
-		// on update le YM2610
-		if (buflen > 0) {
-		    for (i = 0; i < stream_joined_channels[channel]; i++)
-			buf[i] = stream[channel + i].buffer;	// + stream[channel+i].buffer_pos;
-
+		    {
+		    	register int i;
+		    	register Sint16 **buf=tmp_sound_buf;
+			register int max=stream_joined_channels[channel];
+		    	for (i = 0; i < max; i++)
+				*buf++ = stream[channel + i].buffer;
+		    }
 
 		    (*stream[channel].callback) (stream[channel].param,
-						 buf, buflen);
-		}
-
+						 tmp_sound_buf, buflen);
 	    }
 	}
     }
-
-    bl = left_buffer;
-    br = right_buffer;
 
     for (channel = 0; channel < MIXER_MAX_CHANNELS;
 	 channel += stream_joined_channels[channel]) {
 
 	if (stream[channel].buffer) {
-
-	    for (i = 0; i < stream_joined_channels[channel]; i++) {
+	    register int i;
+	    register Uint16 *bl=left_buffer;
+	    register Uint16 *br=right_buffer;
+	    register int max=stream_joined_channels[channel];
+	    for (i = 0; i < max; i++) {
 
 		if (SamplePan[channel + i] <= 128)
-		    SDL_MixAudio((Uint8 *) bl,
-				 (Uint8 *) stream[channel + i].buffer,
-				 len >> 1, 128);
+		    mixaudio((Sint16 *)bl, (Sint16 *)stream[channel + i].buffer, buflen);
 		if (SamplePan[channel + i] >= 128)
-		    SDL_MixAudio((Uint8 *) br,
-				 (Uint8 *) stream[channel + i].buffer,
-				 len >> 1, 128);
+		    mixaudio((Sint16 *)br, (Sint16 *)stream[channel + i].buffer, buflen);
 
 	    }
 	}
     }
+#ifndef DREAMCAST
     SDL_LockAudio();
-//    pl = play_buffer + (current_pos>>1);
-    pl = play_buffer;
-    for (i = 0; i < len >> 2; ++i) {
-	*pl++ = left_buffer[i];
-	*pl++ = right_buffer[i];
+#endif
+    {
+    	register Uint16 *pl = play_buffer;
+	register Uint16 *bl = left_buffer;
+	register Uint16 *br = right_buffer;
+	register int i;
+	register int max = len >> 2;
+    	for (i = 0; i < max; ++i) {
+		*pl++ = *bl++;
+		*pl++ = *br++;
+    	}
     }
+#ifndef DREAMCAST
     SDL_UnlockAudio();
-/*
-    current_pos+=len;
-    if (current_pos >= (desired->samples<<2))
-	current_pos=0;
-*/
+#endif
 }
 
 int stream_init_multi(int channels, int param,
@@ -151,7 +162,7 @@ int stream_init_multi(int channels, int param,
 
     for (i = 0; i < channels; i++) {
 
-	if ((stream[channel + i].buffer =
+	if ((stream[channel + i].buffer = (Sint16 *)
 	     malloc(sizeof(Sint16) * BUFFER_LEN)) == 0)
 	    return -1;
     }

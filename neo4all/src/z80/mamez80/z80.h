@@ -143,6 +143,9 @@ extern void z80_set_irq_callback(int (*irq_callback)(int));
 extern const char *z80_info(void *context, int regnum);
 extern unsigned z80_dasm(char *buffer, unsigned pc);
 
+extern void cpu_z80_raise_irq(int l);
+extern void cpu_z80_lower_irq(void);
+extern void cpu_z80_nmi(void);
 
 /* interface */
 extern void mame_z80_writemem16(UINT16 addr,UINT8 val);

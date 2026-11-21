@@ -10,7 +10,13 @@
 #include "sprgl.h"
 
 #ifdef DREAMCAST
+#ifdef __cplusplus
+extern "C" {
+#endif
 void draw_font(unsigned short *br, unsigned short *paldata, unsigned *gfxdata);
+#ifdef __cplusplus
+}
+#endif
 #else
 static __inline__ void draw_font(unsigned short *br, unsigned short *paldata, unsigned *gfxdata)
 {
@@ -37,7 +43,7 @@ static __inline__ void create_font(unsigned int tileno,int color,unsigned short 
 #ifdef DEBUG_GL
     tiles_fail++;
 #endif
-#ifndef USE_SQ
+#if !defined(USE_SQ) && !defined(USE_DMA)
     register unsigned short *br=_br;
 #else
     register unsigned short *br=(unsigned short*)neo4all_texture_buffer;
@@ -61,7 +67,7 @@ static __inline__ void create_font(unsigned int tileno,int color,unsigned short 
 #endif
 #endif
 #else
-#ifdef USE_SQ
+#if defined(USE_SQ) || defined(USE_DMA)
     memcpy(_br,neo4all_texture_buffer,8*8*2);
 #endif
 #endif
@@ -72,7 +78,7 @@ extern pvr_poly_cxt_t gl_poly_cxt;
 static pvr_poly_hdr_t polyhdr;
 static pvr_dr_state_t  dr_state;
 
-static __inline__ void prepara_pvr(void *texture_mem)
+static __inline__ void prepare_pvr_init(void)
 {
 	gl_poly_cxt.txr.filter= neo4all_filter;
 	gl_poly_cxt.gen.alpha = PVR_ALPHA_DISABLE;
@@ -83,6 +89,10 @@ static __inline__ void prepara_pvr(void *texture_mem)
 	gl_poly_cxt.txr.width = 8;
 	gl_poly_cxt.txr.height = 8;
 	gl_poly_cxt.txr.format = GL_ARGB1555;
+}
+
+static __inline__ void prepare_pvr_per_font(void *texture_mem)
+{
 	gl_poly_cxt.txr.base = texture_mem;
 	pvr_poly_compile(&polyhdr, &gl_poly_cxt);
 	pvr_prim(&polyhdr, sizeof(pvr_poly_hdr_t));
@@ -108,7 +118,7 @@ puts("FONT CACHE OVERRUN!!!!!!");
 #endif
 		return;
 	}
-	create_font(code,color,font_buffer);
+	create_font(code,color,(unsigned short *)font_buffer);
    }
 
 #ifdef DEBUG_GL
@@ -164,6 +174,7 @@ void video_draw_font_textures(void)
 
    unsigned i,j;
 
+   prepare_pvr_init();
    for(i=n_tile_list,j=0;j<n_font_list;i++,j++)
    {
 	register void *font_buffer=tile_list[i].buffer;
@@ -179,7 +190,7 @@ void video_draw_font_textures(void)
 		GL_RGBA, GL_UNSIGNED_SHORT_1_5_5_5_REV, font_buffer);
 	glBegin(GL_QUADS);
 #else
-	prepara_pvr(font_buffer);
+	prepare_pvr_per_font(font_buffer);
 #endif
 	VERTICE_FLIP_NONE
 #ifndef DREAMCAST
@@ -189,9 +200,9 @@ void video_draw_font_textures(void)
    }
 
 #ifdef CACHE_GL_AUTOCLEAN
-   if ((neo4all_glframes&127)==32)
+   if ((neo4all_glframes&127)==64)
    {
-	   fcache_hash_old_cleaner();
+	   fcache_hash_old_cleaner(FCACHE_BREAKTIME);
 #ifdef DEBUG_GL
 	   unsigned ahora=fcache_hash_unused();
 	   printf("  glframes=%i, FONT ELIMINADAS=%i\n",neo4all_glframes,ahora-actual);
@@ -200,6 +211,7 @@ void video_draw_font_textures(void)
 #endif
 }
 
+#ifdef MENU_ALPHA
 void video_draw_font_textures_gl(void)
 {
    unsigned i,j;
@@ -226,4 +238,4 @@ void video_draw_font_textures_gl(void)
 	tile_z+=TILE_Z_INC;
    }
 }
-
+#endif

@@ -63,6 +63,14 @@ void video_fullscreen_toggle(void);
 void video_mode_toggle(void);
 void incframeskip(void);
 void video_flip(SDL_Surface *surface);
+void video_final_flip(void);
+
+void video_draw_tile_textures(void);
+void video_draw_font_textures(void);
+void video_draw_screen2();
+void video_draw_blank(void);
+
+void blitter(void);
 
 /*-- draw_fix.c functions -------------------------------------------------*/
 void video_draw_fix(void);

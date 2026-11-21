@@ -12,6 +12,8 @@ extern Uint16 z80_bank[4];
 extern Uint8 mame_z80mem[0x10000];
 extern Uint8 subcpu_memspace[0x10000];
 
+void _z80_init(void);
+void cpu_z80_reset(void);
 
 #ifdef USE_MAMEZ80
 

@@ -63,13 +63,23 @@ static Mix_Chunk *sample[NUM_SAMPLES];
 
 #endif
 
+#ifdef DREAMCAST
+#include <SDL_dreamcast.h>
+#endif
+
 void update_sdl_stream(void *userdata, Uint8 * stream, int len)
 {
 #ifdef Z80_EMULATED
-    if (!sound_muted)
+    if ((!sound_muted)&&(neogeo_sound_enable))
     {
+	neo4all_prof_start(NEO4ALL_PROFILER_SOUND);
     	streamupdate(len);
+#ifndef DREAMCAST
     	memcpy(stream, (Uint8 *) play_buffer, len);
+#else
+	SDL_DC_SetSoundBuffer(play_buffer);
+#endif
+	neo4all_prof_end(NEO4ALL_PROFILER_SOUND);
     }
 #endif
 }
@@ -178,6 +188,9 @@ void sound_disable(void) {
 	{
 #ifdef MENU_MUSIC
 		SDL_PauseAudio(1);
+#ifdef DREAMCAST
+		SDL_DC_RestoreSoundBuffer();
+#endif
 		Mix_HookMusic(NULL,NULL);
 		SDL_PauseAudio(0);
 		Mix_VolumeMusic(MUSIC_VOLUME);
@@ -236,6 +249,9 @@ void sound_mute(void){
 	{
 #ifdef MENU_MUSIC
 		SDL_PauseAudio(1);
+#ifdef DREAMCAST
+		SDL_DC_RestoreSoundBuffer();
+#endif
 		Mix_HookMusic(NULL,NULL);
 		SDL_PauseAudio(0);
 		Mix_VolumeMusic(MUSIC_VOLUME);

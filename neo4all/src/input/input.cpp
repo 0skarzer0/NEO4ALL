@@ -10,12 +10,14 @@
 
 #include "../menu/menu.h"
 
-#ifndef INLINE
-#define INLINE static __inline__
+#ifdef DREAMCAST
+#include <SDL_dreamcast.h>
 #endif
 
-#ifdef DREAMCAST
-extern int __sdl_dc_emulate_keyboard;
+#ifdef INPUT_INLINE
+#define INPUT_STATIC_INLINE static __inline__
+#else
+#define INPUT_STATIC_INLINE static
 #endif
 
 /* Joystick definitions */
@@ -178,7 +180,8 @@ void input_init(void) {
         }
     }
 #ifdef DREAMCAST
-    __sdl_dc_emulate_keyboard=1;
+    SDL_DC_EmulateKeyboard(SDL_TRUE);
+    SDL_DC_EmulateMouse(SDL_FALSE);
 #endif
 
     input_reset();
@@ -197,15 +200,22 @@ void input_shutdown(void) {
     }
 }
 
+static int pulsando_menu=0;
 
-INLINE void specialKey (SDLKey key) {
-    int nook=1;
-    switch(key) {
-	case SDLK_BACKSPACE:
+INPUT_STATIC_INLINE void goMenu(void)
+{
+	if (keys==~0)
+	{
+    		int nook=1;
+		pulsando_menu=0;
+#ifdef PROFILER_NEO4ALL
+		neo4all_prof_show();
+#endif
 		print_frameskip();
 #ifdef SHOW_MENU
 		sound_disable();
 		cdda_pause();
+		input_reset();
 		menu_raise();
 		while(nook)
 		{
@@ -227,52 +237,70 @@ INLINE void specialKey (SDLKey key) {
 		menu_unraise();
 		sound_enable();
 #endif
+		input_reset();
+		init_autoframeskip();
+#ifdef PROFILER_NEO4ALL
+		neo4all_prof_init();
+#endif
+	}
+}
+
+#ifndef DREAMCAST
+INPUT_STATIC_INLINE void specialKey (SDLKey key) {
+    switch(key) {
+	case SDLK_BACKSPACE:
+		pulsando_menu=1;
 		break;
 	case SDLK_F1: video_fullscreen_toggle(); break;
         case SDLK_F4: sound_toggle(); break;
         case SDLK_F12: video_save_snapshot(); break;
-#ifndef DREAMCAST
         case SDLK_ESCAPE: exit(0); break;
-#endif
         default:
+		pulsando_menu=0;
             break;
     }
 }
+#endif
 
 
-INLINE void keyDown (SDLKey key) {
+INPUT_STATIC_INLINE void keyDown (SDLKey key) {
+#ifndef DREAMCAST
     if(keyup[key]&SPECIAL) {
         specialKey(key);
     } else {
+#else
+    if(!(keyup[key]&SPECIAL)) {
+#endif
+	pulsando_menu=0;
         keys &= keydown[key];
     }
 }
 
 
-INLINE void keyUp (SDLKey key) {
-    keys |= keyup[key];
+INPUT_STATIC_INLINE void keyUp (SDLKey key) {
+    if(!(keyup[key]&SPECIAL))
+    	keys |= keyup[key];
+    pulsando_menu=0;
 }
 
 
-INLINE void joyDown (int which, int button) {
+INPUT_STATIC_INLINE void joyDown (int which, int button) {
     if (which<NUMJOYSTICKS && button<NUMJOYBUTTONS) {
         keys &= joydown[which][button];
     }
 }
 
 
-INLINE void joyUp (int which, int button) {
+INPUT_STATIC_INLINE void joyUp (int which, int button) {
     if (which<NUMJOYSTICKS && button<NUMJOYBUTTONS) {
         keys |= joyup[which][button];
     }
 }
 
 
-INLINE void joyMotion (int which, int axis, int value) {
+INPUT_STATIC_INLINE void joyMotion (int which, int axis, int value) {
     value+=AXISCENTRE;
-//printf("joyMotion(%i, %i, %i)\n",which, axis, value);
     if (which<NUMJOYSTICKS && axis <NUMAXES && value<AXISMAX) {
-//printf("joymask=0x%X, joyset=0x%X\n",joymask[which][axis][value],joyset[which][axis][value]);
         keys &= joymask[which][axis][value];
         keys |= joyset[which][axis][value];
     }
@@ -280,6 +308,7 @@ INLINE void joyMotion (int which, int axis, int value) {
 
 
 void processEvents(void) {
+#ifndef AUTO_EVENTS
     SDL_Event event;
         
     while(SDL_PollEvent(&event)) {
@@ -290,15 +319,59 @@ void processEvents(void) {
             case SDL_JOYBUTTONDOWN: joyDown(event.jbutton.which, event.jbutton.button); break;
             case SDL_JOYBUTTONUP:   joyUp(event.jbutton.which, event.jbutton.button); break;
 #endif
-            
-            case SDL_JOYAXISMOTION: joyMotion(event.jaxis.which, event.jaxis.axis, event.jaxis.value); break;
-            
+            case SDL_JOYAXISMOTION: joyMotion(event.jaxis.which, event.jaxis.axis, event.jaxis.value);
+#ifdef DREAMCAST
+				    if (event.jaxis.axis==3)
+				    {
+					    if (event.jaxis.value>200)
+						    pulsando_menu=1;
+					    else
+						    pulsando_menu=0;
+				    }
+#endif
+				    break;
             case SDL_QUIT:    exit(0); break;
 
             default:
                 break;
         }
     }
+    if (pulsando_menu)
+    {
+    	if (pulsando_menu<15)
+		pulsando_menu++;
+	else
+		goMenu();
+    }
+#else
+    static unsigned cuenta=0;
+    unsigned rango=cuenta&127;
+
+    if (rango<64)
+	    keys |= P1A;
+    else
+	    keys &= ~P1A;
+
+    if (cuenta==AUTO_EVENTS)
+    {
+#ifdef PROFILER_NEO4ALL
+	    neo4all_prof_init();
+#endif
+	    init_autoframeskip();
+    }
+#ifdef AUTO_MAX_EVENTS
+    if (cuenta>=AUTO_MAX_EVENTS)
+    {
+#ifdef PROFILER_NEO4ALL
+	    neo4all_prof_show();
+#endif
+	    print_frameskip();
+	    fflush(stdout);
+	    exit(0);
+    }
+#endif
+    cuenta++;
+#endif
 }
         
 /*--------------------------------------------------------------------------*/
@@ -307,8 +380,8 @@ unsigned char read_player1(void) {
 }
 
 /*--------------------------------------------------------------------------*/
-unsigned char read_player2(void) {
-
+unsigned char read_player2(void)
+{
     return (keys>>8)&0xff;
 }
 
@@ -323,6 +396,7 @@ void input_reset(void)
     SDL_Event event;
 
     keys   =~0;
+    SDL_Delay(133);
     while(SDL_PollEvent(&event)) 
 	    SDL_Delay(10);
 }

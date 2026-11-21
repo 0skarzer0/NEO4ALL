@@ -9,9 +9,9 @@
 <hr size="1">
 <div align="center"><font color="#0000FF" size="4"><strong><font color="#0000FF" size="4"><strong><font size="7">F.A.M.E.</font></strong></font><font size="5"><br>
   <font size="4">Fast and Accurate Morolora 68000 Emulation Library</font></font></strong></font><font size="4"><br>
-  <font size="3"><strong>Copyright (c) 2002-2004 Oscar Orallo Pelaez. All rights 
+  <font size="3"><strong>Copyright (c) 2002-2005 Oscar Orallo Pelaez. All rights 
   reserved.</strong></font></font><br>
-  <strong>7th October, 2004</strong><br>
+  <strong>5th April, 2005</strong><br>
   <hr size="1">
   <div align="left">
 <p><font size="5"><strong>Table of Contents</strong></font></p>
@@ -35,6 +35,7 @@
     acknowledge</a><br>
     &nbsp;&nbsp;&nbsp;&nbsp;<a href="#CustomizingProcessingHLE">5.2. Customizing 
     processing (HLE)</a><br>
+    &nbsp;&nbsp;&nbsp;&nbsp;<a href="#IRQLoweringtype">5.3. IRQ lowering type</a><br>
     <a href="#FunctionReference">6. Function Reference</a><br>
     &nbsp;&nbsp;&nbsp;&nbsp;<a href="#GeneralPurposeFunctions">6.1. General Purpose 
     Functions</a><br>
@@ -65,8 +66,7 @@
   such as Microsoft Visual Basic, Microsoft Visual C++, Borland Delphi or Borland 
   C++ Builder.</p>
 <p>The SH-4 version was specially designed for the Dreamcast videogame console 
-  but it can be used in any SH-4 based system. Take in account it is in a very 
-  early stage of development.</p>
+  but it can be used in any SH-4 based system.</p>
 <p>This manual tries to be a guide to get the emulation library working in your 
   development environment. I hope you find it useful. If you use FAME in your 
   project I would like to hear your opinion about it.</p>
@@ -76,15 +76,14 @@
 <p>If you have any questions about how it works in your favorite compiler send 
   me an email. I'd like to help you with FAME.<br>
   If you find any bug in FAME it would be nice that you inform me about that via 
-  <a href="mailto:oscar@emumega.com?subject=FAME">email</a>. Any feedback, comments 
+  <a href="mailto:oorallo@hotmail.com?subject=FAME">email</a>. Any feedback, comments 
   and suggestions will also be appreciated.</p>
 <p>How to contact Oscar Orallo:</p>
 <blockquote> 
-  <p>E-mail:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <a href="mailto:oscar@emumega.com">oscar@emumega.com</a><br>
-    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="mailto:oorallo@hotmail.com">oorallo@hotmail.com</a><br>
-    Web site:&nbsp; <a href="http://www.emumega.com/s68k" target="_blank">http://www.emumega.com/s68k</a></p>
+  <p>E-mail:&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <a href="mailto:oorallo@hotmail.com">oorallo@hotmail.com</a><br>
+    Web site:&nbsp; <a href="http://www.m68k.com/fame/">http://www.m68k.com/fame/</a></p>
 </blockquote>
-<p>FAME Distribution: <a href="http://www.emumega.com/s68k/fame/fame.zip">http://www.emumega.com/s68k/fame/fame.zip</a> 
+<p>FAME Distribution: <a href="http://www.m68k.com/fame/fame.zip">http://www.m68k.com/fame/fame.zip</a> 
   (latest)</p>
 <p>Here we go folks, have fun :)</p>
 <p>&nbsp;</p>
@@ -97,11 +96,12 @@
 <p> FAME is a development package that contains the following files:</p>
 <ul>
   <li> &nbsp;/x86/win32/fame.dll (win32 dinamic link library)</li>
-  <li>&nbsp;/x86/elf/fame.a (x86 static ELF library)</li>
+  <li>&nbsp;/x86/linux/fame.a (x86 static ELF library)</li>
+  <li>&nbsp;/x86/cygwin/fame.a (x86 static win32 library)</li>
   <li>&nbsp;/sh4/fame.a (SH-4 static ELF library)</li>
   <li> &nbsp;/delphi/fame.pas (Delphi unit)</li>
   <li>&nbsp;/doc/fame.html (documentation file)</li>
-  <li> &nbsp;/example/main.cpp (C++ source code example)</li>
+  <li> &nbsp;/example/main.c (C source code example)</li>
   <li> &nbsp;/example/bubble.bin (Motorola 68000 binary code file)</li>
   <li>&nbsp;/lib/bc/fame.lib (Borland C++ 32-bit import library)</li>
   <li>&nbsp;/lib/vc/fame.lib (Visual C++ 32-bit import library)</li>
@@ -126,7 +126,8 @@
       Version History</font></font></strong></font></td>
   </tr>
 </table>
-<p>&nbsp;</p><table width="100%" border="0" cellpadding="3" cellspacing="1">
+<br>
+<table width="100%" border="0" cellpadding="3" cellspacing="1">
   <tr bgcolor="#666666"> 
     <td width="50%"><div align="center"><strong><font color="#FFFFFF">Intel&reg; 
         80386 CISC engine</font></strong></div></td>
@@ -134,7 +135,26 @@
         engine</font></strong></div></td>
   </tr>
   <tr> 
-    <td width="50%" valign="top"> 
+    <td width="50%" valign="top"> <p>Version <strong>1.23</strong> (5th April, 
+        2005)</p>
+      <p>- Timing fixed in MOVEM instructions.</p>
+      <p>Version <strong>1.22</strong> (7th March, 2005)</p>
+      <p>- Fixed a stupid bug in <em>fetch</em> function.</p>
+      <p>Version <strong>1.21</strong> (19th February, 2005)</p>
+      <p>- <em>set_irq_type</em> function changed for flexible use.<br>
+        - Pointer to data structure parameter removed from memory handlers to 
+        increase throughtput.</p>
+      <p>Version <strong>1.2</strong> (17th December, 2004)</p>
+      <p>- Fixed the PC base calculation for fetch memory regions beyond the first 
+        allocated area.<br>
+        - Fixed a tiny error in the status register masking. Several instructions 
+        could generate an invalid value.<br>
+        - Fixed JSR instruction when jumping to a fetch bank different to the 
+        current one.<br>
+        - Tiny error fixed in interrupt acknowledge function parameter.<br>
+        - Fixed the <em>set_context</em> function when setting status register.<br>
+        - Fixed the PC restoring in HLE feature.<br>
+        - Fixed DIVS instruction operation.</p>
       <p>Version <strong>1.1</strong> (7th October, 2004)</p>
       <p>- New static ELF library available.<br>
         - Interrupt acknowledge calling bug fixed.<br>
@@ -195,7 +215,44 @@
         Version <strong>1.0a</strong> (24th July, 2002)</p>
       <p>- First public release.</p>
       </td>
-    <td valign="top"> <p>Version <strong>0.01a</strong> (7th October, 2004)</p>
+    <td valign="top"> <p>Version <strong>0.04 </strong>(5th April, 2005)</p>
+      <p>- Lightweighted entry/exit code.<br>
+        - Fixed sign/zero flag calculation when moving long data from memory to 
+        memory.<br>
+        - Privilege violation exception fixed.<br>
+        - Faster interrupt/exception management.<br>
+        - Timing fixed in MOVEM instructions.</p>
+      <p> Version <strong>0.03 </strong>(7th March, 2005)</p>
+      <p>- Sign flag calculation in inmediate logical instruction fixed.<br>
+        - Carry flag calculation in NEG instruction fixed.<br>
+        - Overflow flag in operations with X flag fixed.<br>
+        - Fixed CPU state stop bit.<br>
+        - Speed up by about 20%.<br>
+        - Tiny tweaks here and there and everywhere.</p>
+      <p>Version <strong>0.02</strong> (19th February, 2005)</p>
+      <p>- First beta release.<br>
+        - <em>set_irq_type</em> function changed for flexible use.<br>
+        - Greatly improved internal memory management.<br>
+        - Pointer to data structure parameter removed from memory handlers to 
+        increase throughtput.<br>
+        - DIV/DIVS instructions fixed.<br>
+        - ABCD/SBCD adjusted result fixed.<br>
+        - MOVEM (control addressing mode) instruction fixed.<br>
+        - BTST with memory addressing mode fixed.<br>
+        - Fixed Z flag calculation in NEGX instruction.<br>
+        - Fixed TAS instruction.<br>
+        - Fixed RESET instruction (external handler calling).<br>
+        - Fixed ILLEGAL instruction (exception generation).<br>
+        - Quick ADD to address register fixed.<br>
+        - EXG instruction fixed.<br>
+        - V flag calculation fixed in ASL instruction.<br>
+        - Some tiny tweaks &amp; improvements.</p>
+      <p>Version <strong>0.01b</strong> (17th December, 2004)</p>
+      <p>- Memory map cache generation fixed.<br>
+        - Fixed the PC restoring in HLE feature.<br>
+        - Many opcodes fixed.<br>
+        - Lots of bugs fixed.</p>
+      <p>Version <strong>0.01a</strong> (7th October, 2004)</p>
       <p>- First public release. Alpha development state!</p></td>
   </tr>
 </table>
@@ -219,8 +276,8 @@
     by Motorola. Take a look at Motorola manuals for more information about this 
     fact.</li>
   <li>&nbsp;Complete hardware interrupt support.</li>
-  <li>&nbsp;Accurate exception support allowing an appropriately emulation of 
-    home computer systems.</li>
+  <li>&nbsp;Accurate exception support allowing an appropriate emulation of home 
+    computer systems.</li>
   <li>&nbsp;Priorities between interrupts and exceptions are fully emulated.</li>
 </ul>
 <p>&nbsp;</p><table width="100%" border="0" cellspacing="1" cellpadding="1">
@@ -456,14 +513,42 @@
   There is a restriction in the definition of a memory region: <u>it must be 4 
   KB aligned</u>. So it must start on 0XXX000h and end on 0YYYFFFh.</p>
 <p>Memory handling functions have the following structure:</p>
-<p><font size="2" face="Courier New, Courier, mono">int &nbsp;read_xxxx (int address, 
-  struct M68K_DATA *data_struct);<br>
-  void write_xxxx(int address, int data, struct M68K_DATA *data_struct);</font></p>
+<p><font size="2" face="Courier New, Courier, mono">int &nbsp;read_xxxx (int address);<br>
+  void write_xxxx(int address, int data);</font></p>
 <p>where <em>xxxx</em> stands for byte, word or long depending on data size, <em> 
-  address</em> is the memory address accessed, <em>data</em> is the data itself 
-  and <em>data_struct</em> is the address of the data structure (record) that 
-  caused the call.</p>
-<p> <br>
+  address</em> is the memory address accessed and <em>data</em> is the data itself.</p>
+<p>Using memory handling functions might be a good way to customize emulated memory 
+  space. You have to read/write data in the way FAME expects. This process could 
+  become confusing. To avoid undesired problems in this point, i have written 
+  some simple routines to make your life easier:</p>
+<blockquote>
+  <p><font size="2" face="Courier New, Courier, mono">int readbyte(int address) 
+    { <br>
+    &nbsp;&nbsp;&nbsp;&nbsp;return ram[address^1]; <br>
+    } </font><br>
+    <br>
+    <font size="2" face="Courier New, Courier, mono">int readword(int address) 
+    { <br>
+    &nbsp;&nbsp;&nbsp;&nbsp;return ((unsigned short *)ram)[address&gt;&gt;1]; 
+    <br>
+    } <br>
+    </font><br>
+    <font size="2" face="Courier New, Courier, mono">void writebyte(int address, 
+    int data) { <br>
+    &nbsp;&nbsp;&nbsp;&nbsp;ram[address^1] = data &amp; 0xFF; <br>
+    } </font><br>
+    <br>
+    <font size="2" face="Courier New, Courier, mono">void writeword(int address, 
+    int data) { <br>
+    &nbsp;&nbsp;&nbsp;&nbsp;((unsigned short *)ram)[address&gt;&gt;1] = data &amp; 
+    0xFFFF; <br>
+    } </font></p>
+</blockquote>
+<p>I am considering you have your emulated memory region (pointed by ram here) 
+  in native endian format (this is, big endian for the 68000 processor). Note 
+  the required endianess switch in the byte accesses, since we are reading in 
+  a little endian machine (x86 and SH4 processors).</p>
+<p><br>
   <a name="RunningCPU"></a><font size="4">4.3. Running the CPU</font></p>
 <p>In order to get the 68000 CPU running, you have to do the following steps:</p>
 <blockquote> 
@@ -559,6 +644,21 @@
 </ul>
 <p>If you do not need this feature, set this pointer to NULL to avoid undesired 
   results.</p>
+<p><font size="4"><a name="IRQLoweringtype"></a>5.3. IRQ lowering type</font></p>
+<p>This section covers the situation produced when a device raised an IRQ and 
+  has been attended by the CPU. Once this process is done, the IRQ should be lowered. 
+  By default, the emulator requires you to lower the IRQ manually. Fortunately, 
+  we can set the emulator up to do this by us.</p>
+<p>There are two ways to achieve this:</p>
+<ul>
+  <li>&nbsp;The easiest one is by calling <em>m68k_set_irq_type</em> function 
+    with the parameter <em>M68K_AUTO_LOWER_IRQ</em>.</li>
+  <li> &nbsp;The less easier conveys the definition of an IRQ callback function, 
+    lowering the IRQ inside it.</li>
+</ul>
+<p>If you do not care about this, the IRQ signal could remain activated. However, 
+  the CPU will mask every IRQ once it is done (except NMI), but it could not lower 
+  the IRQ.</p>
 <p>&nbsp;</p>
 <table width="100%" border="0" cellspacing="1" cellpadding="1">
   <tr>
@@ -665,15 +765,15 @@
   <strong><font size="3"><a name="HardwareFunctions"></a></font></strong><font size="3"><font size="4">6.2 
   Hardware interrupt handling functions</font></font><br>
 </p>
-- <strong>int m68k_raise_interrupt (int level, int vector)</strong>
+- <strong>int m68k_raise_irq (int level, int vector)</strong> 
 <hr size="1" noshade>
 <p>This function allows you to generate a hardware interrupt. This event is external 
   to the CPU and generally activated by an external device. The possible values 
   for the parameter level are between 1 and 7.</p>
 <p>For vector the values are the following:</p>
 <blockquote>
-  <p> <strong>M68K_AUTOVECTORED_INT (-1)</strong>: Autovectored interrupt.<br>
-    <strong>M68K_SPURIOUS_INT (-2)</strong>: Spurious interrupt.<br>
+  <p> <strong>M68K_AUTOVECTORED_IRQ (-1)</strong>: Autovectored interrupt.<br>
+    <strong>M68K_SPURIOUS_IRQ (-2)</strong>: Spurious interrupt.<br>
     <strong>0-255</strong>: Vector number.</p>
 </blockquote>
 <p>Return value:</p>
@@ -685,11 +785,11 @@
     value is not valid or the level is equal to zero.</p>
 </blockquote>
 <p><u>Note:</u> If you do not lower an interrupt after it is attended it will 
-  remain activated. You can do it for every request easily using the <em>iack_handler</em> 
-  callback function documented in <a href="#Interrupts">Interrupts and exceptions 
-  section</a>.<br>
+  remain activated unless you have defined the IRQ type system as automatic. You 
+  can do it for every request easily using the <em>iack_handler</em> callback 
+  function documented in <a href="#Interrupts">Interrupts and exceptions section</a>.<br>
 </p>
-- <strong>int m68k_lower_interrupt (int level)</strong> 
+- <strong>int m68k_lower_irq (int level)</strong> 
 <hr size="1" noshade>
 <p>This function is used to deactivate an interrupt when the external device has 
   been attended. If you do not call this function, the previous generated interrupt 
@@ -697,26 +797,42 @@
 <p>Return value:</p>
 <blockquote> 
   <p> <strong>M68K_OK (0)</strong>: The interrupt has been deactivated successfully.<br>
-    <strong>M68K_INT_LEVEL_ERROR (-1)</strong>: The function failures because 
+    <strong>M68K_IRQ_LEVEL_ERROR (-1)</strong>: The function failures because 
     the interrupt is not activated.<br>
-    <strong>M68K_INT_INV_PARAMS (-2)</strong>: Invalid interrupt level value. 
+    <strong>M68K_IRQ_INV_PARAMS (-2)</strong>: Invalid interrupt level value. 
     Remember that the Non Maskable Interrupt (NMI) cannot be lowered once it is 
     raised (it is edge-triggered).<br>
   </p>
 </blockquote>
-- <strong>int m68k_get_interrupt_vector (int level)</strong>
+<p>- <strong>void m68k_set_irq_type (void *context, int type)</strong> </p>
+<hr size="1" noshade>
+<p>Using this function you are able to by-pass/control interrupt lowering process 
+  after its execution. So this way you do not have to worry about. Note that this 
+  function can be called specifiying a CPU context or leaving the <em>context 
+  </em>parameter as NULL meaning the built-in context (the one in use). You always 
+  can set the first bit of the interrupt byte to get done the same effect.</p>
+<p>The function receives two parameters, a pointer to a CPU context (or NULL to 
+  specify built-in context) and the IRQ management type (automatic or manual).</p>
+<blockquote> 
+  <p><strong>M68K_AUTO_LOWER_IRQ (0)</strong>: The IRQ petition will be lowered 
+    as soon as is attended.<br>
+    <strong>M68K_MANUAL_LOWER_IRQ (1)</strong>: You will have to manually lower 
+    the IRQ petition. </p>
+</blockquote>
+<p></p>
+<p>- <strong>int m68k_get_irq_vector (int level)</strong></p>
 <hr size="1" noshade>
 <p>Calling this function you will get the vector of a generated interrupt at the 
   given interrupt level.</p>
 <p>Return value:</p>
 <blockquote> 
   <p> <strong>&gt; -1</strong>: Requested interrupt vector.<br>
-    <strong>M68K_INT_LEVEL_ERROR (-1)</strong>: The function failures because 
+    <strong>M68K_IRQ_LEVEL_ERROR (-1)</strong>: The function failures because 
     the interrupt is not activated.<br>
-    <strong>M68K_INT_INV_PARAMS (-2)</strong>: Invalid interrupt level.<br>
+    <strong>M68K_IRQ_INV_PARAMS (-2)</strong>: Invalid interrupt level.<br>
   </p>
 </blockquote>
-- <strong>int m68k_change_interrupt_vector (int level, int vector)</strong>
+- <strong>int m68k_change_irq_vector (int level, int vector)</strong> 
 <hr size="1" noshade>
 <p>It allows you to change the vector of a generated interrupt. Remember that 
   the interrupt must be already activated when you call this function.<br>
@@ -724,9 +840,9 @@
 <p>Return value:</p>
 <blockquote> 
   <p> <strong>M68K_OK (0)</strong>: Success.<br>
-    <strong>M68K_INT_LEVEL_ERROR (-1)</strong>: The interrupt at the given vector 
+    <strong>M68K_IRQ_LEVEL_ERROR (-1)</strong>: The interrupt at the given vector 
     was not activated.<br>
-    <strong>M68K_INT_INV_PARAMS (-2)</strong>: Invalid interrupt vector value.</p>
+    <strong>M68K_IRQ_INV_PARAMS (-2)</strong>: Invalid interrupt vector value.</p>
 </blockquote>
 <p><br>
   <strong><font size="3"><a name="CPUContextFunctions"></a></font></strong><font size="3"><font size="4">6.3. 
@@ -873,15 +989,18 @@
   <em>set_context</em>.</p>
 <p> - Check if memory maps are well-constructed. Every memory region must be 4 
   KB aligned. This is a common pitfall.</p>
-<p>- Make sure to set <em>reset_handler</em> to NULL if you are not using this 
-  feature. It would be a good idea to set every byte of a new context to zero 
-  to avoid any problem.</p>
+<p>- Check if your emulated processor is accessing memory correctly specially 
+  when you have to use memory handling functions. Take a look at the <a href="#Memoryhandling">Memory 
+  handling section</a> if you are having problems in this point.</p>
+<p>- Make sure to set <em>reset_handler</em>,<em> iack_handler</em> and <em>icust_handler</em> 
+  to NULL if you are not using these features. It would be a good idea to set 
+  every byte of a new context to zero to avoid any problem.</p>
 <p>- Remember to set every handler not used in the array of function pointers 
   (<em>icust_handler</em>) to NULL to avoid undesired results.</p>
 <p>- Remember to include <em>fame.h</em> in any C module that use FAME. This header 
   file is subject to change in future versions.</p>
 <p>- Make sure to instruct your compiler configuration to treat enum types as 
-  32-bit ints when you use <font size="2" face="Courier New">m68k_get_register</font> 
+  32-bit ints when using <font size="2" face="Courier New">m68k_get_register</font> 
   and <font size="2" face="Courier New">m68k_set_register</font> functions.</p>
 <p>&nbsp;</p>
 <table width="100%" border="0" cellspacing="1" cellpadding="1">
@@ -903,19 +1022,22 @@
 </table>
 <p>Many thanks go out to those who helped me out with this library or contributed 
   to the project in any form.</p>
-<p>- <em>Bart Trzynadlowski</em> (<a href="mailto:trzynadl@unr.nevada.edu">trzynadl@unr.nevada.edu</a>) 
+<p>- <em>Chui</em> for his invaluable work to get this thing up into his NeoGeo 
+  emulator (Neo4All) and for helping me to fix loads of errors.<br>
+  - <em>Bart Trzynadlowski</em> (<a href="mailto:trzynadl@unr.nevada.edu">trzynadl@unr.nevada.edu</a>) 
   for his notes about 68000 undocumented behavior.<br>
   - <em>Julio C&eacute;sar &Aacute;lvarez Acosta</em> (<a href="mailto:julio_a_a@yahoo.es">julio_a_a@yahoo.es</a>) 
   for his help to build the import library.<br>
   - <em>Richard Hollstein</em> for let me know that memory handling functions 
   were not documented in previous releases.<br>
   - <em>Neill Corlett</em> for his excellent Starscream 680x0 emulation library 
-  which give me some understandings and ideas on CPU emulation.<br>
+  which give me a lot of understandings and ideas on CPU emulation.<br>
   - <em>St&eacute;phane Dallongeville</em> for Gens (probably the best Genesis/Mega 
   Drive emulator ever programmed) and for giving me his opinion about several 
   aspects of 68000 emulation.<br>
   - <em>BlackAura</em> and <em>Ian Micheal</em> for telling me about the high 
   level emulation (HLE) feature.<br>
+  <br>
   - <em>Juan Carlos Hern&aacute;ndez Mart&iacute;n</em> (<a href="mailto:jmartin@uax.es">jmartin@uax.es</a>) 
   for his interest in this project.<br>
   - <em>Antonio Garc&iacute;a Guerra</em> for his great book <em>Sistemas Digitales</em>.<br>

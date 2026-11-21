@@ -12,11 +12,12 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 
 #include "neocd.h"
 #include "console.h"
 
-#define NEO4ALL_MEMCARD_SIZE 8192
 
 unsigned char           neogeo_memorycard[NEO4ALL_MEMCARD_SIZE];
 static char* memcard_filestate=MEMCARD_PREFIX MEMCARD_FILENAME;
@@ -39,16 +40,16 @@ static int init_savestate(void)
 	pkg.eyecatch_type = VMUPKG_EC_NONE;
 	pkg.eyecatch_data = NULL;
 	pkg.data_len = NEO4ALL_MEMCARD_SIZE;
-	pkg.data = (void *)&neogeo_memorycard;
+	pkg.data = (const uint8*)&neogeo_memorycard;
 
 	memcpy((void *)&pkg.icon_pal[0],(void *)&vmu_savestate_icon_pal,32);
-	pkg.icon_data = (void *)&vmu_savestate_icon_data;
+	pkg.icon_data = (const uint8*)&vmu_savestate_icon_data;
 
 	vmu_pkg_build(&pkg, &paquete, &paquete_size);
 
 	return (paquete!=NULL);
 #else
-	paquete=(void *)&neogeo_memorycard;
+	paquete=(unsigned char *)&neogeo_memorycard;
 	paquete_size=NEO4ALL_MEMCARD_SIZE;
 	return 1;
 #endif
@@ -76,7 +77,15 @@ static __inline__ void rebuild_crc(void)
 }
 #endif
 
-static int save_savestate(void)
+#ifdef USE_THREAD_CDDA
+extern unsigned char cpy_neogeo_memorycard[NEO4ALL_MEMCARD_SIZE];
+int save_savestate(void);
+int real_save_savestate(void)
+#else
+#define real_save_savestate() save_savestate()
+#define cpy_neogeo_memorycard neogeo_memorycard
+int save_savestate(void)
+#endif
 {
 	int	ret=0;
 #ifdef USE_MEMCARD
@@ -84,10 +93,12 @@ static int save_savestate(void)
 
 	if (paquete==NULL)
 		return 0;
+#ifdef MENU_PLASTA
         sound_disable();
 	menu_raise();
 	sound_play_saving();
 	text_draw_saving(0,9);
+#endif
 	unlink(memcard_filestate);
 	f=fopen(memcard_filestate,"w");
 	if (f!=NULL)
@@ -95,15 +106,17 @@ static int save_savestate(void)
 		int i;
 		ret=1;
 #ifdef DREAMCAST
-		memcpy(paquete+VMUFILE_PAD,(void *)&neogeo_memorycard,NEO4ALL_MEMCARD_SIZE);
+		memcpy(paquete+VMUFILE_PAD,(void *)&cpy_neogeo_memorycard,NEO4ALL_MEMCARD_SIZE);
 		rebuild_crc();
 		ret=(fwrite(paquete,1,VMUFILE_PAD,f)==VMUFILE_PAD);
 		fflush(f);
 #endif
 		for(i=0;i<8 && ret;i++)
 		{
+#ifdef MENU_PLASTA
 			text_draw_saving(i+1,9);
-			ret=(fwrite(&neogeo_memorycard[1024*i],1,1024,f)==1024);
+#endif
+			ret=(fwrite(&cpy_neogeo_memorycard[1024*i],1,1024,f)==1024);
 			fflush(f);
 		}
 		fclose(f);
@@ -117,8 +130,10 @@ static int save_savestate(void)
 		}
 	}
 #endif
+#ifdef MENU_PLASTA
 	menu_unraise();
         sound_enable();
+#endif 
         init_autoframeskip();
 	return ret;
 }
@@ -161,7 +176,10 @@ void memcard_shutdown(void)
 {
 	if (paquete==NULL)
 		load_savestate();
-	save_savestate();
+#ifdef USE_THREAD_CDDA
+	memcpy(cpy_neogeo_memorycard,neogeo_memorycard,NEO4ALL_MEMCARD_SIZE);
+#endif
+	real_save_savestate();
 }
 
 void memcard_update(void)

@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include "ay8910.h"
 #include "fm.h"
+#include "ay8910.h"
 #include "2610intf.h"
 #include "sound/streams.h"
 #include "neocd.h"

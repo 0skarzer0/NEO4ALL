@@ -5,7 +5,8 @@ extern unsigned neo4all_glframes;
 extern char	video_palette_use[0x200];
 
 #define FCACHE_HASH_SIZE 127
-#define FCACHE_SIZE 1024
+#define FCACHE_SIZE 2048
+//#define FCACHE_SIZE 1024
 
 #define FCACHE_BREAKTIME 16
 
@@ -28,10 +29,12 @@ extern fcache_node_t *fcache_hash_table[FCACHE_HASH_SIZE];
 extern fcache_node_t cache_font[FCACHE_SIZE];
 extern fcache_node_t *first_font, *last_font;
 
-
-static __inline__ void fcache_hash_init(void)
+#ifndef CACHE_INLINE
+void fcache_hash_init(void);
+#else
+CACHE_STATIC_INLINE void fcache_hash_init(void)
 {
-	unsigned i;
+	register unsigned i;
 	for(i=0;i<FCACHE_HASH_SIZE;i++)
 		fcache_hash_table[i]=NULL;
 	for(i=0;i<FCACHE_SIZE;i++)
@@ -43,22 +46,26 @@ static __inline__ void fcache_hash_init(void)
 	first_font=&cache_font[0];
 	last_font=&cache_font[FCACHE_SIZE-1];
 }
+#endif
 
 
-static __inline__ void fcache_hash_old_cleaner(void)
+#ifndef CACHE_INLINE
+void fcache_hash_old_cleaner(int n_frame);
+#else
+CACHE_STATIC_INLINE void fcache_hash_old_cleaner(int n_frame)
 {
 #ifdef DEBUG_GL
-    	puts("FONT cache Cleaner");;
+    	puts("FONT cache Cleaner");
 #endif
-	unsigned breaktime=neo4all_glframes-FCACHE_BREAKTIME;
-	unsigned i;
+	register unsigned breaktime=neo4all_glframes-n_frame;
+	register unsigned i;
 	for(i=0;i<FCACHE_HASH_SIZE;i++)
 	{
-		fcache_node_t *p=fcache_hash_table[i];
-		fcache_node_t *p0=p;
+		register fcache_node_t *p=fcache_hash_table[i];
+		register fcache_node_t *p0=p;
 		while(p)
 		{
-			fcache_node_t *next=p->next;
+			register fcache_node_t *next=p->next;
 			if (p->used < breaktime)
 			{
 				p->next=NULL;
@@ -83,17 +90,21 @@ static __inline__ void fcache_hash_old_cleaner(void)
 		}
 	}
 }
+#endif
 
-static __inline__ void fcache_hash_pal_cleaner(void)
+#ifndef CACHE_INLINE
+void fcache_hash_pal_cleaner(void);
+#else
+CACHE_STATIC_INLINE void fcache_hash_pal_cleaner(void)
 {
-	unsigned i;
+	register unsigned i;
 	for(i=0;i<FCACHE_HASH_SIZE;i++)
 	{
-		fcache_node_t *p=fcache_hash_table[i];
-		fcache_node_t *p0=p;
+		register fcache_node_t *p=fcache_hash_table[i];
+		register fcache_node_t *p0=p;
 		while(p)
 		{
-			fcache_node_t *next=p->next;
+			register fcache_node_t *next=p->next;
 			if (video_palette_use[p->col])
 			{
 				p->next=NULL;
@@ -118,20 +129,31 @@ static __inline__ void fcache_hash_pal_cleaner(void)
 		}
 	}
 }
-static __inline__ fcache_rec_t fcache_hash_insert(unsigned key)
+#endif
+
+
+#ifndef CACHE_INLINE
+fcache_rec_t fcache_hash_insert(unsigned key);
+#else
+CACHE_STATIC_INLINE fcache_rec_t fcache_hash_insert(unsigned key)
 {
-	fcache_node_t *p, *p0;
-	unsigned bucket=fcache_hash(key);
+	register unsigned bucket=fcache_hash(key);
 	
 	if (!first_font)
 	{
-		fcache_hash_old_cleaner();
+		fcache_hash_old_cleaner(TCACHE_BREAKTIME);
 		if (!first_font)
 		{
-			last_font=NULL;
-			return NULL;
+			fcache_hash_old_cleaner(1);
+			if (!first_font)
+			{
+				last_font=NULL;
+				return NULL;
+			}
 		}
 	}
+	{
+	register fcache_node_t *p, *p0;
 	p=first_font;
 	first_font=p->next;
 	p0=fcache_hash_table[bucket];
@@ -144,12 +166,17 @@ static __inline__ fcache_rec_t fcache_hash_insert(unsigned key)
 	p->used = neo4all_glframes;
 	p->key = key;
 	return p->rec;
+	}
 }
+#endif
 
-static __inline__ int fcache_hash_delete(unsigned key)
+#ifndef CACHE_INLINE
+int fcache_hash_delete(unsigned key);
+#else
+CACHE_STATIC_INLINE int fcache_hash_delete(unsigned key)
 {
-	fcache_node_t *p0=NULL, *p;
-	unsigned bucket=fcache_hash(key);
+	register fcache_node_t *p0=NULL, *p;
+	register unsigned bucket=fcache_hash(key);
 	p=fcache_hash_table[bucket];
 	while (p && !fcache_compEq(p->key,key))
 	{
@@ -175,10 +202,14 @@ static __inline__ int fcache_hash_delete(unsigned key)
 	}
 	return 1;
 }
+#endif
 
-static __inline__ fcache_rec_t fcache_hash_find(unsigned key)
+#ifndef CACHE_INLINE
+fcache_rec_t fcache_hash_find(unsigned key);
+#else
+CACHE_STATIC_INLINE fcache_rec_t fcache_hash_find(unsigned key)
 {
-	fcache_node_t *p;
+	register fcache_node_t *p;
 
 	p = fcache_hash_table[fcache_hash(key)];
 	while (p && !fcache_compEq(p->key, key))
@@ -188,11 +219,15 @@ static __inline__ fcache_rec_t fcache_hash_find(unsigned key)
 	p->used=neo4all_glframes;
 	return p->rec;
 }
+#endif
 
-static __inline__ unsigned fcache_hash_unused(void)
+#ifndef CACHE_INLINE
+unsigned fcache_hash_unused(void);
+#else
+CACHE_STATIC_INLINE unsigned fcache_hash_unused(void)
 {
-	unsigned ret=0;
-	fcache_node_t *p=first_font;
+	register unsigned ret=0;
+	register fcache_node_t *p=first_font;
 	while(p)
 	{
 		ret++;
@@ -200,6 +235,7 @@ static __inline__ unsigned fcache_hash_unused(void)
 	}
 	return ret;
 }
+#endif
 
 
 #endif

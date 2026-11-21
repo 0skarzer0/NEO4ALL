@@ -64,9 +64,9 @@ void   video_draw_spr(unsigned int code, unsigned int color, int flipx,
       if(zy == 16) 
        l_y_skip = full_y_skip; 
    else 
-       l_y_skip = video_shrinky; 
+       l_y_skip = (char *)video_shrinky; 
 
-   fspr = neogeo_spr_memory; 
+   fspr = (unsigned char *)neogeo_spr_memory; 
 
    // Mish/AJP - Most clipping is done in main loop 
    oy = sy; 

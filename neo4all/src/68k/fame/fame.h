@@ -1,8 +1,8 @@
 /*****************************************************************************/
 /* FAME Fast and Accurate Motorola 68000 Emulation Core                      */
 /* (c) 2005 Oscar Orallo Pelaez                                              */
-/* Version: 1.21                                                             */
-/* Date: 02-19-2005                                                          */
+/* Version: 1.24                                                             */
+/* Date: 08-20-2005                                                          */
 /* See FAME.HTML for documentation and license information                   */
 /*****************************************************************************/
 
@@ -51,11 +51,12 @@ extern "C" {
 #ifndef M68K_SPURIOUS_IRQ
     #define M68K_SPURIOUS_IRQ -2
 #endif
+
 #ifndef M68K_AUTO_LOWER_IRQ
-	#define M68K_AUTO_LOWER_IRQ 0
+	#define M68K_AUTO_LOWER_IRQ 1
 #endif
 #ifndef M68K_MANUAL_LOWER_IRQ
-	#define M68K_MANUAL_LOWER_IRQ 1
+	#define M68K_MANUAL_LOWER_IRQ 0
 #endif
 
 /* Defines to specify address space */

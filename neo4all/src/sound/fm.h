@@ -5,6 +5,15 @@
 #ifndef _H_FM_FM_
 #define _H_FM_FM_
 
+#if defined(FM_INLINE) && !defined(FM_STATIC_INLINE)
+#define FM_STATIC_INLINE static __inline__
+#endif
+
+#ifndef FM_STATIC_INLINE
+#define FM_STATIC_INLINE
+#endif
+
+
 #include "SDL.h" /* UintXX definition */ 
 #include "ymdeltat.h"
 /* --- select emulation chips --- */

@@ -1,13 +1,23 @@
+#ifdef DREAMCAST
+#include<kos.h>
+#endif
+
 #include<stdio.h>
 #include<stdlib.h>
 #include<string.h>
 
 #include "menu.h"
 
+#include "sound/sound.h"
+
+#ifdef USE_VIDEO_GL
+#include "video/videogl.h"
+#endif
+
 extern int neogeo_emulating;
 
 #ifdef DREAMCAST
-extern int __sdl_dc_wait_vblank;
+#include <SDL_dreamcast.h>
 #endif
 
 static char *text_str_title="NEO4ALL - Main Menu --";
@@ -212,15 +222,23 @@ static inline int key_mainMenu(int *cp)
 			sound_play_beep();
 			switch(event.key.keysym.sym)
 			{
+				case SDLK_d:
 				case SDLK_RIGHT: right=1; break;
+				case SDLK_a:
 				case SDLK_LEFT: left=1; break;
+				case SDLK_w:
 				case SDLK_UP: up=1; break;
+				case SDLK_s:
 				case SDLK_DOWN: down=1; break;
+				case SDLK_z:
 				case SDLK_RETURN:
+				case SDLK_q:
+				case SDLK_LALT:
+				case SDLK_e:
 				case SDLK_LCTRL: hit0=1; break;
+				case SDLK_1:
 				case SDLK_TAB:
-				case SDLK_BACKSPACE:
-				case SDLK_LALT: hit1=1; break;
+				case SDLK_BACKSPACE: hit1=1; break;
 			}
 			if (hit1)
 			{
@@ -448,7 +466,7 @@ int run_mainMenu()
 	int end;
 	mainMenu_case=-1;
 #ifdef DREAMCAST
-	__sdl_dc_wait_vblank=0;
+	SDL_DC_VerticalWait(SDL_FALSE);
 #endif
 	sound_play_menu();
 	while(mainMenu_case<0)

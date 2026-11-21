@@ -11,8 +11,25 @@
 .balign 32
 .global _draw_tile
 _draw_tile:
+
+! Set store queue
+	mov r4,r2               ! salvaguardar destino
+	mov.l sq_andmask,r0
+	and r0,r4
+	mov.l sq_ormask,r0
+	or r0,r4		! (0xe0000000 | (((unsigned long)dest) & 0x03ffffe0))
+
+	shlr16 r2
+	mov #0x1c,r1
+	shlr8 r2
+	mov.l QACR0,r3
+	and r1,r2		! QACR0 = ((((unsigned int)dest)>>26)<<2)&0x1c
 	
+	mov.l r2,@r3
 	mov #16,r1        ! r1 = loop counter
+	mov.l r2,@(4,r3)
+
+
 mloop:
 	
 	add #16,r4        ! r4 = br + displacement
@@ -37,12 +54,13 @@ mloop:
 	
 	
 	cmp/pz r7
-	mov.l r0,@r4
+	mov.l r0,@r4        ! Escritura destino efectiva
 	add #4,r7
 	bf/s .iloop
 	add #4,r4
 
 	mov.l @r6+,r3
+
 	add #-32,r4
 	mov #-28,r7       ! r7 = shifting value
 
@@ -67,10 +85,23 @@ mloop:
 	add #4,r7
 	bf/s .sloop
 	add #4,r4
-	
+
+	add #-16,r4
+	pref @r4
+
 	dt r1
 	bf/s mloop
-	add #16,r4
-	
+	add #32,r4
+
+
+! FINALIZA SQ 
+	mov #0,r0
+	mov.l sq_ormask,r1
+	mov.l r0,@(32,r1)
 	rts
-	nop
+	mov.l r0,@r1
+
+.align 2
+sq_andmask: 	.long 0x03ffffe0
+sq_ormask:  	.long 0xe0000000
+QACR0:  	.long 0xff000038

@@ -22,11 +22,23 @@
 #else
 //#define SCALE_X (2.14f/(640.0f/VIDEO_GL_WIDTH))
 //#define SCALE_X (2.1399825021872266f/(640.0f/VIDEO_GL_WIDTH))
-#define SCALE_X (2.133333333333333f/(640.0f/VIDEO_GL_WIDTH))
+//#define SCALE_X (2.133333333333333f/(640.0f/VIDEO_GL_WIDTH))
+/*
+#define SCALE_X (2.105263157894737f/(640.0f/VIDEO_GL_WIDTH))
 #define MOVE_X (16.0f/(640.0f/VIDEO_GL_WIDTH))
 #define SCALE_Y SCALE_X
+#define MOVE_Y (16.0f/(640.0f/VIDEO_GL_WIDTH))
+//#define SCALE_Y (2.142857142857143f/(640.0f/VIDEO_GL_WIDTH))
+//*/
+
+#define SCALE_X (2.0f/(640.0f/VIDEO_GL_WIDTH))
+#define MOVE_X (16.0f/(640.0f/VIDEO_GL_WIDTH))
+#define SCALE_Y SCALE_X
+#define MOVE_Y (16.0f/(640.0f/VIDEO_GL_WIDTH))
+
 #endif
 
+/*
 #define VERTEX_1_X ((((float)sx)*SCALE_X)-MOVE_X)
 #define VERTEX_1_Y (((float)sy)*SCALE_Y)
 #define VERTEX_2_X ((((float)sx+(float)zx)*SCALE_X)-MOVE_X)
@@ -35,6 +47,16 @@
 #define VERTEX_3_Y (((float)sy+(float)zy)*SCALE_Y)
 #define VERTEX_4_X ((((float)sx)*SCALE_X)-MOVE_X)
 #define VERTEX_4_Y (((float)sy+(float)zy)*SCALE_Y)
+*/
+
+#define VERTEX_1_X ((((float)sx)*SCALE_X))
+#define VERTEX_1_Y ((((float)sy)*SCALE_Y)+MOVE_Y)
+#define VERTEX_2_X ((((float)sx+(float)zx)*SCALE_X))
+#define VERTEX_2_Y ((((float)sy)*SCALE_Y)+MOVE_Y)
+#define VERTEX_3_X ((((float)sx+(float)zx)*SCALE_X))
+#define VERTEX_3_Y ((((float)sy+(float)zy)*SCALE_Y)+MOVE_Y)
+#define VERTEX_4_X ((((float)sx)*SCALE_X))
+#define VERTEX_4_Y ((((float)sy+(float)zy)*SCALE_Y)+MOVE_Y)
 
 #define GL_VERTICE(U,V,X,Y) \
 	    glTexCoord2f(U,V); \

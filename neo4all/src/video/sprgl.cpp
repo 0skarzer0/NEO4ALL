@@ -10,7 +10,13 @@
 #include "sprgl.h"
 
 #ifdef DREAMCAST
+#ifdef __cplusplus
+extern "C" {
+#endif
 void draw_tile(unsigned short *br, unsigned short *paldata, unsigned *gfxdata);
+#ifdef __cplusplus
+}
+#endif
 #else
 static __inline__ void draw_tile(unsigned short *br, unsigned short *paldata, unsigned *gfxdata)
 {
@@ -46,7 +52,7 @@ static __inline__ void create_tile(unsigned int tileno,int color,unsigned short 
 #ifdef DEBUG_GL
     tiles_fail++;
 #endif
-#ifndef USE_SQ
+#if !defined(USE_SQ) && !defined(USE_DMA)
     register unsigned short *br=_br;
 #else
     register unsigned short *br=(unsigned short*)neo4all_texture_buffer;
@@ -68,8 +74,9 @@ static __inline__ void create_tile(unsigned int tileno,int color,unsigned short 
     pvr_txr_load(neo4all_texture_buffer,_br,16*16*2);
 #endif
 #endif
+
 #else
-#ifdef USE_SQ
+#if defined(USE_SQ) || defined(USE_DMA)
     memcpy(_br,neo4all_texture_buffer,16*16*2);
 #endif
 #endif
@@ -80,7 +87,7 @@ extern pvr_poly_cxt_t gl_poly_cxt;
 static pvr_poly_hdr_t polyhdr;
 static pvr_dr_state_t  dr_state;
 
-static __inline__ void prepara_pvr(void *texture_mem)
+static __inline__ void prepare_pvr_init(void)
 {
 	gl_poly_cxt.txr.filter= neo4all_filter;
 	gl_poly_cxt.gen.alpha = PVR_ALPHA_DISABLE;
@@ -91,6 +98,10 @@ static __inline__ void prepara_pvr(void *texture_mem)
 	gl_poly_cxt.txr.width = 16;
 	gl_poly_cxt.txr.height = 16;
 	gl_poly_cxt.txr.format = GL_ARGB1555;
+}
+
+static __inline__ void prepare_pvr_per_tile(void *texture_mem)
+{
 	gl_poly_cxt.txr.base = texture_mem;
 	pvr_poly_compile(&polyhdr, &gl_poly_cxt);
 	pvr_prim(&polyhdr, sizeof(pvr_poly_hdr_t));
@@ -120,7 +131,7 @@ puts("TILE CACHE OVERRUN!!!!!!");
 #endif
 		return;
 	}
-	create_tile(code,color,texture_buffer);
+	create_tile(code,color,(unsigned short *)texture_buffer);
    }
 
 #ifdef DEBUG_GL
@@ -136,7 +147,7 @@ puts("TILE CACHE OVERRUN!!!!!!");
    n_tile_list++;
 }
 
-video_draw_tile_textures(void)
+void video_draw_tile_textures(void)
 {
 #ifdef DEBUG_GL
 	static unsigned minimo=0x12345678;
@@ -150,6 +161,7 @@ video_draw_tile_textures(void)
 #endif
    unsigned i;
 
+   prepare_pvr_init();
    for(i=0;i<n_tile_list;i++)
    {
 	register void *texture_buffer=tile_list[i].buffer;
@@ -165,7 +177,7 @@ video_draw_tile_textures(void)
 		GL_RGBA, GL_UNSIGNED_SHORT_1_5_5_5_REV, texture_buffer);
         glBegin(GL_QUADS);
 #else
-	prepara_pvr(texture_buffer);
+	prepare_pvr_per_tile(texture_buffer);
 #endif
 
 	switch(tile_list[i].type)
@@ -189,9 +201,9 @@ video_draw_tile_textures(void)
    }
 
 #ifdef CACHE_GL_AUTOCLEAN
-   if (!(neo4all_glframes&63))
+   if (!(neo4all_glframes&127))
    {
-	   tcache_hash_old_cleaner();
+	   tcache_hash_old_cleaner(TCACHE_BREAKTIME);
 #ifdef DEBUG_GL
 	   unsigned ahora=tcache_hash_unused();
 	   printf("  glframes=%i, ELIMINADOS=%i\n",neo4all_glframes,ahora-actual);
@@ -205,7 +217,8 @@ video_draw_tile_textures(void)
 }
 
 
-video_draw_tile_textures_gl(void)
+#ifdef MENU_ALPHA
+void video_draw_tile_textures_gl(void)
 {
    unsigned i;
    extern GLint screen_texture;
@@ -245,4 +258,72 @@ video_draw_tile_textures_gl(void)
 	glEnd();
 	tile_z+=TILE_Z_INC;
    }
+}
+#endif
+
+void neo4all_draw_boders(void)
+{
+#ifdef DREAMCAST
+	void *buf=(void *)(((unsigned)neo4all_texture_surface)+640);
+//	sq_set16(buf,0x8000,16*16);
+	{
+		register unsigned *p=(unsigned *)buf;
+		register int i;
+		for(i=0;i<(16*16/2);i++)
+			*p++=0x80008000;
+	}
+	prepare_pvr_init();
+	prepare_pvr_per_tile(buf);
+	{
+		#define sx 0.0f
+		#define sy 0.0f
+		#define zx 8.0f
+		#define zy 240.0f
+		VERTICE_FLIP_NONE
+		#undef zy
+		#undef zx
+		#undef sy
+		#undef sx
+	}
+
+	prepare_pvr_per_tile(buf);
+	{
+		#define sx 312.0f
+		#define sy 0.0f
+		#define zx 8.0f
+		#define zy 240.0f
+		VERTICE_FLIP_NONE
+		#undef zy
+		#undef zx
+		#undef sy
+		#undef sx
+	}
+
+	prepare_pvr_per_tile(buf);
+	{
+		#define sx 0.0f
+		#define sy -8.0f
+		#define zx 320.0f
+		#define zy 8.0f
+		VERTICE_FLIP_NONE
+		#undef zy
+		#undef zx
+		#undef sy
+		#undef sx
+	}
+
+	prepare_pvr_per_tile(buf);
+	{
+		#define sx 0.0f
+		#define sy 224.0f
+		#define zx 320.0f
+		#define zy 8.0f
+		VERTICE_FLIP_NONE
+		#undef zy
+		#undef zx
+		#undef sy
+		#undef sx
+	}
+#else
+#endif
 }

@@ -13,7 +13,12 @@ KOS_INIT_ROMDISK(romdisk);
 #include <ctype.h>
 #include <string.h>
 
+#ifdef DREAMCAST
+#include <SDL_dreamcast.h>
+#endif
+
 #include "neocd.h"
+#include "z80/z80intrf.h"
 
 #include "console.h"
 #include "menu/menu.h"
@@ -21,6 +26,9 @@ KOS_INIT_ROMDISK(romdisk);
 #ifdef DEBUG_FRAMESKIP
 static unsigned total_frameskip=0;
 static unsigned total_frames=0;
+static Uint32 neo4all_start_time=0;
+static Uint32 neo4all_frame_waiting=0;
+static double neo4all_framerate=0.0;
 #endif
 
 #ifndef BEGINTRACE
@@ -32,15 +40,20 @@ static unsigned total_frames=0;
 // #define KTOTRACE 0
 #define CPU_BLOQUE 20000
 int trazando=0;
-Uint32 tiempoactual=0;
 int neogeo_emulating=0;
-int	neogeo_sound_enable=1;
+#ifdef AUTO_EVENTS
+int	neogeo_frameskip=0;
+int	neogeo_sound_enable=0;
+#else
 int	neogeo_frameskip=-1;
+int	neogeo_sound_enable=1;
+#endif
 
 static int neogeo_frameskip_count=0;
 
 unsigned z80_cycles_inited=0;
 #define Z80_CYCLES_INIT 90
+
 
 #ifndef DREAMCAST
 static char		neocd_wm_title[255]=VERSION1;
@@ -95,15 +108,51 @@ void print_frameskip(void)
 {
 #ifdef DEBUG_FRAMESKIP
 	double p=(((double)total_frameskip)*((double)100.0))/((double)total_frames);
-	printf("Total frames=%i, skipped=%i (%.2f%%).\n",total_frames,total_frameskip,p);
+	printf("Total frames=%i, skipped=%i (%.2f%%)",total_frames,total_frameskip,p);
+	p=(((double)neo4all_frame_waiting)*((double)100.0))/((double)total_frames);
+	printf(", wait=%i (%2f%%).\n",neo4all_frame_waiting,p);
+	printf("Framerate = %.4f\n",neo4all_framerate);
 #endif
 }
+
+#ifdef DEBUG_FRAMESKIP
+static __inline__ void calcula_framerate(void)
+{
+	static Uint32 start_numframes=0;
+	if (!neo4all_start_time)
+	{
+		neo4all_start_time=SDL_GetTicks();
+		start_numframes=total_frames;
+	}
+	else
+	{
+		Uint32 now=SDL_GetTicks();
+		if (now-neo4all_start_time>=1000)
+		{
+			if (neo4all_framerate!=0.0)
+				neo4all_framerate=(neo4all_framerate+((double)(total_frames-start_numframes)))/2.0;
+			else
+				neo4all_framerate=(double)(total_frames-start_numframes);
+			neo4all_start_time=now;
+			start_numframes=total_frames;
+		}
+	}
+}
+#endif
+
 
 void init_autoframeskip(void)
 {
 	/* update neocd time */
 	neocd_time=SDL_GetTicks()+REFRESHTIME;
 	neo4all_skip_next_frame=0;
+#ifdef DEBUG_FRAMESKIP
+	neo4all_start_time=0;
+	total_frameskip=0;
+	total_frames=0;
+	neo4all_frame_waiting=0;
+	neo4all_framerate=0.0;
+#endif
 #ifdef Z80_EMULATED
 	my_timer();
 	z80_cycles = neo4all_z80_cycles >> 8;
@@ -113,7 +162,7 @@ void init_autoframeskip(void)
 
 static unsigned char startup_bin[3328];
 
-void ram_startup(void)
+static void ram_startup(void)
 {
 	static int passed=0;
 
@@ -140,6 +189,22 @@ void ram_startup(void)
 	memcpy(neogeo_prg_memory + 0x10F300, (void *)&startup_bin, 3328);
 }
 
+static void profiler_init(void)
+{
+#ifdef PROFILER_NEO4ALL
+	neo4all_prof_init();
+	neo4all_prof_add("MAIN LOOP");		// NEO4ALL_PROFILER_MAIN
+	neo4all_prof_add("M68K");		// NEO4ALL_PROFILER_M68K
+	neo4all_prof_add("Z80");		// NEO4ALL_PROFILER_Z80
+	neo4all_prof_add("MEMORY");		// NEO4ALL_PROFILER_MEM
+	neo4all_prof_add("VECTOR");		// NEO4ALL_PROFILER_VECTOR
+	neo4all_prof_add("BLITTER");		// NEO4ALL_PROFILER_BLIT
+	neo4all_prof_add("SOUND");		// NEO4ALL_PROFILER_SOUND
+#endif
+
+}
+
+
 //----------------------------------------------------------------------------
 int	main(int argc, char* argv[])
 {
@@ -152,6 +217,10 @@ int	main(int argc, char* argv[])
 
 #ifdef STDOUTPUT
 	puts("MAIN!!!");
+#endif
+#ifdef DREAMCAST
+	SDL_DC_Default60Hz(SDL_TRUE);
+	SDL_DC_ShowAskHz(SDL_FALSE);
 #endif
 	// Initialise SDL
 //	if((SDL_Init(SDL_INIT_VIDEO|SDL_INIT_CDROM|SDL_INIT_AUDIO|SDL_INIT_JOYSTICK)==-1)) { 
@@ -179,31 +248,31 @@ int	main(int argc, char* argv[])
 	
 	console_puts("NEOGEO: Allocating memory...");
 
-	neogeo_prg_memory = calloc(1, 0x200000);
+	neogeo_prg_memory = (char *)calloc(1, 0x200000);
 	if (neogeo_prg_memory==NULL) {
 		console_puts("failed !");
 		return 0;
 	}
 
-	neogeo_spr_memory = calloc(1, 0x400000);
+	neogeo_spr_memory = (char *)calloc(1, 0x400000);
 	if (neogeo_spr_memory==NULL) {
 		console_puts("failed !");
 		return 0;
 	}
 	
-	neogeo_rom_memory = calloc(1, 0x80000);
+	neogeo_rom_memory = (char *)calloc(1, 0x80000);
 	if (neogeo_rom_memory==NULL) {
 		console_puts("failed !");
 		return 0;
 	}
 
-	neogeo_fix_memory = calloc(1, 0x20000);
+	neogeo_fix_memory = (char *)calloc(1, 0x20000);
 	if (neogeo_fix_memory==NULL) {
 		console_puts("failed !");
 		return 0;
 	}
 
-	neogeo_pcm_memory = calloc(1, 0x100000);
+	neogeo_pcm_memory = (char *)calloc(1, 0x100000);
 	if (neogeo_pcm_memory==NULL) {
 		console_puts("failed !");
 		return 0;
@@ -229,10 +298,10 @@ int	main(int argc, char* argv[])
 	fread(neogeo_rom_memory, 1, 0x80000, fp);
 	fclose(fp);
 
-	fixtmp=calloc(1, 65536);
+	fixtmp=(char *)calloc(1, 65536);
 	memcpy(fixtmp,&neogeo_rom_memory[458752],65536);
 	
-	fix_conv(fixtmp,&neogeo_rom_memory[458752],65536,rom_fix_usage);
+	fix_conv((unsigned char *)fixtmp,(unsigned char *)&neogeo_rom_memory[458752],65536,(unsigned char *)rom_fix_usage);
 	/*swab(neogeo_rom_memory, neogeo_rom_memory, 131072);*/
 	free(fixtmp);
 	fixtmp=NULL;
@@ -287,7 +356,9 @@ int	main(int argc, char* argv[])
 
 #ifdef SHOW_MENU
 	do{
+#ifndef AUTO_EVENTS
   		run_mainMenu();
+#endif
 	}while(!neogeo_cdrom_init1());
 #else
 	if (!neogeo_cdrom_init1())
@@ -305,6 +376,7 @@ int	main(int argc, char* argv[])
 	
 	// Initialize everything
 	neogeo_init();
+	profiler_init();
 	neogeo_run();
 	neogeo_shutdown();
 	return 0;
@@ -382,9 +454,9 @@ int	neogeo_hreset(void)
 	neogeo_read_gamename();
 
 	/* Special patch for Samurai Spirits RPG */
-	if (strcmp(config_game_name, "TEST PROGRAM USA") == 0)
+	if (strcmp((const char *)config_game_name, "TEST PROGRAM USA") == 0)
 	{
-		strcpy(config_game_name, "SAMURAI SPIRITS RPG");
+		strcpy((char *)config_game_name, "SAMURAI SPIRITS RPG");
 		
 		fp = fopen(DATA_PREFIX "patch.prg", "rb");
 		if (fp == NULL) {
@@ -402,7 +474,7 @@ int	neogeo_hreset(void)
 #ifndef DREAMCAST
 	/* update window title with game name */
 	strcat(neocd_wm_title," - ");
-	strcat(neocd_wm_title,config_game_name);
+	strcat(neocd_wm_title,(const char *)config_game_name);
 	SDL_WM_SetCaption(neocd_wm_title,neocd_wm_title);
 #endif
 
@@ -566,17 +638,9 @@ void neogeo_adjust_cycles(int new_68k, int new_z80)
 	}
 }
 
-#ifdef PROFILER
-Uint32 profiler_media1=0;
-Uint32 profiler_media2=0;
-Uint32 profiler_media3=0;
-Uint32 profiler_media4=0;
-Uint32 profiler_actual=0;
-#endif
 //----------------------------------------------------------------------------
 void	neogeo_run(void)
 {
-	Uint32	now;
     	int	i;
 
 	neogeo_emulating=1;
@@ -590,116 +654,40 @@ void	neogeo_run(void)
 	/* get time for speed throttle */
 	init_autoframeskip();
 	
-	tiempoactual=SDL_GetTicks();
+	neo4all_prof_start(NEO4ALL_PROFILER_MAIN);
 	// Main loop
-	unsigned long long ciclo=0;
-#ifndef DEBUG_NEO4ALL
-#ifndef PROFILER_TIME
 	while(1)
-#else
-	while(ciclo<PROFILER_TIME)
-#endif
-#endif
 	{
-//puts("WHILE");fflush(stdout);
-//printf("CICLO=%i\n",ciclo); SDL_Delay(250); fflush(stdout); ciclo++;
-#ifdef PROFILER
-ciclo++;
-#endif
-#ifdef Z80_EMULATED
-#ifdef PROFILER
-profiler_actual=SDL_GetTicks();
-#endif
+		neo4all_prof_end(NEO4ALL_PROFILER_MAIN);
+		neo4all_prof_start(NEO4ALL_PROFILER_MAIN);
+		neo4all_prof_start(NEO4ALL_PROFILER_Z80);
 
-	if (neogeo_sound_enable)
-	{
-		unsigned my_z80_cycles;
-		if (z80_cycles_inited<Z80_CYCLES_INIT)
+		if (neogeo_sound_enable)
 		{
-			z80_cycles_inited++;
-			my_z80_cycles=NEO4ALL_Z80_OVER_CYCLES;
+			unsigned my_z80_cycles;
+			if (z80_cycles_inited<Z80_CYCLES_INIT)
+			{
+				z80_cycles_inited++;
+				my_z80_cycles=NEO4ALL_Z80_OVER_CYCLES;
+			}
+			else
+				my_z80_cycles=neo4all_z80_cycles;
+			// Execute Z80 timeslice (one VBL)
+			_z80raise(0);
+			for (i = 0; i < 256; i++) {
+				_z80exec(my_z80_cycles >> 8);
+				my_timer();
+			}
 		}
-		else
-			my_z80_cycles=neo4all_z80_cycles;
-		// Execute Z80 timeslice (one VBL)
-		_z80raise(0);
-		for (i = 0; i < 256; i++) {
-			_z80exec(my_z80_cycles >> 8);
-			my_timer();
-		}
-	}
 
+		neo4all_prof_end(NEO4ALL_PROFILER_Z80);
+		neo4all_prof_start(NEO4ALL_PROFILER_M68K);
 
-#ifdef PROFILER
-profiler_media1+=(SDL_GetTicks()-profiler_actual);
-#endif
-#endif
-//puts("Z80 EMULADO");fflush(stdout);
-
-#ifdef DEBUG_NEO4ALL
-int k,j;
-for(j=0;j<=TOTRACE;j++)
-{
-puts("...");;fflush(stdout);
-//for(k=0;k<10;k++)
-for(i=0;i<CPU_BLOQUE;i++)
-{
-if ((j>=BEGINTRACE) ) //&&(k==KTOTRACE))
-{
-trazando=1;
-		//M68K_SUP_ADDR_SPACE | M68K_DATA_ADDR_SPACE),
-printf("\t%X %X    PC=%X  FPC=%X  SR=%X\n", ciclo, _68k_get_pc(), _68k_fetch(_68k_get_pc(),0), _68k_get_register(_68K_REG_SR)&0xA71F);
-#ifdef DEBUG_REGISTERS
-
-//printf("\t\tPC+4=%X\n",_68k_fetch(_68k_get_pc()+4,0));
-printf("A0=%X  A1=%X  A2=%X  A3=%X\n",_68k_get_register(_68K_REG_A0),_68k_get_register(_68K_REG_A1),_68k_get_register(_68K_REG_A2),_68k_get_register(_68K_REG_A3));
-printf("A4=%X  A5=%X  A6=%X  A7=%X\n",_68k_get_register(_68K_REG_A4),_68k_get_register(_68K_REG_A5),_68k_get_register(_68K_REG_A6),_68k_get_register(_68K_REG_A7));
-printf("D0=%X  D1=%X  D2=%X  D3=%X\n",_68k_get_register(_68K_REG_D0),_68k_get_register(_68K_REG_D1),_68k_get_register(_68K_REG_D2),_68k_get_register(_68K_REG_D3));
-printf("D4=%X  D5=%X  D6=%X  D7=%X\n",_68k_get_register(_68K_REG_D4),_68k_get_register(_68K_REG_D5),_68k_get_register(_68K_REG_D6),_68k_get_register(_68K_REG_D7));
-
-//if (ciclo==0x01251ll) printf("(A0)=%X %X\n",_68k_fetch(_68k_get_register(_68K_REG_A0),0),_68k_fetch(_68k_get_register(_68K_REG_A0)+2,0));
-
-#endif
-fflush(stdout);
-}else trazando=0;
-_68k_emulate(1); ciclo++;
-}
-printf("INT %i\n",j);fflush(stdout);
-_68k_interrupt(2);
-#ifdef USE_FAME_CORE
-// if (j>=BEGINTRACE) trazando=1;
-_68k_emulate(1);
-#endif
-puts("pd4990a_addretrace...");;fflush(stdout);
-pd4990a_addretrace();
-puts("video_draw_screen1...");;fflush(stdout);
-video_draw_screen1();
-puts("neogeo_cdda_check...");;fflush(stdout);
-neogeo_cdda_check();
-puts("cdda_loop_check...");;fflush(stdout);
-cdda_loop_check();
-puts("processEvents...");;fflush(stdout);
-processEvents();
-}
-puts("SALIDA ...");;fflush(stdout);
-
-#else
-
-
-
-#ifdef PROFILER
-profiler_actual=SDL_GetTicks();
-#endif
-//puts("ANTES");fflush(stdout);
-//printf("ciclo=%u\n",ciclo); fflush(stdout);
 		// One-vbl timeslice
 		_68k_emulate(neo4all_68k_cycles);
 		_68k_interrupt(2);
-//puts("DESPUES");fflush(stdout);
-#ifdef PROFILER
-profiler_media2+=(SDL_GetTicks()-profiler_actual);
-#endif
-//puts("68000 EMULADO"); fflush(stdout);
+
+		neo4all_prof_end(NEO4ALL_PROFILER_M68K);
 
 		// update pd4990a
 		pd4990a_addretrace();
@@ -717,14 +705,18 @@ profiler_media2+=(SDL_GetTicks()-profiler_actual);
 #ifdef DEBUG_FRAMESKIP
 		total_frames++;
 		total_frameskip+=neo4all_skip_next_frame;
+		calcula_framerate();
 #endif
 
+#ifndef AUTO_EVENTS
+		neo4all_prof_start(NEO4ALL_PROFILER_BLIT);
 		// Call display routine
 		if (neogeo_prio_mode)
 			video_draw_screen2();
 		else
 			video_draw_screen1();
-
+		neo4all_prof_end(NEO4ALL_PROFILER_BLIT);
+#endif
 
 		// Check if there are pending commands for CDDA
 		neogeo_cdda_check();
@@ -770,34 +762,39 @@ profiler_media2+=(SDL_GetTicks()-profiler_actual);
 					neo4all_skip_next_frame=1;
 				break;
 			default:
-				now=SDL_GetTicks();
-#ifndef DREAMCAST
-				if (now+3 < neocd_time) {
-					neo4all_skip_next_frame=0;
-					SDL_Delay(neocd_time-now);
-				}
-				else
-#endif
-				if (now > neocd_time-10) {
-					if (!neo4all_skip_next_frame)
-						neo4all_skip_next_frame=1;
-					else
-						neocd_time+=10;
-				}
-				else
-					neo4all_skip_next_frame=0;
+			{
+				static int cuantos=0;
+				unsigned ahora=SDL_GetTicks();
 				neocd_time+=REFRESHTIME;
+
+				if ((ahora-(REFRESHTIME/4))>neocd_time)
+				{
+					cuantos++;
+					if (cuantos>5)
+					{
+						neocd_time=ahora+2;
+						neo4all_skip_next_frame=0;
+						cuantos=1;
+					}
+					else
+						neo4all_skip_next_frame=1;
+				}
+				else
+				{
+					if ((!cuantos) && (ahora+((3*REFRESHTIME)/4)<neocd_time))
+					{
+#ifdef DEBUG_FRAMESKIP
+						neo4all_frame_waiting++;
+#endif
+						SDL_Delay(neocd_time-(ahora+(REFRESHTIME/4)));
+					}
+					neo4all_skip_next_frame=0;
+					cuantos=0;
+				}
+			}
 		}
 		neogeo_frameskip_count++;
-#endif
 	}
-#ifdef PROFILER
-printf("CICLOS=%f\n",(double)ciclo);
-printf("Z80= %i msec, media = %f \n",profiler_media1, ((double)profiler_media1)/(double)ciclo);
-printf("68000= %i msec, media = %f\n",profiler_media2, ((double)profiler_media2)/(double)ciclo);
-printf("BLITTER= %i msec, media = %f\n",profiler_media3, ((double)profiler_media3)/(double)ciclo);
-printf("FLIP= %i msec, media = %f\n",profiler_media4, ((double)profiler_media4)/(double)ciclo);
-#endif
 	// Stop CDDA
 	cdda_stop();
 		
@@ -889,14 +886,8 @@ void neogeo_cdda_check(void)
 void neogeo_cdda_control(void)
 {
 #ifdef ENABLE_CDDA
-#ifdef PROFILER
-	Uint32 ahora=SDL_GetTicks();
-#endif
 	neogeo_do_cdda( (_68k_get_register(_68K_REG_D0)>>8)&0xFF, 
 	                 _68k_get_register(_68K_REG_D0)&0xFF );
-#ifdef PROFILER
-	profiler_actual+=(SDL_GetTicks()-ahora);
-#endif
 #endif
 }
 
@@ -972,7 +963,7 @@ void neogeo_read_gamename(void)
 	unsigned char	*Ptr;
 	int				temp;
 
-	Ptr = neogeo_prg_memory + m68k_read_memory_32(0x11A);
+	Ptr = (unsigned char *)(neogeo_prg_memory + m68k_read_memory_32(0x11A));
 	swab(Ptr, config_game_name, 80);
 
 	for(temp=0;temp<80;temp++) {
