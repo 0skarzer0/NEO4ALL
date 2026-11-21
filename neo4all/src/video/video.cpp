@@ -10,7 +10,7 @@
 #include <math.h>
 
 #include "video.h"
-#include "../neocd.h"
+#include "../neo4all.h"
 
 #include "console.h"
 
@@ -30,28 +30,33 @@
 unsigned	video_palette_selected=0;
 char *          video_vidram;
 unsigned short	*video_paletteram_ng;
-unsigned short	video_palette_bank0_ng[4096];
-unsigned short	video_palette_bank1_ng[4096];
+unsigned short   video_palette_ng[4096*2];
 unsigned short	*video_paletteram_pc;
-unsigned short	video_palette_bank0_pc[4096];
-unsigned short	video_palette_bank1_pc[4096];
+unsigned short   video_palette_pc[4096*2];
 unsigned short	video_color_lut[32768];
 char	video_palette_use[0x200];
 int	video_palette_dirty=0;
 
 short			video_modulo;
 unsigned short	video_pointer;
-int				video_dos_cx;
-int				video_dos_cy;
-int				video_mode = 0;
+
+#ifndef USE_VIDEO_GL
 unsigned short	*video_line_ptr[224];
-unsigned char	video_fix_usage[4096];
+#endif
+
+#ifndef AES
+static unsigned char	_video_fix_usage[4096];
+unsigned char *video_fix_usage=(unsigned char *)&_video_fix_usage[0];
 unsigned char   rom_fix_usage[4096];
+#else
+unsigned char *video_fix_usage;
+#endif
 
-unsigned      neogeo_nb_of_tiles;
+// unsigned      neogeo_nb_of_tiles;
 
+#ifndef AES
 unsigned char	video_spr_usage[32768];
-unsigned char   rom_spr_usage[32768];
+#endif
 
 SDL_Surface		*screen;
 SDL_Surface		*video_buffer;
@@ -92,14 +97,11 @@ void	video_setup(void);
 
 void video_reset(void)
 {
-	unsigned i;
 
 	video_precalc_lut();
 
-	memset(video_palette_bank0_ng, 0, 8192);
-	memset(video_palette_bank1_ng, 0, 8192);
-	memset(video_palette_bank0_pc, 0, 8192);
-	memset(video_palette_bank1_pc, 0, 8192);
+	memset(video_palette_ng, 0, 8192*2);
+	memset(video_palette_pc, 0, 8192*2);
 
 	video_paletteram_ng = video_palette_bank0_ng;
 	video_paletteram_pc = video_palette_bank0_pc;
@@ -111,8 +113,12 @@ void video_reset(void)
 	memset(video_palette_use,0,0x200);
 	video_palette_selected=0;
 
+#ifndef AES
+	unsigned i;
         for(i=0;i<32768;i++)
             video_spr_usage[i]=1;
+#endif
+
 #ifdef USE_VIDEO_GL
 	video_reset_gl();
 #endif
@@ -122,7 +128,6 @@ void video_reset(void)
 //----------------------------------------------------------------------------
 int	video_init(void)
 {
-	int		y;
 	unsigned short	*ptr;
 
 	video_precalc_lut();
@@ -130,7 +135,7 @@ int	video_init(void)
 	video_vidram = (char *)calloc(1, 131072);
 
 	if (video_vidram==NULL) {
-		strcpy(global_error, "VIDEO: Could not allocate vidram (128k)");
+//		strcpy(global_error, "VIDEO: Could not allocate vidram (128k)");
 		return	0;
 	}
 
@@ -149,10 +154,13 @@ int	video_init(void)
 
 	ptr = (unsigned short *)(video_buffer->pixels);
 
+#ifndef USE_VIDEO_GL
+	int		y;
 	for(y=0;y<224;y++) {
 		video_line_ptr[y] = ptr;
 		ptr += (video_buffer->pitch/2);
 	}
+#endif
 
 	//dest={0,7,320,240};
 	src.x=8;
@@ -214,8 +222,6 @@ int	video_set_mode(int mode)
 #endif
 #endif
 
-	video_mode = VIDEO_NORMAL;
-	
 	return 1;
 }
 
@@ -225,6 +231,12 @@ void	video_precalc_lut(void)
 {
 	int	ndx, rr, rg, rb;
 	int 	r1=0,r2=5,r3=11,mr=0,mult=63;
+	static double back_gamma=-12345.32523;
+
+	if (back_gamma==gamma_correction)
+		return;
+	back_gamma=gamma_correction;
+
 #ifdef USE_VIDEO_GL
 #ifdef DREAMCAST
 	r1=0;
@@ -237,7 +249,7 @@ void	video_precalc_lut(void)
 	mult=31;
 	mr=0x8000;
 #endif
-	
+
 	memset(video_color_lut,1,32768);
 	for(rr=0;rr<32;rr++) {
 		for(rg=0;rg<32;rg++) {
@@ -245,16 +257,17 @@ void	video_precalc_lut(void)
 				ndx = ((rr&1)<<14)|((rg&1)<<13)|((rb&1)<<12)|((rr&30)<<7)
 					|((rg&30)<<3)|((rb&30)>>1);
 				video_color_lut[ndx] =
-				     ((int)( 31 * pow( (double)rb / 31, 1 / gamma_correction ) )<<r1)
+				     ((int)( 31 * pow( (double)rb / 31.0, 1.0 / gamma_correction ) )<<r1)
 				        | mr
-					|((int)( mult * pow( (double)rg / 31, 1 / gamma_correction ) )<<r2)
-					|((int)( 31 * pow( (double)rr / 31, 1 / gamma_correction ) )<<r3);
+					|((int)( mult * pow( (double)rg / 31.0, 1.0 / gamma_correction ) )<<r2)
+					|((int)( 31 * pow( (double)rr / 31.0, 1.0 / gamma_correction ) )<<r3);
 			}
 		}
 	}
 }
 
 
+#ifndef DREAMCAST
 void snapshot_init(void)
 {
 	/* This function sets up snapshot number */
@@ -273,9 +286,6 @@ void snapshot_init(void)
 	}
 }
 
-
-
-
 void video_save_snapshot(void)
 {
 	char name[30];
@@ -285,13 +295,16 @@ void video_save_snapshot(void)
 
 void video_fullscreen_toggle(void)
 {
-#ifndef DREAMCAST
 #ifndef USE_VIDEO_GL
 	SDL_WM_ToggleFullScreen(screen);
 #else
 	video_fullscreen_toggle_gl();
 #endif
-#endif
 
 }
+#else
+void snapshot_init(void) { }
+void video_save_snapshot(void) { }
+void video_fullscreen_toggle(void) { }
+#endif
 

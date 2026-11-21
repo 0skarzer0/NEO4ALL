@@ -15,7 +15,7 @@
 #include <string.h>
 #include <unistd.h>
 
-#include "neocd.h"
+#include "neo4all.h"
 #include "console.h"
 
 

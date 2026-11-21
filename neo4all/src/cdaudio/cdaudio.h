@@ -6,6 +6,8 @@
 #ifndef	CDAUDIO_H
 #define CDAUDIO_H
 
+#ifdef ENABLE_CDDA
+
 //-- Exported Variables ------------------------------------------------------
 extern int	cdda_first_drive;
 extern int	cdda_nb_of_drives;
@@ -28,7 +30,23 @@ int 	cdda_get_disk_info(void);
 void	cdda_build_drive_list(void);
 int	cdda_get_volume(void);
 void	cdda_set_volume(int volume);
-void 	audio_setup(void);
+
+#else
+
+#define neogeo_cdrom_current_drive 0
+#define cdda_init() (0)
+#define cdda_play(A) (0)
+#define cdda_pause()
+#define cdda_stop()
+#define cdda_resume()
+#define cdda_shutdown()
+#define cdda_loop_check()
+#define cdda_get_disk_info() (0)
+#define cdda_build_drive_list()
+#define cdda_get_volume() (0)
+#define cdda_set_volume()
+
+#endif
 
 #endif /* CDAUDIO_H */
 

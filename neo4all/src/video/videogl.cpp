@@ -4,7 +4,7 @@
 #include <math.h>
 
 #include "video.h"
-#include "../neocd.h"
+#include "../neo4all.h"
 
 #ifndef CACHE_INLINE
 #define CACHE_INLINE
@@ -30,7 +30,10 @@ TILE_LIST tile_list[TCACHE_SIZE+FCACHE_SIZE];
 unsigned n_tile_list=0;
 unsigned n_font_list=0;
 
+#ifndef DREAMCAST
 GLint tile_opengl_tex[TCACHE_SIZE+FCACHE_SIZE];
+GLint black_opengl_tex;
+#endif
 
 GLint screen_texture;
 
@@ -42,12 +45,15 @@ void *neo4all_texture_buffer_free=NULL;
 void *neo4all_texture_real_buffer=NULL;
 void *neo4all_font_real_buffer=NULL;
 void *neo4all_texture_surface=NULL;
+void *neo4all_black_texture_buffer=NULL;
 float tile_z=TILE_Z_INIT;
 unsigned neo4all_glframes=8;
 
 static void init_cache(void) {
+#ifndef DREAMCAST
     int i;
     GLuint texture;
+#endif
 
     glEnable(GL_TEXTURE_2D);
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
@@ -70,11 +76,13 @@ static void init_cache(void) {
 		neo4all_font_real_buffer=(void *)dcpvrmem;
 		dcpvrmem+=(8*8*2*(FCACHE_SIZE));
 		neo4all_texture_surface=(void *)dcpvrmem;
+        	neo4all_black_texture_buffer=(void *)dcpvrmem;
 	}
 #else
 	neo4all_texture_real_buffer=calloc(16*16*2,TCACHE_SIZE);
 	neo4all_font_real_buffer=calloc(8*8*2,FCACHE_SIZE);
 	neo4all_texture_surface=calloc(512*512,2);
+        neo4all_black_texture_buffer=(void *)calloc(16*16,2);
 #endif
 
     }
@@ -82,6 +90,7 @@ static void init_cache(void) {
 #ifndef DREAMCAST
     for(i=0;i<TCACHE_SIZE+FCACHE_SIZE;i++)
 	glGenTextures(1,(GLuint *)&tile_opengl_tex[i]);
+    glGenTextures(1,(GLuint *)&black_opengl_tex);
 #endif
     video_reset_gl();
 }
@@ -89,6 +98,9 @@ static void init_cache(void) {
 static void free_cache(void) {
 #ifndef DREAMCAST
     free(neo4all_texture_real_buffer);
+    free(neo4all_font_real_buffer);
+    free(neo4all_texture_surface);
+    free(neo4all_black_texture_buffer);
 #else
     pvr_mem_free(neo4all_texture_real_buffer);
 #endif
@@ -178,4 +190,10 @@ void neogeo_adjust_filter(int filter)
 }
 
 
-
+void neo4all_black_texture(void)
+{
+	register unsigned *p=(unsigned *)neo4all_black_texture_buffer;
+	register int i;
+	for(i=0;i<(16*16/2);i++)
+		*p++=0x80008000;
+}

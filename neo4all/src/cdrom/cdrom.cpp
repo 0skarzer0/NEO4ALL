@@ -12,7 +12,7 @@
 #include <unistd.h>
 
 #include "cdrom.h"
-#include "../neocd.h"
+#include "../neo4all.h"
 
 #include "../menu/menu.h"
 #include "console.h"
@@ -94,6 +94,7 @@ static    int    recon_filetype(char *);
 int        neogeo_cdrom_current_drive;
 int        img_display = 1;
 
+#ifndef AES
 //----------------------------------------------------------------------------
 int    neogeo_cdrom_init1(void)
 {    
@@ -151,6 +152,7 @@ int    neogeo_cdrom_init1(void)
 
     return 1;
 }
+#endif
 
 //----------------------------------------------------------------------------
 void    neogeo_cdrom_shutdown(void)
@@ -176,7 +178,7 @@ int    neogeo_cdrom_load_prg_file(char *FileName, unsigned int Offset)
 
     fp = fopen_s(Path, "rb");
     if (fp==NULL) {
-        sprintf(global_error, "Could not open %s", Path);
+//        sprintf(global_error, "Could not open %s", Path);
 //    	sound_enable();
         return 0;
     }
@@ -217,7 +219,7 @@ int    neogeo_cdrom_load_z80_file(char *FileName, unsigned int Offset)
 
     fp = fopen_s(Path, "rb");
     if (fp==NULL) {
-        sprintf(global_error, "Could not open %s", Path);
+//        sprintf(global_error, "Could not open %s", Path);
 //    	sound_enable();
         return 0;
     }
@@ -254,7 +256,7 @@ int    neogeo_cdrom_load_fix_file(char *FileName, unsigned int Offset)
     
     fp = fopen_s(Path, "rb");
     if (fp==NULL) {
-        sprintf(global_error, "Could not open %s", Path);
+//        sprintf(global_error, "Could not open %s", Path);
 //    	sound_enable();
         return 0;
     }
@@ -299,7 +301,7 @@ int    neogeo_cdrom_load_spr_file(char *FileName, unsigned int Offset)
     
     fp = fopen_s(Path, "rb");
     if (fp==NULL) {
-        sprintf(global_error, "Could not open %s", Path);
+//        sprintf(global_error, "Could not open %s", Path);
 //    	sound_enable();
         return 0;
     }
@@ -342,7 +344,7 @@ int    neogeo_cdrom_load_pcm_file(char *FileName, unsigned int Offset)
 
     fp = fopen_s(Path, "rb");
     if (fp==NULL) {
-        sprintf(global_error, "Could not open %s", Path);
+//        sprintf(global_error, "Could not open %s", Path);
 //    	sound_enable();
         return 0;
     }
@@ -378,7 +380,7 @@ int    neogeo_cdrom_load_pat_file(char *FileName, unsigned int Offset, unsigned 
     
     fp = fopen_s(Path, "rb");
     if (fp==NULL) {
-        sprintf(global_error, "Could not open %s", Path);
+//        sprintf(global_error, "Could not open %s", Path);
 //    	sound_enable();
         return 0;
     }
@@ -446,7 +448,7 @@ int    neogeo_cdrom_process_ipl(int check)
     fp = fopen_s(Path, "rb");
     
     if (fp==NULL) {
-        strcpy(global_error, "Could not open IPL.TXT!");
+//        strcpy(global_error, "Could not open IPL.TXT!");
     	sound_enable();
         return 0;
     }

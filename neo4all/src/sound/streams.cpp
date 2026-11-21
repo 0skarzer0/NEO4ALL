@@ -9,9 +9,9 @@
 #include <malloc.h>
 #include <stdio.h>
 #include <math.h>
-#include "../neocd.h"
+#include "../neo4all.h"
 
-#define MIXER_MAX_CHANNELS 16
+#define MIXER_MAX_CHANNELS 8
 #define BUFFER_LEN 16384
 
 #define CPU_FPS 60
@@ -40,19 +40,9 @@ struct {
     void (*callback) (int param, Sint16 ** buffer, int length);
 } stream[MIXER_MAX_CHANNELS];
 
+
 void mixer_set_volume(int channel,int volume) {
     stream_vol[channel]=volume;
-}
-
-int streams_sh_start(void)
-{
-    int i;
-
-    for (i = 0; i < MIXER_MAX_CHANNELS; i++) {
-	stream_joined_channels[i] = 1;
-	stream[i].buffer = 0;
-    }
-    return 0;
 }
 
 
@@ -66,6 +56,18 @@ void streams_sh_stop(void)
 	stream[i].buffer = 0;
     }
 }
+
+int streams_sh_start(void)
+{
+    int i;
+
+    for (i = 0; i < MIXER_MAX_CHANNELS; i++) {
+	stream_joined_channels[i] = 1;
+	stream[i].buffer = 0;
+    }
+    return 0;
+}
+
 
 #define MAX_AUDIOVAL ((1<<(16-1))-1)
 #define MIN_AUDIOVAL -(1<<(16-1))
@@ -156,13 +158,17 @@ int stream_init_multi(int channels, int param,
 		      void (*callback) (int param, Sint16 ** buffer,
 					int length))
 {
-    static int channel, i;
+    static int channel=0;
+    int i;
+
+    if (channels+channel>MIXER_MAX_CHANNELS)
+	    return -1;
 
     stream_joined_channels[channel] = channels;
 
     for (i = 0; i < channels; i++) {
-
-	if ((stream[channel + i].buffer = (Sint16 *)
+	if (!stream[channel + i].buffer)
+	 if ((stream[channel + i].buffer = (Sint16 *)
 	     malloc(sizeof(Sint16) * BUFFER_LEN)) == 0)
 	    return -1;
     }

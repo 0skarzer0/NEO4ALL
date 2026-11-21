@@ -7,6 +7,8 @@
 /********************************************************************************/
 
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "cz80.h"
 

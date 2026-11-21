@@ -1,3 +1,11 @@
+/********************************************************************************/
+/*                                                                              */
+/* CZ80 JumpTable include source file                                           */
+/* C Z80 emulator version 0.91                                                  */
+/* Copyright 2004-2005 Stéphane Dallongeville                                   */
+/*                                                                              */
+/********************************************************************************/
+
 static const void *JumpTable[0x100] = {
     &&OP0x00, &&OP0x01, &&OP0x02, &&OP0x03,
     &&OP0x04, &&OP0x05, &&OP0x06, &&OP0x07,

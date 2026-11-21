@@ -1,6 +1,8 @@
 #ifndef	Z80INTRF_H
 #define	Z80INTRF_H
 
+#ifdef Z80_EMULATED
+
 void z80_init(void);
 
 
@@ -36,7 +38,11 @@ extern cz80_struc neo4all_cz80_struc;
 #define _z80nmi() Cz80_Set_NMI(&neo4all_cz80_struc)
 static __inline__ void _z80reset(void)
 {
+#ifndef AES
 	memcpy(mame_z80mem,subcpu_memspace,0x10000);
+#else
+//	memcpy(mame_z80mem, aes4all_memory_sm1, 0xf800);
+#endif
 	Cz80_Reset(&neo4all_cz80_struc);
 }
 
@@ -54,6 +60,7 @@ Uint8 cz80_z80_readport16(Uint16 PortNo);
 #endif
 #endif
 
+#endif
 
 #endif /* Z80INTRF_H */
 

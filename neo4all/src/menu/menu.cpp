@@ -6,7 +6,11 @@
 #include<stdlib.h>
 #include<string.h>
 
-#include "neocd.h"
+#ifndef DREAMCAST
+#include <unistd.h>
+#endif
+
+#include "neo4all.h"
 #include "menu.h"
 
 #include "msg.h"
@@ -313,8 +317,13 @@ void init_text(int splash)
 	{
 		SDL_Surface *sur;
 		SDL_Rect r;
+		SDL_Event event;
 		int i,j;
+		int exit_now=0;
 
+    		SDL_Delay(133);
+    		while(SDL_PollEvent(&event)) 
+	    		SDL_Delay(10);
 		SDL_Surface *tmp=SDL_LoadBMP(MENU_FILE_SPLASH);
 		if (tmp==NULL)
 		{
@@ -328,7 +337,7 @@ void init_text(int splash)
 		r.h=sur->w;
 		r.w=sur->h;
 		SDL_FillRect(text_screen,NULL,0);
-		for (i=128;i>=0;i-=8)
+		for (i=128;(i>=0)&&(!exit_now);i-=8)
 		{
 #ifdef DREAMCAST
 			vid_waitvbl();
@@ -338,9 +347,16 @@ void init_text(int splash)
 			SDL_BlitSurface(sur,NULL,text_screen,&r);
 			fade16(text_screen,i);
 			text_flip();
+    			while(SDL_PollEvent(&event)) 
+				exit_now=1;
 		}
-		SDL_Delay(5000);
-		for(i=0;i<=96;i+=8)
+		for(i=0;(i<50)&&(!exit_now);i++)
+		{
+    			while(SDL_PollEvent(&event)) 
+				exit_now=1;
+			SDL_Delay(100);
+		}
+		for(i=0;(i<=96)&&(!exit_now);i+=8)
 		{
 #ifdef DREAMCAST
 			vid_waitvbl();
@@ -350,9 +366,11 @@ void init_text(int splash)
 			SDL_BlitSurface(sur,NULL,text_screen,&r);
 			fade16(text_screen,i);
 			text_flip();
+    			while(SDL_PollEvent(&event)) 
+				exit_now=1;
 		}
 		SDL_FreeSurface(sur);
-		for(i=96;i>=0;i-=8)
+		for(i=96;(i>=0)&&(!exit_now);i-=8)
 		{
 #ifdef DREAMCAST
 			vid_waitvbl();
@@ -362,6 +380,8 @@ void init_text(int splash)
 			text_draw_background();
 			fade16(text_screen,i);
 			text_flip();
+    			while(SDL_PollEvent(&event)) 
+				exit_now=1;
 		}
 
 	}
@@ -372,6 +392,14 @@ void init_text(int splash)
 		text_flip();
 	}
 	obten_colores();
+#ifdef AES
+#ifndef DREAMCAST
+	chdir("rom");
+#else
+	fs_chdir("/cd");
+#endif
+#endif
+
 	menu_msg_time=SDL_GetTicks();
 }
 

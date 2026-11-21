@@ -5,7 +5,7 @@
 #include <math.h>
 
 #include "video.h"
-#include "../neocd.h"
+#include "../neo4all.h"
 #include "videogl.h"
 #include "sprgl.h"
 
@@ -22,7 +22,11 @@ static __inline__ void draw_tile(unsigned short *br, unsigned short *paldata, un
 {
     int y;
     for(y=0;y<16;y++) {
+#ifdef AES
+	register unsigned int myword = gfxdata[0];
+#else
 	register unsigned int myword = gfxdata[1];
+#endif
 	br[0]=paldata[(myword>>28)&0xf];
 	br[1]=paldata[(myword>>24)&0xf];
 	br[2]=paldata[(myword>>20)&0xf];
@@ -32,7 +36,11 @@ static __inline__ void draw_tile(unsigned short *br, unsigned short *paldata, un
 	br[6]=paldata[(myword>>4)&0xf];
 	br[7]=paldata[(myword)&0xf];
 	
+#ifdef AES
+	myword = gfxdata[1];
+#else
 	myword = gfxdata[0];
+#endif
 	br[8]=paldata[(myword>>28)&0xf];
 	br[9]=paldata[(myword>>24)&0xf];
 	br[10]=paldata[(myword>>20)&0xf];
@@ -114,6 +122,10 @@ static __inline__ void prepare_pvr_per_tile(void *texture_mem)
 void   video_draw_spr(unsigned int code, unsigned int color, int flipx, 
          int flipy, int sx, int sy, int zx, int zy) 
 {
+#ifdef _AES_
+//   sx+=16;
+     sy-=16;
+#endif
   if (zx<=0 || zy<=0)
 	  return;
   zx++;
@@ -172,7 +184,7 @@ void video_draw_tile_textures(void)
 	register int zx=tile_list[i].zx;
 	register int zy=tile_list[i].zy;
 #ifndef DREAMCAST
-	glBindTexture(GL_TEXTURE_2D, tile_opengl_tex[i]);
+//	glBindTexture(GL_TEXTURE_2D, tile_opengl_tex[i]);
 	loadTextureParams();
 
 	glTexImage2D(GL_TEXTURE_2D, 0, 4, 16, 16, 0, 
@@ -265,30 +277,40 @@ void video_draw_tile_textures_gl(void)
 
 void neo4all_draw_boders(void)
 {
-#ifdef DREAMCAST
-	void *buf=(void *)(((unsigned)neo4all_texture_surface)+640);
-//	sq_set16(buf,0x8000,16*16);
-	{
-		register unsigned *p=(unsigned *)buf;
-		register int i;
-		for(i=0;i<(16*16/2);i++)
-			*p++=0x80008000;
-	}
+#ifndef DREAMCAST
+	glBindTexture(GL_TEXTURE_2D, black_opengl_tex);
+	loadTextureParams();
+
+	glTexImage2D(GL_TEXTURE_2D, 0, 4, 16, 16, 0, 
+		GL_RGBA, GL_UNSIGNED_SHORT_1_5_5_5_REV, neo4all_black_texture_buffer);
+        glBegin(GL_QUADS);
+#else
 	prepare_pvr_init();
-	prepare_pvr_per_tile(buf);
+	prepare_pvr_per_tile(neo4all_black_texture_buffer);
+#endif
 	{
-		#define sx 0.0f
-		#define sy 0.0f
-		#define zx 8.0f
-		#define zy 240.0f
+		#define sx -16.0f
+		#define sy -16.0f
+		#define zx 24.0f
+		#define zy 256.0f
 		VERTICE_FLIP_NONE
 		#undef zy
 		#undef zx
 		#undef sy
 		#undef sx
 	}
+#ifndef DREAMCAST
+	glEnd();
 
-	prepare_pvr_per_tile(buf);
+	glBindTexture(GL_TEXTURE_2D, black_opengl_tex);
+	loadTextureParams();
+
+	glTexImage2D(GL_TEXTURE_2D, 0, 4, 16, 16, 0, 
+		GL_RGBA, GL_UNSIGNED_SHORT_1_5_5_5_REV, neo4all_black_texture_buffer);
+        glBegin(GL_QUADS);
+#else
+	prepare_pvr_per_tile(neo4all_black_texture_buffer);
+#endif
 	{
 		#define sx 312.0f
 		#define sy 0.0f
@@ -300,8 +322,18 @@ void neo4all_draw_boders(void)
 		#undef sy
 		#undef sx
 	}
+#ifndef DREAMCAST
+	glEnd();
 
-	prepare_pvr_per_tile(buf);
+	glBindTexture(GL_TEXTURE_2D, black_opengl_tex);
+	loadTextureParams();
+
+	glTexImage2D(GL_TEXTURE_2D, 0, 4, 16, 16, 0, 
+		GL_RGBA, GL_UNSIGNED_SHORT_1_5_5_5_REV, neo4all_black_texture_buffer);
+        glBegin(GL_QUADS);
+#else
+	prepare_pvr_per_tile(neo4all_black_texture_buffer);
+#endif
 	{
 		#define sx 0.0f
 		#define sy -8.0f
@@ -313,8 +345,18 @@ void neo4all_draw_boders(void)
 		#undef sy
 		#undef sx
 	}
+#ifndef DREAMCAST
+	glEnd();
 
-	prepare_pvr_per_tile(buf);
+	glBindTexture(GL_TEXTURE_2D, black_opengl_tex);
+	loadTextureParams();
+
+	glTexImage2D(GL_TEXTURE_2D, 0, 4, 16, 16, 0, 
+		GL_RGBA, GL_UNSIGNED_SHORT_1_5_5_5_REV, neo4all_black_texture_buffer);
+        glBegin(GL_QUADS);
+#else
+	prepare_pvr_per_tile(neo4all_black_texture_buffer);
+#endif
 	{
 		#define sx 0.0f
 		#define sy 224.0f
@@ -326,6 +368,7 @@ void neo4all_draw_boders(void)
 		#undef sy
 		#undef sx
 	}
-#else
+#ifndef DREAMCAST
+	glEnd();
 #endif
 }

@@ -195,7 +195,7 @@ static const int SL_TABLE[16] = {
 /* TotalLevel : 48 24 12  6  3 1.5 0.75 (dB) */
 /* TL_TABLE[ 0      to TL_MAX          ] : plus  section */
 /* TL_TABLE[ TL_MAX to TL_MAX+TL_MAX-1 ] : minus section */
-static Sint32 *TL_TABLE;
+static Sint32 *TL_TABLE=NULL;
 
 /* pointers to TL_TABLE with sinwave output offset */
 static Sint32 *SIN_TABLE[SIN_ENT];
@@ -844,6 +844,9 @@ FM_STATIC_INLINE void FM_CALC_CH(FM_CH * CH)
 	    *CH->connect1 += CH->op1_out[0];
 	}
     }
+
+
+
     if (eg_out2 < EG_CUT_OFF)	/* SLOT 2 */
 	*CH->connect2 += OP_OUT(pg_in2, eg_out2);
     if (eg_out3 < EG_CUT_OFF)	/* SLOT 3 */
@@ -961,7 +964,8 @@ static int FMInitTable(void)
     double pom;
 
     /* allocate total level table plus+minus section */
-    TL_TABLE = (Sint32 *) malloc(2 * TL_MAX * sizeof(int));
+    if (!TL_TABLE)
+    	TL_TABLE = (Sint32 *) malloc(2 * TL_MAX * sizeof(int));
     if (TL_TABLE == 0)
 	return 0;
     /* make total level table */
@@ -1024,7 +1028,10 @@ static int FMInitTable(void)
 static void FMCloseTable(void)
 {
     if (TL_TABLE)
+    {
 	free(TL_TABLE);
+	TL_TABLE=0;
+    }
     return;
 }
 
@@ -2013,7 +2020,6 @@ int YM2610Init(int clock, int rate,
 	       void *pcmroma, int pcmsizea, void *pcmromb, int pcmsizeb,
 	       FM_TIMERHANDLER TimerHandler, FM_IRQHANDLER IRQHandler)
 {
-
     cur_chip = NULL;		//&FM2610;
 
     /* allocate total level table (128kb space) */

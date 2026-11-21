@@ -6,21 +6,29 @@
 #include<stdlib.h>
 #include<string.h>
 
+#include "neo4all.h"
 #include "menu.h"
 
 #include "sound/sound.h"
+
+#if defined (DREAMCAST) && defined(AES_PREFETCHING)
+#include "mmu_file/mmu_file.h"
+#endif
 
 #ifdef USE_VIDEO_GL
 #include "video/videogl.h"
 #endif
 
-extern int neogeo_emulating;
 
 #ifdef DREAMCAST
 #include <SDL_dreamcast.h>
 #endif
 
-static char *text_str_title="---- NEO4ALL beta4 ------";
+#ifndef AES
+static char *text_str_title="--- NEO4ALL/CD rc1 ----";
+#else
+static char *text_str_title="-- NEO4ALL/AES beta1 --";
+#endif
 static char *text_str_68k="68K CLK";
 static char *text_str_z80="Z80 CLK";
 static char *text_str_under="Under";
@@ -47,23 +55,33 @@ static char *text_str_filter_bilinear="Bilinear";
 static char *text_str_accurate="Sync SFX";
 static char *text_str_cdaudio="CDDA";
 static char *text_str_separator="------------------------------";
+#ifndef AES
 static char *text_str_reset="Reset";
+#else
+static char *text_str_reset="Select ROM";
+#endif
 static char *text_str_run="Run";
 static char *text_str_exit="Exit - Reboot Dreamcast";
 
 int mainMenu_filter=0;
 int mainMenu_68k=1;
-int mainMenu_z80=0;
+int mainMenu_z80=1;
 int mainMenu_case=-1;
 extern int	neogeo_frameskip;
 extern char	neogeo_region;
 extern int	neogeo_sound_enable;
 extern int	menu_moving;
 extern int	neogeo_accurate;
+#ifndef AES
 extern int	cdda_disabled;
+#else
+static int	cdda_disabled=1;
+#endif
 
 enum { MAIN_MENU_CASE_REBOOT, MAIN_MENU_CASE_LOAD, MAIN_MENU_CASE_RUN, MAIN_MENU_CASE_RESET, MAIN_MENU_CASE_CANCEL };
 
+
+#if defined(DREAMCAST) && !defined(AES)
 #include<dirent.h>
 static int list_files(void)
 {
@@ -80,6 +98,14 @@ static int list_files(void)
 	closedir(d);
 	return found;
 }
+static int try_to_list_files(void)
+{
+	int rt;
+	for(rt=0;(rt<20)&&(!list_files());rt++)
+		SDL_Delay(500);
+	return list_files();
+}
+#endif
 
 static inline void draw_mainMenu(int c)
 {
@@ -244,6 +270,7 @@ static inline int key_mainMenu(int *cp)
 			sound_play_beep();
 			switch(event.key.keysym.sym)
 			{
+				case SDLK_ESCAPE: mainMenu_case=MAIN_MENU_CASE_REBOOT; end=-1; break;
 				case SDLK_d:
 				case SDLK_RIGHT: right=1; break;
 				case SDLK_a:
@@ -446,11 +473,16 @@ void drawNoCD(void)
 	{
 		text_draw_background();
 		text_draw_window(64,60,160,32,"--- ERROR ---");
+#ifndef AES
 		write_text(9,8,"No disk in drive");
+#else
+		write_text(9,8,"No ROM selected");
+#endif
 		text_flip();
 	}
 }
 
+#ifndef AES
 void drawNoNeoGeoCD(void)
 {
 	int i;
@@ -505,11 +537,12 @@ void drawNoRom(void)
 	text_flip();
 	SDL_Delay(333);
 }
+#endif
 
 int run_mainMenu()
 {
-	static int c=9;
-	int end;
+	static int c=8;
+	int end,need_reset=-1;
 	mainMenu_case=-1;
 #ifdef DREAMCAST
 	SDL_DC_VerticalWait(SDL_FALSE);
@@ -529,38 +562,58 @@ int run_mainMenu()
 		unraise_mainMenu();
 		switch(mainMenu_case)
 		{
+/*
 			case MAIN_MENU_CASE_LOAD:
 //				run_menuLoad();	
 				mainMenu_case=-1;
 				break;
+*/
 			case MAIN_MENU_CASE_RUN:
-#ifdef DREAMCAST
-				if (!list_files())
+#if defined(AES)
+				if (neogeo_yet_running)
 				{
-					SDL_Delay(1500);
-					if (!list_files())
+					if (need_reset>0)
+						mainMenu_case=need_reset+1;
+					else
+						mainMenu_case=1;
+				}
+				else
+					if (need_reset>0)
+						mainMenu_case=2;
+					else
 					{
 						mainMenu_case=-1;
 						drawNoCD();
 						break;
 					}
+#else
+#if defined(DREAMCAST) && !defined(AES)
+				if (!try_to_list_files())
+				{
+					mainMenu_case=-1;
+					drawNoCD();
+					break;
 				}
 #endif
 				mainMenu_case=1;
+#endif
 				neogeo_adjust_frameskip(neogeo_frameskip);
 				neogeo_adjust_cycles(mainMenu_68k, mainMenu_z80);
 				break;
 			case MAIN_MENU_CASE_RESET:
-#ifdef DREAMCAST
-				if (!list_files())
+#ifdef AES
+				if (need_reset>0)
+					run_menuLoad();
+				else
+					need_reset=run_menuLoad();
+				mainMenu_case=-1;
+#else
+#if defined(DREAMCAST) && !defined(AES)
+				if (!try_to_list_files())
 				{
-					SDL_Delay(1500);
-					if (!list_files())
-					{
-						mainMenu_case=-1;
-						drawNoCD();
-						break;
-					}
+					mainMenu_case=-1;
+					drawNoCD();
+					break;
 				}
 #endif
 				neogeo_adjust_frameskip(neogeo_frameskip);
@@ -569,8 +622,12 @@ int run_mainMenu()
 					mainMenu_case=2;
 				else
 					mainMenu_case=1;
+#endif
 				break;
 			case MAIN_MENU_CASE_REBOOT:
+#if defined (DREAMCAST) && defined(AES_PREFETCHING)
+				mmu_handle_dump_memaccess();
+#endif
 				sound_play_bye();
 				menu_unraise();
 				SDL_Delay(333);

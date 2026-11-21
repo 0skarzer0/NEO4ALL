@@ -41,26 +41,24 @@ struct YM2610interface {
 /************************************************/
 /* Sound Hardware Start				*/
 /************************************************/
-int YM2610_sh_start( /*const struct MachineSound *msound */ void);
-//int YM2610B_sh_start(const struct MachineSound *msound);
+int YM2610_sh_start(void);
 
 /************************************************/
 /* Sound Hardware Stop				*/
 /************************************************/
-void YM2610_sh_stop(void);
-
-void YM2610_sh_reset(void);
+#define YM2610_sh_stop() YM2610Shutdown()
+#define YM2610_sh_reset()  YM2610ResetChip()
 
 /************************************************/
-/* Chip 0 functions								*/
+/* Chip 0 functions				*/
 /************************************************/
-Uint32 YM2610_status_port_0_A_r(Uint32 offset);
-Uint32 YM2610_status_port_0_B_r(Uint32 offset);
-Uint32 YM2610_read_port_0_r(Uint32 offset);
-void YM2610_control_port_0_A_w(Uint32 offset, Uint32 data);
-void YM2610_control_port_0_B_w(Uint32 offset, Uint32 data);
-void YM2610_data_port_0_A_w(Uint32 offset, Uint32 data);
-void YM2610_data_port_0_B_w(Uint32 offset, Uint32 data);
+#define YM2610_status_port_0_A_r(OFF) YM2610Read(0)
+#define YM2610_status_port_0_B_r(OFF) YM2610Read(2)
+#define YM2610_read_port_0_r(OFF) YM2610Read(1)
+#define YM2610_control_port_0_A_w(OFF,DAT) YM2610Write(0, DAT)
+#define YM2610_control_port_0_B_w(OFF,DAT) YM2610Write(2, DAT)
+#define YM2610_data_port_0_A_w(OFF,DAT) YM2610Write(1, DAT)
+#define YM2610_data_port_0_B_w(OFF,DAT) YM2610Write(3, DAT)
 
 void FMTimerInit(void);
 

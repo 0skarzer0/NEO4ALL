@@ -10,6 +10,7 @@
 
 /*-- input.c functions -----------------------------------------------------*/
 void input_init(void);
+void input_init_aes_system(int system);
 void input_reset(void);
 void input_shutdown(void);
 

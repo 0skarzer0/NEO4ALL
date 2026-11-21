@@ -22,20 +22,16 @@
 
 typedef struct timer_struct {
     double time;		// when
-    unsigned int odo_debut;
-    unsigned int nb_cycle;
     int param;
     unsigned int del_it;
-    void (*func) (int param);
-    struct timer_struct *next;
 } timer_struct;
 
 extern double neogeo_timer_count;
 
-timer_struct *insert_timer(double duration, int param, void (*func) (int));
-void del_timer(timer_struct * ts);
+timer_struct *insert_timer(double duration, int param);
+#define del_timer(TS)  TS->del_it = 1
 void my_timer(void);
-double timer_get_time(void);
 void free_all_timer(void);
+void adjust_timer(unsigned z80_cycles);
 
 #endif

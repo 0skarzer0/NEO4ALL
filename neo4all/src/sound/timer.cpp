@@ -17,114 +17,69 @@
  */
 
 #include <stdlib.h>
-#include "neocd.h"
+#include "neo4all.h"
 #include "timer.h"
 #include "state.h"
 
-double neogeo_timer_count;
-timer_struct *timer_list;
+
 #define MAX_TIMER 3
-timer_struct timers[MAX_TIMER];
-int nb_interlace=256;
-//extern int nb_interlace;
-//int nb_timer=0;
 
-double timer_get_time(void) {
-    return neogeo_timer_count;
-}
+double neogeo_timer_count=0.0;
 
-timer_struct *insert_timer(double duration, int param, void (*func) (int))
+static timer_struct timers[MAX_TIMER];
+static int initted=0;
+static double timer_inc=1.0;
+
+timer_struct *insert_timer(double duration, int param)
 {
     int i;
     for (i = 0; i < MAX_TIMER; i++) {
 	if (timers[i].del_it) {
 	    timers[i].time = neogeo_timer_count + duration;
 	    timers[i].param = param;
-	    timers[i].func = func;
-	    //printf("Insert_timer %d duration=%f param=%d\n",i,timers[i].time,timers[i].param);
 	    timers[i].del_it = 0;
 	    return &timers[i];
 	}
     }
-    printf("YM2610: No timer free!\n");
+//    printf("YM2610: No timer free!\n");
     return NULL;		/* No timer free */
 }
 
+
 void free_all_timer(void) {
-    int i;
-    for (i = 0; i < MAX_TIMER; i++) {
-	timers[i].del_it=1;
-    }
+	register int i;
+	register timer_struct *t=(timer_struct *)&timers[0];
+	for (i = 0; i < MAX_TIMER; i++, t++)
+		t->del_it=1;
+	initted=1;
 }
 
 
 void timer_callback_2610(int param);
-void timer_post_load_state(void) {
-    int i;
-    for (i = 0; i < MAX_TIMER; i++) {
-	if (timers[i].del_it) {
-	    timers[i].func=NULL;
-	} else {
-	    /* FIXME: Ugly.... */
-	    timers[i].func=timer_callback_2610;
-	}
-    }
-}
 
-void timer_pre_save_state(void)
+
+
+void adjust_timer(unsigned z80_cycles)
 {
-
+	if (!initted)
+	       free_all_timer();
+	register double tm=((double)(NEOGEO_NB_INTERLACE));
+	register int diff=((int)NEO4ALL_Z80_NORMAL_CYCLES-(int)z80_cycles)/(NEO4ALL_Z80_OVER_CYCLES-NEO4ALL_Z80_NORMAL_CYCLES);
+	register double ratio = ((double)diff) / 12.0;
+	tm += tm * ratio;
+	timer_inc = 0.01666 / tm;
 }
-
-void timer_init_save_state(void) {
-#if 0
-    int i;
-    create_state_register(ST_TIMER,"neogeo_timer_count",1,&neogeo_timer_count,sizeof(double),REG_UINT32);
-
-    for(i=0;i<MAX_TIMER;i++) {
-	create_state_register(ST_TIMER,"t.del_it",i,&timers[i].del_it,sizeof(Uint32),REG_UINT32);
-	create_state_register(ST_TIMER,"t.time",i,&timers[i].time,sizeof(double),REG_UINT32);
-	create_state_register(ST_TIMER,"t.param",i,&timers[i].param,sizeof(Sint32),REG_INT32);
-    }
-    set_post_load_function(ST_TIMER,timer_post_load_state);
-    set_pre_save_function(ST_TIMER,timer_pre_save_state);
-#endif
-}
-
-void del_timer(timer_struct * ts)
-{
-    ts->del_it = 1;
-}
-
-static double inc;
 
 void my_timer(void)
 {
-    static int init = 1;
-    int i;
-
-    if (init) {
-	timer_init_save_state();
-	init = 0;
-	if (neogeo_region==REGION_EUROPE) {
-	    inc = (double) (0.02) / nb_interlace;
-			  //(conf.sound ? (double) nb_interlace : 1.0);
-	} else {
-	    inc =
-		(double) (0.01666) / nb_interlace;
-	    //(conf.sound ? (double) nb_interlace : 1.0);
-	}
-	for (i = 0; i < MAX_TIMER; i++)
-	    timers[i].del_it = 1;
-    }
-
-    neogeo_timer_count += inc;		/* 16ms par frame */
-
-    for (i = 0; i < MAX_TIMER; i++) {
-	if (neogeo_timer_count >= timers[i].time && timers[i].del_it == 0) {
-	    //printf("Timer_expire %d duration=%f param=%d\n",i,timers[i].time,timers[i].param);
-	    if (timers[i].func) timers[i].func(timers[i].param);
-	    timers[i].del_it = 1;
+    register int i;
+    register timer_struct *t=(timer_struct *)&timers[0];
+    neogeo_timer_count += timer_inc;		/* 16ms par frame */
+    register double cnt=neogeo_timer_count;
+    for (i = 0; i < MAX_TIMER; i++,t++) {
+	if (cnt >= t->time && t->del_it == 0) {
+	    timer_callback_2610(t->param);
+	    t->del_it = 1;
 	}
     }
 }

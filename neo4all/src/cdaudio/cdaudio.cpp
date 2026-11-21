@@ -8,7 +8,7 @@
 #include <string.h>
 #include <SDL.h>
 
-#include "../neocd.h"
+#include "../neo4all.h"
 #include "cdaudio.h"
 
 #include "console.h"

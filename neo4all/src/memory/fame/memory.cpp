@@ -16,9 +16,25 @@
 
 #include "fame/fame.h"
 
+#ifdef DREAMCAST
+#define M68KCONTEXT m68kcontext
+#else
+#define M68KCONTEXT _m68kcontext
+#endif
+
+extern struct M68K_CONTEXT M68KCONTEXT;
+
+// #define USE_SECURE_MEMSWITCH
+
 #include "z80/z80intrf.h"
 
-#define Z80_TIMESLICE_PER_NMI 192
+#ifdef AES
+#include "aes/aes.h"
+#endif
+
+//#define Z80_TIMESLICE_PER_NMI 192
+#define Z80_TIMESLICE_PER_NMI 300
+#define USE_NVRAM_READ_FUNC
 
 #ifdef DEBUG_MEMORY
 extern int trazando;
@@ -26,81 +42,120 @@ extern int trazando;
 
 #include "console.h"
 
-#include "../neocd.h"
+#include "../neo4all.h"
 
 extern unsigned short    *video_paletteram_ng;
 extern unsigned	video_palette_selected;
+
 
 /*** Globals ***************************************************************************************/
 int watchdog_counter=-1;
 int memcard_write=0;
 
 void   initialize_memmap(void);
-unsigned int m68k_read_memory_dummy(unsigned int address);
 unsigned int m68k_read_memory_8(unsigned int address);
 unsigned int m68k_read_memory_16(unsigned int address);
 unsigned int m68k_read_memory_32(unsigned int address);
-void m68k_write_memory_dummy(unsigned int address, unsigned int value);
 void m68k_write_memory_8(unsigned int address, unsigned int value);
-void m68k_write_memory_8_320000(unsigned int address, unsigned int value);
-void m68k_write_memory_8_3c0000(unsigned int address, unsigned int value);
 void m68k_write_memory_16(unsigned int address, unsigned int value);
-void m68k_write_memory_16_320000(unsigned int address, unsigned int value);
-void m68k_write_memory_16_400000(unsigned int address, unsigned int value);
 void m68k_write_memory_32(unsigned int address, unsigned int value);
-unsigned int m68k_read_memorycard_8(unsigned int offset);
-unsigned int m68k_read_memorycard_16(unsigned int offset);
 
 
 /***Helper Functions********************************************************************************/
-static int    read_upload(int);
-static void   write_upload(int, int);
-static void   write_upload_word(int, int);
-static void   write_upload_dword(int, int);
+static unsigned int	cpu_dummy_read		(unsigned int address);
+static void		cpu_dummy_write		(unsigned int address, unsigned int value);
+static void		cpu_z80_write_8		(unsigned int address, unsigned int value);
+static void		cpu_videreg_write_8	(unsigned int address, unsigned int value);
+static void		cpu_z80_write_16 	(unsigned int address, unsigned int value);
+static void		cpu_pal_write_16 	(unsigned int address, unsigned int value);
+static void		cpu_pal_write_8 	(unsigned int address, unsigned int value);
+static unsigned int 	cpu_memcard_read_8 	(unsigned int offset);
+static unsigned int 	cpu_memcard_read_16	(unsigned int offset);
+static void   		cpu_memcard_write	(int,int);
+static int    		cpu_vidreg_read_16	(int);
+static int    		cpu_vidreg_read_8 	(int);
+static void   		cpu_vidreg_write_16 	(int, int);
+static void   		cpu_switch_write 	(int, int);
+static int    		cpu_coin_read 		(int);
+static void		cpu_pd4990_write_8	(unsigned int address, unsigned int value);
+static void		cpu_pd4990_write_16	(unsigned int address, unsigned int value);
 
-static int    cpu_readvidreg(int);
-static void   cpu_writevidreg(int, int);
-static void   cpu_writeswitch(int, int);
-static int    cpu_readcoin(int);
+#ifndef AES
+static int    		cpu_upload_read 	(int);
+static void   		cpu_upload_write_8 	(int, int);
+static void   		cpu_upload_write_16 	(int, int);
+static void   		cpu_upload_write_32 	(int, int);
+#else
+static void   		cpu_nvram_write_8 	(unsigned int addr, unsigned char data);
+static void   		cpu_nvram_write_16 	(unsigned int addr, unsigned short data);
+#ifdef USE_NVRAM_READ_FUNC
+static unsigned char	cpu_nvram_read_8 	(unsigned int addr);
+static unsigned short	cpu_nvram_read_16 	(unsigned int addr);
+#endif
+static void 		cpu_bk_write		(unsigned int addr, unsigned int _data);
+#endif
 
-static void   write_memcard(int,int);
+
 
 void cdda_control(void);
 
-static void   watchdog_reset_w(void);
+static void   cpu_watchdog_reset(void);
+
+#ifndef AES
+
+// NEOGEO CDROM
 
 static struct M68K_PROGRAM neogeo_program[]= {
 	{0x000000, 0x1FFFFF, (unsigned)&neogeo_prg_memory},		// 0
-	{0xc00000, 0xc7FFFF, (((unsigned)&neogeo_rom_memory)-0xc00000)},	// 1
+	{0xC00000, 0xC7FFFF, (((unsigned)&neogeo_rom_memory)-0xC00000)},// 1
 	{(unsigned)-1,(unsigned)-1,(unsigned)NULL}
 };
+#else
+
+// NEOGEO AES
+
+static struct M68K_PROGRAM neogeo_program[]= {
+	{0x000000, 0x0FFFFF, (unsigned)&neogeo_prg_memory},		// 0
+	{0x100000, 0x10FFFF, (((unsigned)&aes4all_ram)-0x100000)},	// 1
+	{0x200000, 0x2FFFFF, (unsigned)&neogeo_prg_memory},             // 2
+	{0xC00000, 0xC1FFFF, (((unsigned)&neogeo_rom_memory)-0xC00000)},// 3
+	{0xD00000, 0xD0ffff, (((unsigned)&aes4all_nvram)-0xD00000)},	// 4 
+	{(unsigned)-1,(unsigned)-1,(unsigned)NULL}
+};
+#endif
 
 
-unsigned int m68k_read_memory_dummy(unsigned int address){
+
+unsigned int cpu_dummy_read(unsigned int address){
 #ifdef DEBUG_MEMORY
-if (trazando) printf("m68k_read_memory_dummy(0x%X)\n",address);
+if (trazando) printf("cpu_dummy_read(0x%X)\n",address);
 #endif
 	return 0;
 }
 
-void m68k_write_memory_dummy(unsigned int address, unsigned int value){
+void cpu_dummy_write(unsigned int address, unsigned int value){
 #ifdef DEBUG_MEMORY
-if (trazando) printf("m68k_write_memory_dummy(0x%X,0x%X)\n",address,value);
+if (trazando) printf("cpu_dummy_write(0x%X,0x%X)\n",address,value);
 #endif
 }
+
+
+#ifndef AES
+
+// NEOGEO CDROM
 
 #if !defined(DEBUG_MEMORY) && !defined(SINGLE_MEMORY)
 static struct M68K_DATA neogeo_memmap_read_16[] = {
 	{0x000000, 0x1FFFFF, NULL, (void *)&neogeo_prg_memory},			//0
-	{0x200000, 0x3bFFFF, (void *)m68k_read_memory_dummy, NULL},		//1
-	{0x3c0000, 0x3cFFFF, (void *)cpu_readvidreg, NULL},			//2
-	{0x3d0000, 0x3FFFFF, (void *)m68k_read_memory_dummy, NULL},		//3
+	{0x200000, 0x3BFFFF, (void *)cpu_dummy_read, NULL},		//1
+	{0x3C0000, 0x3CFFFF, (void *)cpu_vidreg_read_16, NULL},			//2
+	{0x3D0000, 0x3FFFFF, (void *)cpu_dummy_read, NULL},		//3
 	{0x400000, 0x401FFF, NULL, (void *)(((unsigned)&video_paletteram_ng)-0x400000)},	//4
-	{0x402000, 0x7FFFFF, (void *)m68k_read_memory_dummy, NULL},		//5
-	{0x800000, 0x803FFF, (void *)m68k_read_memorycard_16, NULL},		//6
-	{0x804000, 0xbFFFFF, (void *)m68k_read_memory_dummy, NULL},		//7
-	{0xc00000, 0xc7FFFF, NULL, (void *)(((unsigned)&neogeo_rom_memory)-0xc00000)},	//8
-	{0xc80000, 0xFFFFFF, (void *)m68k_read_memory_dummy, NULL},		//9
+	{0x402000, 0x7FFFFF, (void *)cpu_dummy_read, NULL},		//5
+	{0x800000, 0x803FFF, (void *)cpu_memcard_read_16, NULL},		//6
+	{0x804000, 0xBFFFFF, (void *)cpu_dummy_read, NULL},		//7
+	{0xC00000, 0xC7FFFF, NULL, (void *)(((unsigned)&neogeo_rom_memory)-0xC00000)},	//8
+	{0xC80000, 0xFFFFFF, (void *)cpu_dummy_read, NULL},		//9
 	{(unsigned)-1,(unsigned)-1,NULL,NULL}
 };
 #else
@@ -108,9 +163,9 @@ static struct M68K_DATA neogeo_memmap_read_16[] = {
 #ifdef SINGLE_MEMORY
 static struct M68K_DATA neogeo_memmap_read_16[] = {
 	{0x000000, 0x1FFFFF, NULL, (void *)&neogeo_prg_memory},			//0
-	{0x200000, 0xbFFFFF, (void *)m68k_read_memory_16, NULL},		//1
-	{0xc00000, 0xc7FFFF, NULL, (void *)(((unsigned)&neogeo_rom_memory)-0xc00000)},  //2
-	{0xc80000, 0xFFFFFF, (void *)m68k_read_memory_16, NULL},		//3
+	{0x200000, 0xBFFFFF, (void *)m68k_read_memory_16, NULL},		//1
+	{0xC00000, 0xC7FFFF, NULL, (void *)(((unsigned)&neogeo_rom_memory)-0xC00000)},  //2
+	{0xC80000, 0xFFFFFF, (void *)m68k_read_memory_16, NULL},		//3
 	{(unsigned)-1,(unsigned)-1,NULL,NULL}
 };
 #else
@@ -123,26 +178,61 @@ static struct M68K_DATA neogeo_memmap_read_16[] = {
 #endif
 #endif
 
+#else
+
+// NEOGEO AES
+
+static struct M68K_DATA neogeo_memmap_read_16[] = {
+	{0x000000, 0x0FFFFF, NULL, (void *)&neogeo_prg_memory},			// 0
+	{0x100000, 0x10FFff, NULL, (void *)(((unsigned)&aes4all_ram)-0x100000)},// 1 
+	{0x110000, 0x1FFFFF, (void *)cpu_dummy_read, NULL},             // 2
+	{0x200000, 0x2FFFFF, NULL, (void *)&neogeo_prg_memory },		// 3
+	{0x300000, 0x3BFFFF, (void *)cpu_dummy_read, NULL},		// 4
+	{0x3C0000, 0x3CFFFF, (void *)cpu_vidreg_read_16, NULL},			// 5
+	{0x3D0000, 0x3FFFFF, (void *)cpu_dummy_read, NULL},		// 6
+	{0x400000, 0x401FFF, NULL, (void *)(((unsigned)&video_paletteram_ng)-0x400000)},// 7
+	{0x402000, 0x7FFFFF, (void *)cpu_dummy_read, NULL},		// 8
+	{0x800000, 0x803FFF, (void *)cpu_memcard_read_16, NULL},		// 9
+	{0x804000, 0xBFFFFF, (void *)cpu_dummy_read, NULL},		// 10
+	{0xC00000, 0xC1FFFF, NULL, (void *)(((unsigned)&neogeo_rom_memory)-0xC00000)},	// 11
+	{0xC20000, 0xCFFFFF, (void *)cpu_dummy_read, NULL},		// 12
+#ifdef USE_NVRAM_READ_FUNC
+	{0xD00000, 0xD0ffff, (void *)cpu_nvram_read_16, NULL},	// 13
+#else
+	{0xD00000, 0xD0ffff, NULL, (void *)(((unsigned)&aes4all_nvram)-0xD00000)},	// 13
+#endif
+	{0xD10000, 0xFFFFFF, (void *)cpu_dummy_read, NULL},		// 14
+	{(unsigned)-1,(unsigned)-1,NULL,NULL}
+};
+
+#endif
+
+
+
+#ifndef AES
+
+// NEOGEO CDROM
+
 #if !defined(DEBUG_MEMORY) && !defined(SINGLE_MEMORY)
 static struct M68K_DATA neogeo_memmap_read_8[] = {
 	{0x000000, 0x1FFFFF, NULL, (void *)&neogeo_prg_memory},			// 0
-	{0x200000, 0x2FFFFF, (void *)m68k_read_memory_dummy, NULL},		// 1
+	{0x200000, 0x2FFFFF, (void *)cpu_dummy_read, NULL},		// 1
 	{0x300000, 0x30FFFF, (void *)read_player1, NULL},			// 2
-	{0x310000, 0x31FFFF, (void *)m68k_read_memory_dummy, NULL},		// 3
-	{0x320000, 0x32FFFF, (void *)cpu_readcoin, NULL},			// 4
-	{0x330000, 0x33FFFF, (void *)m68k_read_memory_dummy, NULL},		// 5
+	{0x310000, 0x31FFFF, (void *)cpu_dummy_read, NULL},		// 3
+	{0x320000, 0x320FFF, (void *)cpu_coin_read, NULL},			// 4
+	{0x321000, 0x33FFFF, (void *)cpu_dummy_read, NULL},		// 5
 	{0x340000, 0x34FFFF, (void *)read_player2, NULL},			// 6
-	{0x350000, 0x37FFFF, (void *)m68k_read_memory_dummy, NULL},		// 7
+	{0x350000, 0x37FFFF, (void *)cpu_dummy_read, NULL},		// 7
 	{0x380000, 0x38FFFF, (void *)read_pl12_startsel, NULL},			// 8
-	{0x390000, 0x39FFFF, (void *)m68k_read_memory_dummy, NULL},		// 9
+	{0x390000, 0x39FFFF, (void *)cpu_dummy_read, NULL},		// 9
 	{0x400000, 0x401FFF, NULL, (void *)(((unsigned)&video_paletteram_ng)-0x400000)},	// 10
-	{0x402000, 0x7FFFFF, (void *)m68k_read_memory_dummy, NULL},		// 11
-	{0x800000, 0x803FFF, (void *)m68k_read_memorycard_8, NULL},		// 12
-	{0x804000, 0xbFFFFF, (void *)m68k_read_memory_dummy, NULL},		// 13
-	{0xc00000, 0xc7FFFF, NULL, (void *)(((unsigned)&neogeo_rom_memory)-0xc00000)},	// 14
-	{0xc80000, 0xdFFFFF, (void *)m68k_read_memory_dummy, NULL},		// 15
-	{0xe00000, 0xe3FFFF, (void *)read_upload, NULL},			// 16
-	{0xe40000, 0xFFFFFF, (void *)m68k_read_memory_dummy, NULL},		// 17
+	{0x402000, 0x7FFFFF, (void *)cpu_dummy_read, NULL},		// 11
+	{0x800000, 0x803FFF, (void *)cpu_memcard_read_8, NULL},		// 12
+	{0x804000, 0xBFFFFF, (void *)cpu_dummy_read, NULL},		// 13
+	{0xC00000, 0xC7FFFF, NULL, (void *)(((unsigned)&neogeo_rom_memory)-0xC00000)},	// 14
+	{0xC80000, 0xDFFFFF, (void *)cpu_dummy_read, NULL},		// 15
+	{0xE00000, 0xE3FFFF, (void *)cpu_upload_read, NULL},			// 16
+	{0xE40000, 0xFFFFFF, (void *)cpu_dummy_read, NULL},		// 17
 	{(unsigned)-1,(unsigned)-1,NULL,NULL}
 };
 #else
@@ -150,9 +240,9 @@ static struct M68K_DATA neogeo_memmap_read_8[] = {
 #ifdef SINGLE_MEMORY
 static struct M68K_DATA neogeo_memmap_read_8[] = {
 	{0x000000, 0x1FFFFF, NULL, (void *)&neogeo_prg_memory},			//0
-	{0x200000, 0xbFFFFF, (void *)m68k_read_memory_8, NULL},		//1
-	{0xc00000, 0xc7FFFF, NULL, (void *)(((unsigned)&neogeo_rom_memory)-0xc00000)},  //2
-	{0xc80000, 0xFFFFFF, (void *)m68k_read_memory_8, NULL},		//3
+	{0x200000, 0xBFFFFF, (void *)m68k_read_memory_8, NULL},		//1
+	{0xC00000, 0xC7FFFF, NULL, (void *)(((unsigned)&neogeo_rom_memory)-0xC00000)},  //2
+	{0xC80000, 0xFFFFFF, (void *)m68k_read_memory_8, NULL},		//3
 	{(unsigned)-1,(unsigned)-1,NULL,NULL}
 };
 #else
@@ -165,23 +255,65 @@ static struct M68K_DATA neogeo_memmap_read_8[] = {
 #endif
 #endif
 
+#else
+
+// NEOGEO AES
+
+static struct M68K_DATA neogeo_memmap_read_8[] = {
+	{0x000000, 0x0FFFFF, NULL, (void *)&neogeo_prg_memory},			// 0
+	{0x100000, 0x10FFFF, NULL, (void *)(((unsigned)&aes4all_ram)-0x100000)},// 1 
+	{0x110000, 0x1FFFFF, (void *)cpu_dummy_read, NULL},             // 2
+	{0x200000, 0x2FFFFF, NULL, (void *)&neogeo_prg_memory },		// 3
+	{0x300000, 0x30FFFF, (void *)read_player1, NULL},			// 4
+	{0x310000, 0x31FFFF, (void *)cpu_dummy_read, NULL},		// 5
+	{0x320000, 0x320FFF, (void *)cpu_coin_read, NULL},			// 6
+	{0x321000, 0x33FFFF, (void *)cpu_dummy_read, NULL},		// 7
+	{0x340000, 0x34FFFF, (void *)read_player2, NULL},			// 8 
+	{0x350000, 0x37FFFF, (void *)cpu_dummy_read, NULL},		// 9
+	{0x380000, 0x38FFFF, (void *)read_pl12_startsel, NULL},			// 10
+	{0x390000, 0x3BFFFF, (void *)cpu_dummy_read, NULL},		// 11
+	{0x3C0000, 0x3C0FFF, (void *)cpu_vidreg_read_8, NULL},			// 12
+	{0x3C1000, 0x3FFFFF, (void *)cpu_dummy_read, NULL},		// 13
+	{0x400000, 0x401FFF, NULL, (void *)(((unsigned)&video_paletteram_ng)-0x400000)},// 14
+	{0x402000, 0x7FFFFF, (void *)cpu_dummy_read, NULL},		// 15
+	{0x800000, 0x803FFF, (void *)cpu_memcard_read_8, NULL},		// 16
+	{0x804000, 0xBFFFFF, (void *)cpu_dummy_read, NULL},		// 17
+	{0xC00000, 0xC1FFFF, NULL, (void *)(((unsigned)&neogeo_rom_memory)-0xC00000)},	// 18
+	{0xC20000, 0xCFFFFF, (void *)cpu_dummy_read, NULL},		// 19
+#ifdef USE_NVRAM_READ_FUNC
+	{0xD00000, 0xD0ffff, (void *)cpu_nvram_read_8, NULL},	// 20
+#else
+	{0xD00000, 0xD0ffff, NULL, (void *)(((unsigned)&aes4all_nvram)-0xD00000)},	// 20
+#endif
+	{0xD10000, 0xFFFFFF, (void *)cpu_dummy_read, NULL},		// 21
+	{(unsigned)-1,(unsigned)-1,NULL,NULL}
+};
+#endif
+
+
+
+#ifndef AES
+
+// NEOGEO CDROM
 
 #if !defined(DEBUG_MEMORY) && !defined(SINGLE_MEMORY)
 static struct M68K_DATA neogeo_memmap_write_16[] = {
 	{0x000000, 0x1FFFFF, NULL, (void *)&neogeo_prg_memory},		// 0
-	{0x200000, 0x31FFFF, (void *)m68k_write_memory_dummy, NULL},	// 1
-	{0x320000, 0x32FFFF, (void *)m68k_write_memory_16_320000, NULL},// 2
-	{0x330000, 0x39FFFF, (void *)m68k_write_memory_dummy, NULL},	// 3
-	{0x3a0000, 0x3aFFFF, (void *)cpu_writeswitch, NULL},		// 4
-	{0x3b0000, 0x3bFFFF, (void *)m68k_write_memory_dummy, NULL},	// 5
-	{0x3c0000, 0x3cFFFF, (void *)cpu_writevidreg, NULL},		// 6
-	{0x3d0000, 0x3fFFFF, (void *)m68k_write_memory_dummy, NULL},	// 7
-	{0x400000, 0x40FFFF, (void *)m68k_write_memory_16_400000, NULL},// 8
-	{0x410000, 0x7fFFFF, (void *)m68k_write_memory_dummy, NULL},	// 9
-	{0x800000, 0x80FFFF, (void *)write_memcard, NULL},		// 10
-	{0x810000, 0xdfFFFF, (void *)m68k_write_memory_dummy, NULL},	// 11
-	{0xe00000, 0xe3FFFF, (void *)write_upload_word, NULL},		// 12
-	{0xe40000, 0xFFFFFF, (void *)m68k_write_memory_dummy, NULL},	// 13
+	{0x200000, 0x31FFFF, (void *)cpu_dummy_write, NULL},		// 1
+	{0x320000, 0x32FFFF, (void *)cpu_z80_write_16, NULL},		// 2
+	{0x330000, 0x37FFFF, (void *)cpu_dummy_write, NULL},		// 3
+	{0x380000, 0x380FFF, (void *)cpu_pd4990_write_16, NULL}, 	// 5
+	{0x381000, 0x39FFFF, (void *)cpu_dummy_write, NULL},		// 6
+	{0x3A0000, 0x3AFFFF, (void *)cpu_switch_write, NULL},		// 7
+	{0x3B0000, 0x3BFFFF, (void *)cpu_dummy_write, NULL},		// 8
+	{0x3C0000, 0x3CFFFF, (void *)cpu_vidreg_write_16, NULL},	// 9
+	{0x3D0000, 0x3FFFFF, (void *)cpu_dummy_write, NULL},		// 10
+	{0x400000, 0x401FFF, (void *)cpu_pal_write_16, NULL},		// 11
+	{0x402000, 0x7FFFFF, (void *)cpu_dummy_write, NULL},		// 12
+	{0x800000, 0x80FFFF, (void *)cpu_memcard_write, NULL},		// 13
+	{0x810000, 0xDFFFFF, (void *)cpu_dummy_write, NULL},		// 14
+	{0xE00000, 0xE3FFFF, (void *)cpu_upload_write_16, NULL},	// 15
+	{0xE40000, 0xFFFFFF, (void *)cpu_dummy_write, NULL},		// 16
 	{(unsigned)-1,(unsigned)-1,NULL,NULL}
 };
 #else
@@ -202,23 +334,61 @@ static struct M68K_DATA neogeo_memmap_write_16[] = {
 #endif
 #endif
 
+#else
+
+// NEOGEO AES
+
+static struct M68K_DATA neogeo_memmap_write_16[] = {
+	{0x000000, 0x0FFFFF, (void *)cpu_dummy_write, NULL},			// 0
+	{0x100000, 0x10FFFF, NULL, (void *)(((unsigned)&aes4all_ram)-0x100000)},// 1 
+	{0x110000, 0x1FFFFF, (void *)cpu_dummy_write, NULL},			// 2
+	{0x200000, 0x2FFFFF, (void *)cpu_bk_write, NULL},			// 3 
+	{0x300000, 0x31FFFF, (void *)cpu_dummy_write, NULL},			// 4
+	{0x320000, 0x32FFFF, (void *)cpu_z80_write_16, NULL},			// 5
+	{0x330000, 0x37FFFF, (void *)cpu_dummy_write, NULL},			// 6
+	{0x380000, 0x380FFF, (void *)cpu_pd4990_write_16, NULL}, 		// 7
+	{0x381000, 0x39FFFF, (void *)cpu_dummy_write, NULL},			// 8
+	{0x3A0000, 0x3AFFFF, (void *)cpu_switch_write, NULL},			// 9
+	{0x3B0000, 0x3BFFFF, (void *)cpu_dummy_write, NULL},			// 10
+	{0x3C0000, 0x3CFFFF, (void *)cpu_vidreg_write_16, NULL},		// 11
+	{0x3D0000, 0x3FFFFF, (void *)cpu_dummy_write, NULL},			// 12
+	{0x400000, 0x401FFF, (void *)cpu_pal_write_16, NULL},			// 13
+	{0x402000, 0x7FFFFF, (void *)cpu_dummy_write, NULL},			// 14
+	{0x800000, 0x80FFFF, (void *)cpu_memcard_write, NULL},			// 15
+	{0x810000, 0xCFFFFF, (void *)cpu_dummy_write, NULL},			// 16
+	{0xD00000, 0xD0ffff, (void *)cpu_nvram_write_16, NULL},			// 17
+	{0xD10000, 0xFFFFFF, (void *)cpu_dummy_write, NULL},			// 18
+	{(unsigned)-1,(unsigned)-1,NULL,NULL}
+};
+
+#endif
+
+
+
+#ifndef AES
+
+// NEOGEO CDROM
 
 #if !defined(DEBUG_MEMORY) && !defined(SINGLE_MEMORY)
 static struct M68K_DATA neogeo_memmap_write_8[] = {
 	{0x000000, 0x1FFFFF, NULL, &neogeo_prg_memory},		// 0
-	{0x200000, 0x2FFFFF, (void *)m68k_write_memory_dummy, NULL},	// 1
-	{0x300000, 0x30FFFF, (void *)watchdog_reset_w, NULL},		// 2
-	{0x310000, 0x31FFFF, (void *)m68k_write_memory_dummy, NULL},	// 3
-	{0x320000, 0x32FFFF, (void *)m68k_write_memory_8_320000, NULL},	// 4
-	{0x330000, 0x39FFFF, (void *)m68k_write_memory_dummy, NULL},	// 5
-	{0x3a0000, 0x3aFFFF, (void *)cpu_writeswitch, NULL},		// 6
-	{0x3b0000, 0x3fFFFF, (void *)m68k_write_memory_dummy, NULL},	// 7
-	{0x3c0000, 0x3cFFFF, (void *)m68k_write_memory_8_3c0000, NULL},	// 8
-	{0x3d0000, 0x7fFFFF, (void *)m68k_write_memory_dummy, NULL},	// 9
-	{0x800000, 0x80FFFF, (void *)write_memcard, NULL},		// 10
-	{0x810000, 0xdfFFFF, (void *)m68k_write_memory_dummy, NULL},	// 11
-	{0xe00000, 0xe3FFFF, (void *)write_upload, NULL},		// 12
-	{0xe40000, 0xFFFFFF, (void *)m68k_write_memory_dummy, NULL},	// 13
+	{0x200000, 0x2FFFFF, (void *)cpu_dummy_write, NULL},	// 1
+	{0x300000, 0x30FFFF, (void *)cpu_watchdog_reset, NULL},	// 2
+	{0x310000, 0x31FFFF, (void *)cpu_dummy_write, NULL},	// 3
+	{0x320000, 0x32FFFF, (void *)cpu_z80_write_8, NULL},	// 4
+	{0x330000, 0x37FFFF, (void *)cpu_dummy_write, NULL},	// 5
+	{0x380000, 0x380FFF, (void *)cpu_pd4990_write_8, NULL}, // 6
+	{0x381000, 0x39FFFF, (void *)cpu_dummy_write, NULL},	// 7
+	{0x3A0000, 0x3AFFFF, (void *)cpu_switch_write, NULL},	// 8
+	{0x3B0000, 0x3BFFFF, (void *)cpu_dummy_write, NULL},	// 9
+	{0x3C0000, 0x3CFFFF, (void *)cpu_videreg_write_8, NULL},// 10
+	{0x3D0000, 0x3FFFFF, (void *)cpu_dummy_write, NULL},	// 11
+	{0x400000, 0x401FFF, (void *)cpu_pal_write_8, NULL}, 	// 12
+	{0x402000, 0x7FFFFF, (void *)cpu_dummy_write, NULL},	// 13
+	{0x800000, 0x80FFFF, (void *)cpu_memcard_write, NULL},	// 14
+	{0x810000, 0xDfFFFF, (void *)cpu_dummy_write, NULL},	// 15
+	{0xE00000, 0xE3FFFF, (void *)cpu_upload_write_8, NULL},	// 16
+	{0xE40000, 0xFFFFFF, (void *)cpu_dummy_write, NULL},	// 17
 	{(unsigned)-1,(unsigned)-1,NULL,NULL}
 };
 #else
@@ -239,14 +409,48 @@ static struct M68K_DATA neogeo_memmap_write_8[] = {
 #endif
 #endif
 
-static struct M68K_CONTEXT neogeo_context;
-static unsigned neogeo_fpa[256];
+#else
 
+// NEOGEO AES
+
+static struct M68K_DATA neogeo_memmap_write_8[] = {
+	{0x000000, 0x0FFFFF, (void *)cpu_dummy_write, NULL},			// 0
+	{0x100000, 0x10FFFF, NULL, (void *)(((unsigned)&aes4all_ram)-0x100000)},// 1 
+	{0x110000, 0x1FFFFF, (void *)cpu_dummy_write, NULL},			// 2
+	{0x200000, 0x2FFFFF, (void *)cpu_bk_write, NULL},			// 3 
+	{0x300000, 0x30FFFF, (void *)cpu_watchdog_reset, NULL},			// 4
+	{0x310000, 0x31FFFF, (void *)cpu_dummy_write, NULL},			// 5
+	{0x320000, 0x32FFFF, (void *)cpu_z80_write_8, NULL}, 			// 6
+	{0x330000, 0x37FFFF, (void *)cpu_dummy_write, NULL},			// 7
+	{0x380000, 0x380FFF, (void *)cpu_pd4990_write_8, NULL}, 		// 8
+	{0x381000, 0x39FFFF, (void *)cpu_dummy_write, NULL},			// 9
+	{0x3A0000, 0x3AFFFF, (void *)cpu_switch_write, NULL},			// 10
+	{0x3B0000, 0x3BFFFF, (void *)cpu_dummy_write, NULL},			// 11
+	{0x3C0000, 0x3CFFFF, (void *)cpu_videreg_write_8, NULL},		// 12
+	{0x3D0000, 0x3FFFFF, (void *)cpu_dummy_write, NULL},			// 13
+	{0x400000, 0x401FFF, (void *)cpu_pal_write_8, NULL}, 			// 14
+	{0x402000, 0x7FFFFF, (void *)cpu_dummy_write, NULL},			// 15
+	{0x800000, 0x80FFFF, (void *)cpu_memcard_write, NULL},			// 16
+	{0x810000, 0xCFFFFF, (void *)cpu_dummy_write, NULL},			// 17
+	{0xD00000, 0xD0ffff, (void *)cpu_nvram_write_8, NULL},			// 18
+	{0xD10000, 0xFFFFFF, (void *)cpu_dummy_write, NULL},			// 19
+	{(unsigned)-1,(unsigned)-1,NULL,NULL}
+};
+
+#endif
+
+
+
+static struct M68K_CONTEXT neogeo_context;
+
+
+#ifndef AES
+
+static unsigned neogeo_fpa[256];
 void    neogeo_cdrom_load_files(void);
 void    neogeo_cdda_control(void);
 void    neogeo_prio_switch(void);
 void    neogeo_upload(void);
-
 extern int img_display;
 
 void neogeo_chk_handler_10(unsigned vector)
@@ -271,16 +475,10 @@ fflush(stdout);
 	m68k_set_register(M68K_REG_PC,m68k_get_pc()+2);
 	neo4all_prof_end(NEO4ALL_PROFILER_VECTOR);
 }
+#endif
 
-/***************************************************************************************************/
-void initialize_memmap(void) {
-	console_puts("INIT MEMMAP");
-	memset(&neogeo_context,0,sizeof(struct M68K_CONTEXT));
-	memset(&neogeo_fpa,0,sizeof(unsigned)*256);
-	neogeo_fpa[0x10]=(unsigned)&neogeo_chk_handler_10;
-	neogeo_fpa[0x2c]=(unsigned)&neogeo_chk_handler_10;
-	neogeo_context.icust_handler = (unsigned int *)&neogeo_fpa;
-
+static void init_context(void)
+{
 	neogeo_context.fetch=(M68K_PROGRAM*)&neogeo_program;
 	neogeo_context.read_byte=(M68K_DATA*)&neogeo_memmap_read_8;
 	neogeo_context.read_word=(M68K_DATA*)&neogeo_memmap_read_16;
@@ -301,10 +499,32 @@ void initialize_memmap(void) {
 
 	neogeo_context.reset_handler=NULL;
 	neogeo_context.iack_handler=NULL;
+}
+
+
+/***************************************************************************************************/
+void initialize_memmap(void) {
+	console_puts("INIT MEMMAP");
+	memset(&neogeo_context,0,sizeof(struct M68K_CONTEXT));
+#ifndef AES
+	memset(&neogeo_fpa,0,sizeof(unsigned)*256);
+	neogeo_fpa[0x10]=(unsigned)&neogeo_chk_handler_10;
+	neogeo_fpa[0x2c]=(unsigned)&neogeo_chk_handler_10;
+	neogeo_context.icust_handler = (unsigned int *)&neogeo_fpa;
+#endif
+	init_context();
 
 	neogeo_program[0].offset=(unsigned int)neogeo_prg_memory;
+#ifndef AES
 	neogeo_program[1].offset=((unsigned)neogeo_rom_memory)-0xc00000;
+#else
+	neogeo_program[2].offset=((unsigned int)neogeo_prg_memory)-0x200000;
+	neogeo_program[3].offset=((unsigned)neogeo_rom_memory)-0xc00000;
+#endif
 
+
+
+#ifndef AES
 #if !defined(DEBUG_MEMORY) && !defined(SINGLE_MEMORY)
 	neogeo_memmap_read_16[0].data=neogeo_prg_memory;
 	neogeo_memmap_read_16[4].data=(void *)(((unsigned)video_paletteram_ng)-0x400000);
@@ -326,11 +546,33 @@ void initialize_memmap(void) {
 	neogeo_memmap_write_8[0].data=neogeo_prg_memory;
 #endif
 #endif
+#else // AES ...
+
+	neogeo_memmap_read_8[0].data=neogeo_prg_memory;
+	neogeo_memmap_read_8[3].data=(void *)(((unsigned)neogeo_prg_memory)-0x200000);
+	neogeo_memmap_read_8[14].data=(void *)(((unsigned)video_paletteram_ng)-0x400000);
+	neogeo_memmap_read_8[18].data=(void *)(((unsigned)neogeo_rom_memory)-0xc00000);
+
+	neogeo_memmap_read_16[0].data=neogeo_prg_memory;
+	neogeo_memmap_read_16[3].data=(void *)(((unsigned)neogeo_prg_memory)-0x200000);
+	neogeo_memmap_read_16[7].data=(void *)(((unsigned)video_paletteram_ng)-0x400000);
+	neogeo_memmap_read_16[11].data=(void *)(((unsigned)neogeo_rom_memory)-0xc00000);
+
+#endif
 
 	m68k_set_context(&neogeo_context);
 //	m68k_set_irq_type(NULL,M68K_AUTO_LOWER_IRQ);
+
+#ifdef AES
+	if (aes4all_memory_cpu_size>=0x100000)
+		m68k_bankswitch(0x100000);
+	else
+		m68k_bankswitch(0);
+#endif
 }
 
+
+#ifndef AES
 
 
 /***************************************************************************************************/
@@ -350,7 +592,7 @@ unsigned int m68k_read_memory_8(unsigned int offset) {
     switch(offset>>16)
     {
         case    0x30:    ret=read_player1(); break;
-        case    0x32:    ret=cpu_readcoin(offset); break;
+        case    0x32:    ret=cpu_coin_read(offset); break;
         case    0x34:    ret=read_player2(); break;
         case    0x38:    ret=read_pl12_startsel(); break;
         case    0x80:    if(offset&0x01) ret=neogeo_memorycard[(offset&0x3fff)>>1];
@@ -370,7 +612,7 @@ unsigned int m68k_read_memory_8(unsigned int offset) {
         case    0xe0:
         case    0xe1:
         case    0xe2:
-        case    0xe3:    ret=read_upload(offset&0xfffff); break;
+        case    0xe3:    ret=cpu_upload_read(offset&0xfffff); break;
 
     }
 #ifdef SINGLE_MEMORY
@@ -387,8 +629,11 @@ return result;
 }
 #endif
 
+#endif // AES
 
 /***************************************************************************************************/
+
+#ifndef AES
 
 #ifdef DEBUG_MEMORY
 unsigned int  _m68k_read_memory_16(unsigned int offset) {
@@ -405,7 +650,7 @@ unsigned int  m68k_read_memory_16(unsigned int offset) {
     else
     switch(offset>>16)
     {
-        case    0x3c:    ret=cpu_readvidreg(offset); break;
+        case    0x3c:    ret=cpu_vidreg_read_16(offset); break;
         case    0x40:    ret=video_paletteram_ng[offset&0x1fff]; break;
         case    0x80:    ret=0xff00|neogeo_memorycard[(offset&0x3fff)>>1]; break;
 
@@ -437,7 +682,13 @@ return result;
 }
 #endif
 
+#endif // AES
+
+
 /***************************************************************************************************/
+
+#ifndef AES
+
 #ifdef DEBUG_MEMORY
 unsigned int _m68k_read_memory_32(unsigned int offset) {
 #else
@@ -458,7 +709,9 @@ return result;
 }
 #endif
 
-unsigned int m68k_read_memorycard_8(unsigned int offset) {
+#endif // AES
+
+unsigned int cpu_memcard_read_8(unsigned int offset) {
 #ifdef DEBUG_MEMORY
 if (trazando) printf("read_memorycard_8(0x%X)\n",offset);
 #endif
@@ -466,7 +719,7 @@ if (trazando) printf("read_memorycard_8(0x%X)\n",offset);
 	return (unsigned)-1;
 }
 
-unsigned int m68k_read_memorycard_16(unsigned int offset) {
+unsigned int cpu_memcard_read_16(unsigned int offset) {
 #ifdef DEBUG_MEMORY
 if (trazando) printf("read_memorycard_16(0x%X)\n",offset);
 #endif
@@ -474,50 +727,56 @@ if (trazando) printf("read_memorycard_16(0x%X)\n",offset);
 }
 
 
-void m68k_write_memory_8_320000(unsigned int offset, unsigned int data) {
+void cpu_z80_write_8(unsigned int offset, unsigned int data) {
 #ifdef DEBUG_MEMORY
 if (trazando) printf("write_8_320000(0x%X)=0x%X\n",offset,data&0xFF);
 #endif
 #ifdef Z80_EMULATED
     neo4all_prof_start(NEO4ALL_PROFILER_Z80);
+    if (offset == 0x320000) {
+           sound_code=data&0xff;
+           pending_command=1;
     	   if (neogeo_sound_enable)
 	   {
-                sound_code=data&0xff;
-                pending_command=1;
                 _z80nmi();
                 _z80exec(Z80_TIMESLICE_PER_NMI);
                 my_timer();
            }
+    }
     neo4all_prof_end(NEO4ALL_PROFILER_Z80);
 #endif
 }
 
-void m68k_write_memory_16_320000(unsigned int offset, unsigned int data) {
+void cpu_z80_write_16(unsigned int offset, unsigned int data) {
 #ifdef DEBUG_MEMORY
 if (trazando) printf("write_16_320000(0x%X)=0x%X\n",offset,data&0xFFFF);
 #endif
 #ifdef Z80_EMULATED
     neo4all_prof_start(NEO4ALL_PROFILER_Z80);
+    if (offset == 0x320000) {
+           sound_code=(data>>8)&0xff;
+           pending_command=1;
     	   if (neogeo_sound_enable)
 	   {
-                sound_code=(data>>8)&0xff;
-                pending_command=1;
                 _z80nmi();
                 _z80exec(Z80_TIMESLICE_PER_NMI);
                 my_timer();
            }
+    }
     neo4all_prof_end(NEO4ALL_PROFILER_Z80);
 #endif
 }
 
-void m68k_write_memory_8_3c0000(unsigned int offset, unsigned int data) {
+void cpu_videreg_write_8(unsigned int offset, unsigned int data) {
 #ifdef DEBUG_MEMORY
 if (trazando) printf("write_8_3c0000(0x%X)=0x%X\n",offset,data&0xFF);
 #endif
-	    int temp=cpu_readvidreg(offset);
-            if(offset&0x01) cpu_writevidreg(offset, (temp&0xff)|(data<<8));
-            else cpu_writevidreg(offset, (temp&0xff00)|data);
+	    int temp=cpu_vidreg_read_16(offset);
+            if(offset&0x01) cpu_vidreg_write_16(offset, (temp&0xff)|(data<<8));
+            else cpu_vidreg_write_16(offset, (temp&0xff00)|data);
 }
+
+#ifndef AES
 
 /***************************************************************************************************/
 void m68k_write_memory_8(unsigned int offset, unsigned int data) {
@@ -536,19 +795,19 @@ if (trazando) printf("write_8(0x%X)=0x%X\n",offset,data&0xFF);
     switch(offset>>16)
     {
 
-        case    0x30:    watchdog_reset_w(); break;
-        case    0x32:	 m68k_write_memory_8_320000(offset,data); break;
+        case    0x30:    cpu_watchdog_reset(); break;
+        case    0x32:	 cpu_z80_write_8(offset,data); break;
 //	case	0x38:	 break;
-        case    0x3a:    cpu_writeswitch(offset, data); break;
-        case    0x3c:    m68k_write_memory_8_3c0000(offset,data); break;
-        case    0x80:    if(offset&0x01) write_memcard(offset,data); break;
+        case    0x3a:    cpu_switch_write(offset, data); break;
+        case    0x3c:    cpu_videreg_write_8(offset,data); break;
+        case    0x80:    if(offset&0x01) cpu_memcard_write(offset,data); break;
 
 
         /* upload */
         case    0xe0:
         case    0xe1:
         case    0xe2:
-        case    0xe3:   write_upload(offset&0xfffff,data); break;
+        case    0xe3:   cpu_upload_write_8(offset&0xfffff,data); break;
 		
 		/* cdrom */
 //	case	0xff:	break;
@@ -558,9 +817,12 @@ if (trazando) printf("write_8(0x%X)=0x%X\n",offset,data&0xFF);
 #endif
 }
 
+#endif // AES
+
+
 /***************************************************************************************************/
 
-void m68k_write_memory_16_400000(unsigned int offset, unsigned int data) {
+void cpu_pal_write_16(unsigned int offset, unsigned int data) {
 #ifdef DEBUG_MEMORY
 if (trazando) printf("write_16_400000(0x%X)=0x%X\n",offset,data&0xFFFF);
 #endif
@@ -568,13 +830,13 @@ if (trazando) printf("write_16_400000(0x%X)=0x%X\n",offset,data&0xFFFF);
     neo4all_prof_start(NEO4ALL_PROFILER_MEM);
 #endif
 	offset =(offset&0x1fff)>>1;
-        data  &=0x7fff;
 #ifdef ONLY_CHANGES_PATCH
-	if (video_paletteram_ng[offset]!=data)
+	if (video_palette_ng[offset+(video_palette_selected<<4)]!=data)
 #endif
 	{
+//printf("store_pal_word addr=0x%X data=0x%X\n",offset<<1,data);
         	video_paletteram_ng[offset]=(Uint16)data;
-        	video_paletteram_pc[offset]=video_color_lut[data];
+        	video_paletteram_pc[offset]=video_color_lut[data&0x1fff];
 		video_palette_dirty=-1;
 		video_palette_use[video_palette_selected+(offset>>4)]=-1;
 	}
@@ -582,6 +844,20 @@ if (trazando) printf("write_16_400000(0x%X)=0x%X\n",offset,data&0xFFFF);
     neo4all_prof_end(NEO4ALL_PROFILER_MEM);
 #endif
 }
+
+void cpu_pal_write_8(unsigned int offset, unsigned int data) {
+	register unsigned addr=offset&0x1FFE;
+	register unsigned short a = video_paletteram_ng[addr];
+	if (offset & 0x1)
+		a = data | (a & 0xff00);
+	else
+		a = (a & 0xff) | (data << 8);
+//printf("store_pal_byte addr=0x%X data=0x%X -> a=0x%X\n",offset,data,a);
+	cpu_pal_write_16(addr,a);
+}
+
+
+#ifndef AES
 
 void m68k_write_memory_16(unsigned int offset, unsigned int data) {
 #ifdef DEBUG_MEMORY
@@ -599,16 +875,16 @@ if (trazando) printf("write_16(0x%X)=0x%X\n",offset,data&0xFFFF);
     switch(offset>>16)
     {
 //	case	0x2f:	break;
-        case    0x3a:   cpu_writeswitch(offset, data); break;
-        case    0x3c:   cpu_writevidreg(offset, data); break;
-        case    0x40:   m68k_write_memory_16_400000(offset,data); break;
-        case    0x80:   write_memcard(offset,data); break;
+        case    0x3a:   cpu_switch_write(offset, data); break;
+        case    0x3c:   cpu_vidreg_write_16(offset, data); break;
+        case    0x40:   cpu_pal_write_16(offset,data); break;
+        case    0x80:   cpu_memcard_write(offset,data); break;
 
         /* upload */
         case    0xe0:
         case    0xe1:
         case    0xe2:
-        case    0xe3:    write_upload_word(offset&0xfffff,data); break;
+        case    0xe3:    cpu_upload_write_16(offset&0xfffff,data); break;
 		
 //	case	0xff: break;
     }
@@ -617,11 +893,14 @@ if (trazando) printf("write_16(0x%X)=0x%X\n",offset,data&0xFFFF);
 #endif
 }
 
+#endif // AES
 
 /***************************************************************************************************/
 
 
-#if 1
+#ifndef AES
+
+
 void m68k_write_memory_32(unsigned int offset, unsigned int data) {
 #ifdef DEBUG_MEMORY
 if (trazando) printf("write_32(0x%X)=0x%X\n",offset,data);
@@ -632,53 +911,27 @@ if (trazando) printf("write_32(0x%X)=0x%X\n",offset,data);
 	m68k_write_memory_16(offset+2,word2);
 }
 
-#else
-void m68k_write_memory_32(unsigned int offset, unsigned int data) {
-#ifdef DEBUG_MEMORY
-if (trazando) printf("write_32(0x%X)=0x%X\n",offset,data);
-#endif
-    int temp=((data&0xffff)<<16)|((data>>16)&0xffff);
-    offset&=0xfffffe;
+#endif // AES
 
-    if(offset<0x200000)
-        *(Uint32*)&neogeo_prg_memory[offset]=temp;
-    else
-    switch(offset>>16)
-    {
-        case    0x3a:    cpu_writeswitch(offset, temp); break;
-        case    0x3c:    cpu_writevidreg(offset, temp);
-                         cpu_writevidreg(offset+2, data); break;
-        case    0x40:    offset =(offset&0x1fff)>>1;
-                         data  &=0x7fff;
-                         temp  &=0x7fff;
-#ifdef ONLY_CHANGES_PATCH
-			 if ((video_paletteram_ng[offset]==(Uint16)temp)&&(video_paletteram_ng[offset+1]==(Uint16)data))
-				 break;
-#endif
-                         video_paletteram_ng[offset]  =(Uint16)temp;
-                         video_paletteram_pc[offset]  =video_color_lut[temp];
-			 video_palette_dirty=-1;
-			 video_palette_use[video_palette_selected+(offset>>4)]=-1;
-                         video_paletteram_ng[offset+1]=(Uint16)data;
-                         video_paletteram_pc[offset+1]=video_color_lut[data]; break;
-
-        case    0x80:    offset =(offset&0x3fff)>>1;
-                         neogeo_memorycard[offset]  =(char)temp;
-                         neogeo_memorycard[offset+1]=(char)data; break;
-
-        case    0xe0:
-        case    0xe1:
-        case    0xe2:
-        case    0xe3:    write_upload_dword(offset&0xfffff,temp); break;
-		
-//	case	0xff:	break;
-
-    }
-}
-#endif
 
 /***************************************************************************************************/
-static int    cpu_readvidreg(int offset)
+
+static __inline__ unsigned short cpu_control_read(void)
+{
+	int scan = neogeo_current_line;
+//	int irq_bit = neogeo_irq2taken || (scan < 16 || scan > 239);
+
+	return ((scan <<7) & 0x7f80)
+//		|(irq_bit << 15)
+//		|(conf.pal<<3)
+		|(neogeo_frame_counter & 0x0007);
+/*
+	return ((((neogeo_frame_counter_speed-1)&0xffff)<<8)|
+		(neogeo_frame_counter&7)|128); break;
+*/
+}
+
+static int    cpu_vidreg_read_16(int offset)
 {
 #ifndef SINGLE_MEMORY
     neo4all_prof_start(NEO4ALL_PROFILER_MEM);
@@ -686,13 +939,13 @@ static int    cpu_readvidreg(int offset)
     register int ret=0;
     switch(offset)
     {
-        case    0x3c0000:    ret=*(Uint16*)&video_vidram[video_pointer<<1]; break;
-        case    0x3c0002:    ret=*(Uint16*)&video_vidram[video_pointer<<1]; break;
-        case    0x3c0004:    ret=video_modulo; break;
-        case    0x3c0006:    ret=((((neogeo_frame_counter_speed-1)&0xffff)<<8)|
-                               (neogeo_frame_counter&7)|128); break;
-        case    0x3c0008:    ret=*(Uint16*)&video_vidram[video_pointer<<1]; break;
+        case    0x3c0000:
+        case    0x3c0002:
+        case    0x3c0008:
         case    0x3c000a:    ret=*(Uint16*)&video_vidram[video_pointer<<1]; break;
+        case    0x3c0004:    ret=video_modulo; break;
+	case    0x3c0006:    ret=cpu_control_read();
+
 
     }
 #ifndef SINGLE_MEMORY
@@ -702,25 +955,43 @@ static int    cpu_readvidreg(int offset)
 }
 
 
-
-/***************************************************************************************************/
-static void    cpu_writevidreg(int offset, int data)
+static int cpu_vidreg_read_8(int offset)
 {
+	if ((offset&0xFFFF)==0xe)
+		return -1;
+	return 0;
+}
+
+
+static __inline__ void cpu_control_write(unsigned short data)
+{
+	neogeo_frame_counter_speed = (((data >> 8) & 0xff)+1);
+//	neogeo_irq2control = data & 0xff;
+}
+
+
+static void cpu_vidreg_write_16(int offset, int data)
+{
+//printf("vidreg 0x%X = 0x%X\n",offset,data);
 #ifndef SINGLE_MEMORY
     neo4all_prof_start(NEO4ALL_PROFILER_MEM);
 #endif
     switch(offset)
     {
         case    0x3c0000:    video_pointer=(Uint16)data; break;
+
         case    0x3c0002:    *(Uint16*)&video_vidram[video_pointer<<1]=(Uint16)data;
-                             video_pointer+=video_modulo; break;
+                             video_pointer=(video_pointer+video_modulo)&0xFFFF; break;
+
         case    0x3c0004:    video_modulo=(Sint16)data; break;
 
-        case    0x3c0006:    neogeo_frame_counter_speed=((data>>8)&0xff)+1; break;
-
-        case    0x3c0008:    /* IRQ position */    break;
-        case    0x3c000a:    /* IRQ position */    break;
-        case    0x3c000c:    /* IRQ acknowledge */ break;
+        case    0x3c0006:    cpu_control_write(data);
+/*
+			     break;
+        case    0x3c0008:    break; // IRQ position
+        case    0x3c000a:    break; // IRQ position
+        case    0x3c000c:    break; // IRQ acknowledge
+*/
 
     }
 #ifndef SINGLE_MEMORY
@@ -728,63 +999,240 @@ static void    cpu_writevidreg(int offset, int data)
 #endif
 }
 
+/*
+static void cpu_irq2pos_write(unsigned data)
+{
+	irq2pos_value = data;
+	if (neogeo_irq2control & 0x20) {
+		 int line = (irq2pos_value + 0x3b) / 0x180;
+		 irq2start = line + current_line;
+	}
+}
+*/
+
 
 /***************************************************************************************************/
 
 static void     neogeo_setpalbank0 (void) {
-    video_palette_selected=0;
-    video_paletteram_ng=video_palette_bank0_ng;
-    video_paletteram_pc=video_palette_bank0_pc;
+#ifdef USE_SECURE_MEMSWITCH
+    if (video_palette_selected)
+    {
+//puts("setpalbank0");
+#endif
+    	video_palette_selected=0;
+   	video_paletteram_ng=video_palette_bank0_ng;
+    	video_paletteram_pc=video_palette_bank0_pc;
+
+#ifdef USE_SECURE_MEMSWITCH
+	m68k_get_context(&neogeo_context);
+//	init_context();	
+#ifndef AES
+#if !defined(DEBUG_MEMORY) && !defined(SINGLE_MEMORY)
+	neogeo_memmap_read_16[4].data=(void *)(((unsigned)video_paletteram_ng)-0x400000);
+	neogeo_memmap_read_8[10].data=(void *)(((unsigned)video_paletteram_ng)-0x400000);
+#endif
+#else
+	neogeo_memmap_read_8[14].data=(void *)(((unsigned)video_paletteram_ng)-0x400000);
+	neogeo_memmap_read_16[7].data=(void *)(((unsigned)video_paletteram_ng)-0x400000);
+#endif
+	m68k_set_context(&neogeo_context);
+#else
+#ifndef AES
+#if !defined(DEBUG_MEMORY) && !defined(SINGLE_MEMORY)
+	M68KCONTEXT.read_word[4].data=(void *)(((unsigned)video_paletteram_ng)-0x400000);
+	M68KCONTEXT.read_byte[10].data=(void *)(((unsigned)video_paletteram_ng)-0x400000);
+#endif
+#else
+	M68KCONTEXT.read_byte[14].data=(void *)(((unsigned)video_paletteram_ng)-0x400000);
+	M68KCONTEXT.read_word[7].data=(void *)(((unsigned)video_paletteram_ng)-0x400000);
+#endif
+#endif
+#ifdef USE_SECURE_MEMSWITCH
+    }
+#endif
 }
 
 
 static void     neogeo_setpalbank1 (void) {
-    video_palette_selected=0x100;
-    video_paletteram_ng=video_palette_bank1_ng;
-    video_paletteram_pc=video_palette_bank1_pc;
+#ifdef USE_SECURE_MEMSWITCH
+    if (!video_palette_selected)
+    {
+#endif
+//puts("setpalbank1");
+    	video_palette_selected=0x100;
+    	video_paletteram_ng=video_palette_bank1_ng;
+    	video_paletteram_pc=video_palette_bank1_pc;
+
+#ifdef USE_SECURE_MEMSWITCH
+	m68k_get_context(&neogeo_context);
+//	init_context();	
+#ifndef AES
+#if !defined(DEBUG_MEMORY) && !defined(SINGLE_MEMORY)
+	neogeo_memmap_read_16[4].data=(void *)(((unsigned)video_paletteram_ng)-0x400000);
+	neogeo_memmap_read_8[10].data=(void *)(((unsigned)video_paletteram_ng)-0x400000);
+#endif
+#else
+	neogeo_memmap_read_8[14].data=(void *)(((unsigned)video_paletteram_ng)-0x400000);
+	neogeo_memmap_read_16[7].data=(void *)(((unsigned)video_paletteram_ng)-0x400000);
+#endif
+	m68k_set_context(&neogeo_context);
+#else
+#ifndef AES
+#if !defined(DEBUG_MEMORY) && !defined(SINGLE_MEMORY)
+	M68KCONTEXT.read_word[4].data=(void *)(((unsigned)video_paletteram_ng)-0x400000);
+	M68KCONTEXT.read_byte[10].data=(void *)(((unsigned)video_paletteram_ng)-0x400000);
+#endif
+#else
+	M68KCONTEXT.read_byte[14].data=(void *)(((unsigned)video_paletteram_ng)-0x400000);
+	M68KCONTEXT.read_word[7].data=(void *)(((unsigned)video_paletteram_ng)-0x400000);
+#endif
+#endif
+#ifdef USE_SECURE_MEMSWITCH
+    }
+#endif
+
 }
 
 
-static void    neogeo_select_bios_vectors (void) {
+
+// NEOGEO CD
+
+static __inline__ void    neogeo_select_bios_vectors (void) {
+//puts("neogeo_select_bios_vectors");
     memcpy(neogeo_prg_memory, neogeo_rom_memory, 0x80);
 }
 
-/*
-static void    neogeo_select_game_vectors (void) {
+static __inline__ void    neogeo_select_game_vectors (void) {
+#ifdef AES
+//puts("neogeo_select_game_vectors");
+    memcpy(neogeo_prg_memory, neogeo_game_vector, 0x80);
+#endif
 }
+
+#ifdef AES
+
+// NEOGEO AES
+
+void m68k_bankswitch(unsigned int address)
+{
+#ifdef USE_SECURE_MEMSWITCH
+	static unsigned int back_address=0xFFFFFFFF;
+	if (back_address!=address)
+	{
+#endif
+//printf("m68k_bankswitch(0x%X)\n",address);
+		unsigned int new_address=((unsigned)neogeo_prg_memory)+address-0x200000;
+#ifdef USE_SECURE_MEMSWITCH
+		m68k_get_context(&neogeo_context);
+		neogeo_memmap_read_8[3].data=(void *)(new_address);
+		neogeo_memmap_read_16[3].data=(void *)(new_address);
+		neogeo_program[2].offset=new_address;
+//		init_context();	
+		m68k_set_context(&neogeo_context);
+		back_address=address;
+	}
+#else
+		M68KCONTEXT.read_byte[3].data=(void *)(new_address);
+		M68KCONTEXT.read_word[3].data=(void *)(new_address);
+		M68KCONTEXT.fetch[2].offset=new_address;
+#endif
+}
+
+
+static __inline__ void    neogeo_select_board_sfix (void) {
+//puts("neogeo_select_board_sfix");
+	neogeo_fix_memory = (char*) aes4all_memory_sfix_board;
+	video_fix_usage = (unsigned char *) aes4all_memory_fix_board_usage;
+}
+
+static __inline__ void    neogeo_select_game_sfix (void) {
+//puts("neogeo_select_game_sfix");
+	neogeo_fix_memory = (char*) aes4all_memory_sfix_game;
+	video_fix_usage = (unsigned char *) aes4all_memory_fix_game_usage;
+}
+
+static void cpu_bk_write(unsigned int address, unsigned int _data)
+{
+//printf("cpu_bk_write(0x%X,0x%X)\n",address,_data);
+	if (aes4all_memory_cpu_size <= 0x100000)
+		return;
+	register unsigned char data=_data;
+/*
+	if (address == aes4all_bksw_handler) {
+		data = 
+			(((data >> aes4all_bksw_unscramble[0]) & 1) << 0) +
+			(((data >> aes4all_bksw_unscramble[1]) & 1) << 1) +
+			(((data >> aes4all_bksw_unscramble[2]) & 1) << 2) +
+			(((data >> aes4all_bksw_unscramble[3]) & 1) << 3) +
+			(((data >> aes4all_bksw_unscramble[4]) & 1) << 4) +
+			(((data >> aes4all_bksw_unscramble[5]) & 1) << 5);
+		aes4all_bankaddress = 0x100000 + aes4all_bksw_offset[data];
+	} else
 */
+	if (address >= 0x2FFFF0) {
+		data = data & 0x7;
+		aes4all_bankaddress = (data + 1) * 0x100000;
+	} else
+		return;
+	if (aes4all_bankaddress >= aes4all_memory_cpu_size)
+		aes4all_bankaddress = 0x100000;
+	m68k_bankswitch(aes4all_bankaddress);
+}
 
 
-static void    cpu_writeswitch(int offset, int data)
+#ifdef USE_NVRAM_READ_FUNC
+static unsigned char   cpu_nvram_read_8(unsigned int addr)
+{
+	return aes4all_nvram[addr - 0xd00000];
+}
+
+static unsigned short   cpu_nvram_read_16(unsigned int addr)
+{
+	addr -= 0xd00000;
+	return (((unsigned short)aes4all_nvram[addr]) << 8) |
+		(((unsigned short)aes4all_nvram[addr + 1]) & 0xff);
+}
+#endif
+
+static void cpu_nvram_write_8(unsigned int addr, unsigned char data)
+{
+	if (aes4all_nvram_lock)
+		return;
+	if (addr == 0xd00000 + aes4all_nvram_protection_hack && ((data & 0xff) == 0x01))
+		return;
+	aes4all_nvram[addr - 0xd00000] = data;
+}
+
+static void cpu_nvram_write_16(unsigned int addr, unsigned short data)
+{
+	if (aes4all_nvram_lock)
+		return;
+	if (addr == 0xd00000 + aes4all_nvram_protection_hack && ((data & 0xffff) == 0x01))
+		return;
+	addr -= 0xd00000;
+	aes4all_nvram[addr] = data >> 8;
+	aes4all_nvram[addr + 1] = data & 0xff;
+}
+#endif
+
+
+static void    cpu_switch_write(int offset, int data)
 {
 #ifndef SINGLE_MEMORY
     neo4all_prof_start(NEO4ALL_PROFILER_MEM);
 #endif
-    switch(offset)
+    switch(offset&0xFFFFFE)
     {
-/*
-        case 0x3a0000:
-        case 0x3a0001:  break;
-*/
-
-        case 0x3a0002:
-        case 0x3a0003: neogeo_select_bios_vectors(); break;
-
-        case 0x3a000e: 
-        case 0x3a000f: neogeo_setpalbank1(); break;
-
-/*
-        case 0x3a0010:
-        case 0x3a0011:  break;
-*/
-
-/*
-        case 0x3a0012:
-        case 0x3a0013: neogeo_select_game_vectors(); break;
-*/
-
-        case 0x3a001e: 
-        case 0x3a001f: neogeo_setpalbank0(); break;
+        case 0x3a0002: neogeo_select_bios_vectors(); break;
+        case 0x3a0012: neogeo_select_game_vectors(); break;
+#ifdef AES
+	case 0x3a000a: neogeo_select_board_sfix(); break;
+	case 0x3a001a: neogeo_select_game_sfix(); break;
+	case 0x3a000d: aes4all_nvram_lock = 1; break;
+	case 0x3a001d: aes4all_nvram_lock = 0; break;
+#endif
+        case 0x3a000e: neogeo_setpalbank1(); break;
+        case 0x3a001e: neogeo_setpalbank0(); break;
 
     }
 #ifndef SINGLE_MEMORY
@@ -810,7 +1258,7 @@ void neogeo_sound_irq(int irq)
 
 
 
-static int cpu_readcoin(int addr)
+static int cpu_coin_read(int addr)
 {
 #ifndef SINGLE_MEMORY
     neo4all_prof_start(NEO4ALL_PROFILER_MEM);
@@ -820,8 +1268,9 @@ static int cpu_readcoin(int addr)
     if (addr == 0x1) {
         register int coinflip = pd4990a_testbit_r();
         register int databit = pd4990a_databit_r();
-        res=0xff ^ (coinflip << 6) ^ (databit << 7);
+        res=neo4all_intern_coin ^ (coinflip << 6) ^ (databit << 7);
     }
+    else
     if (addr == 0x0) {
 #ifdef Z80_EMULATED
 	if (neogeo_sound_enable)
@@ -831,8 +1280,8 @@ static int cpu_readcoin(int addr)
 			res &= 0x7f;
 	}
 	else
-		res |= 0x01;
 #endif
+		res |= 0x01;
     }
 #ifndef SINGLE_MEMORY
     neo4all_prof_end(NEO4ALL_PROFILER_MEM);
@@ -841,13 +1290,16 @@ static int cpu_readcoin(int addr)
 }
 
 
-static void watchdog_reset_w (void)
+static void cpu_watchdog_reset (void)
 {
     watchdog_counter=3 * 60;  /* 3s * 60 fps */
 }
 
+#ifndef AES
 
-static int read_upload(int offset) {
+// NEOGEO CD
+
+static int cpu_upload_read(int offset) {
     register int ret=-1;
 #if 0
 #ifndef SINGLE_MEMORY
@@ -855,7 +1307,7 @@ static int read_upload(int offset) {
 #endif
     /* int bank = m68k_read_memory_8(0x10FEDB); */
 
-    /* read_upload is disabled for now.*/
+    /* cpu_upload_read is disabled for now.*/
 	/* fixes Metal Slug */
 
     switch (m68k_read_memory_8(0x10FEDA)) {
@@ -876,7 +1328,7 @@ static int read_upload(int offset) {
 }
 
 
-static void write_upload(int offset, int data) {
+static void cpu_upload_write_8(int offset, int data) {
 #ifndef SINGLE_MEMORY
     neo4all_prof_start(NEO4ALL_PROFILER_MEM);
 #endif
@@ -899,9 +1351,10 @@ static void write_upload(int offset, int data) {
 #endif
 }
 
+
 static char _sprbuffer[4];
 
-static void write_upload_word(int offset, int data) {
+static void cpu_upload_write_16(int offset, int data) {
 #ifndef SINGLE_MEMORY
     neo4all_prof_start(NEO4ALL_PROFILER_MEM);
 #endif
@@ -947,8 +1400,7 @@ static void write_upload_word(int offset, int data) {
 #endif
 }
 
-
-static void write_upload_dword(int offset, int data) {
+static void cpu_upload_write_32(int offset, int data) {
 #ifndef SINGLE_MEMORY
     neo4all_prof_start(NEO4ALL_PROFILER_MEM);
 #endif
@@ -972,8 +1424,10 @@ static void write_upload_dword(int offset, int data) {
 #endif
 }
 
+#endif
 
-static void write_memcard(int offset, int data) {
+
+static void cpu_memcard_write(int offset, int data) {
 #ifndef SINGLE_MEMORY
     neo4all_prof_start(NEO4ALL_PROFILER_MEM);
 #endif
@@ -986,3 +1440,14 @@ static void write_memcard(int offset, int data) {
 #endif
 }
 
+static void cpu_pd4990_write_8(unsigned int address, unsigned int value)
+{
+	register unsigned char data=value;
+	pd4990a_control_w(address,value);
+}
+
+static void cpu_pd4990_write_16(unsigned int address, unsigned int value)
+{
+	register unsigned short data=value;
+	pd4990a_control_w(address,value);
+}

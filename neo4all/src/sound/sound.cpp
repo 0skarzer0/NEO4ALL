@@ -22,7 +22,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "../neocd.h"
+#include "../neo4all.h"
 #include "streams.h"
 
 static unsigned char sound_muted=0x3;
@@ -34,7 +34,21 @@ static unsigned char sound_muted=0x3;
 #define BUFFER_LEN 16384
 extern Uint16 play_buffer[BUFFER_LEN];
 
-#define NB_SAMPLES 512 /* better resolution */
+#ifdef WIN32
+#define NB_SAMPLES 2048 /* secure resolution */
+#else
+#ifdef DREAMCAST
+#define NB_SAMPLES 512  /* better resolution */
+#else
+#define NB_SAMPLES 1024 /* normal resolution */
+#endif
+#endif
+
+#ifdef AES
+#define MUSIC_MOD "aes.mod"
+#else
+#define MUSIC_MOD "cd.mod"
+#endif
 
 #ifdef MENU_MUSIC
 #include <SDL_mixer.h>
@@ -67,10 +81,12 @@ static Mix_Chunk *sample[NUM_SAMPLES];
 #include <SDL_dreamcast.h>
 #endif
 
+unsigned sound_emulating=0;
+
 void update_sdl_stream(void *userdata, Uint8 * stream, int len)
 {
 #ifdef Z80_EMULATED
-    if ((!sound_muted)&&(neogeo_sound_enable))
+    if ((!sound_muted)&&(neogeo_sound_enable)&&(neogeo_emulating))
     {
 	neo4all_prof_start(NEO4ALL_PROFILER_SOUND);
     	streamupdate(len);
@@ -119,7 +135,7 @@ int init_sdl_audio(void)
 void sound_play_menu_music(void)
 {
 #ifdef MENU_MUSIC
-    Mix_PlayMusic(Mix_LoadMUS(DATA_PREFIX "music.mod"),-1);
+    Mix_PlayMusic(Mix_LoadMUS(DATA_PREFIX MUSIC_MOD),-1);
     sound_mute();
 #endif
 }
@@ -219,7 +235,16 @@ void sound_shutdown(void) {
 #ifdef Z80_EMULATED
 //puts("sound_shutdown");
     sound_stop();
+    streams_sh_stop();
+    YM2610_sh_stop();
     SDL_CloseAudio();
+#endif
+}
+
+void sound_emulate_stop(void) {
+#ifdef Z80_EMULATED
+    YM2610_sh_reset();
+    AY8910_reset();
 #endif
 }
 
@@ -227,17 +252,25 @@ void sound_stop(void) {
 #ifdef Z80_EMULATED
 //puts("sound_stop");
     sound_mute();
-    streams_sh_stop();
-    YM2610_sh_stop();
+    sound_emulate_stop();
     SDL_Delay(100);
 #endif
 }
+
+void sound_emulate_start(void) {
+#ifdef Z80_EMULATED
+    YM2610_sh_start();
+    YM2610_sh_reset();
+    AY8910_reset();
+#endif
+}
+
 
 void sound_reset(void) {
 #ifdef Z80_EMULATED
 //puts("sound_reset");
     streams_sh_start();
-    YM2610_sh_start();
+    sound_emulate_start();
     sound_unmute();
 #endif
 }

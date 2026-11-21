@@ -17,11 +17,13 @@
 extern unsigned	video_palette_selected;
 extern char		*video_vidram;
 extern unsigned short	*video_paletteram_ng;
-extern unsigned short	video_palette_bank0_ng[4096];
-extern unsigned short	video_palette_bank1_ng[4096];
+extern unsigned short   video_palette_ng[4096*2];
+#define video_palette_bank0_ng ((unsigned short *)&video_palette_ng[0])
+#define video_palette_bank1_ng ((unsigned short *)&video_palette_ng[4096])
 extern unsigned short	*video_paletteram_pc;
-extern unsigned short	video_palette_bank0_pc[4096];
-extern unsigned short	video_palette_bank1_pc[4096];
+extern unsigned short   video_palette_pc[4096*2];
+#define video_palette_bank0_pc ((unsigned short *)&video_palette_pc[0])
+#define video_palette_bank1_pc ((unsigned short *)&video_palette_pc[4096])
 extern short		video_modulo;
 extern unsigned short	video_pointer;
 extern unsigned short	*video_paletteram;
@@ -29,7 +31,7 @@ extern unsigned short	*video_paletteram_pc;
 extern unsigned short	video_palette_bank0[4096];
 extern unsigned short	video_palette_bank1[4096];
 extern unsigned short	*video_line_ptr[224];
-extern unsigned char	video_fix_usage[4096];
+extern unsigned char	*video_fix_usage;
 extern unsigned char	rom_fix_usage[4096];
 extern unsigned char	video_spr_usage[32768];
 extern unsigned char	rom_spr_usage[32768];

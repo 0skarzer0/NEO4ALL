@@ -1,6 +1,6 @@
 // 68K CPU interface
 
-#include "../neocd.h"
+#include "../neo4all.h"
 #include "../c68k/c68k.h"
 #include "../c68k/m68k.h"
 

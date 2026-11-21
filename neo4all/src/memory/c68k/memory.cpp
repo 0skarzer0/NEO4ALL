@@ -11,7 +11,7 @@
 #include <ctype.h>
 #include <string.h>
 
-#include "../neocd.h"
+#include "../neo4all.h"
 
 #ifdef DEBUG_MEMORY
 extern int trazando;

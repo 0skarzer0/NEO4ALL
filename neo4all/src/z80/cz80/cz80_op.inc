@@ -1,7 +1,7 @@
 /********************************************************************************/
 /*                                                                              */
 /* CZ80 opcode include source file                                              */
-/* C Z80 emulator version 0.9                                                   */
+/* C Z80 emulator version 0.92                                                  */
 /* Copyright 2004-2005 Stéphane Dallongeville                                   */
 /*                                                                              */
 /********************************************************************************/
@@ -1014,49 +1014,49 @@ OP_RRA:
     OP(0xd2):   // JP   NC,nn
 OP_JP_NC:
         if (!(zF & CZ80_CF)) goto OP_JP;
-        PC += 2;
+        zPC += 2;
         RET(10);
 
     OP(0xda):   // JP   C,nn
 OP_JP_C:
         if (zF & CZ80_CF) goto OP_JP;
-        PC += 2;
+        zPC += 2;
         RET(10);
 
     OP(0xe2):   // JP   PO,nn
 OP_JP_PO:
         if (!(zF & CZ80_VF)) goto OP_JP;
-        PC += 2;
+        zPC += 2;
         RET(10);
 
     OP(0xea):   // JP   PE,nn
 OP_JP_PE:
         if (zF & CZ80_VF) goto OP_JP;
-        PC += 2;
+        zPC += 2;
         RET(10);
 
     OP(0xf2):   // JP   P,nn
 OP_JP_P:
         if (!(zF & CZ80_SF)) goto OP_JP;
-        PC += 2;
+        zPC += 2;
         RET(10);
 
     OP(0xfa):   // JP   M,nn
 OP_JP_M:
         if (zF & CZ80_SF) goto OP_JP;
-        PC += 2;
+        zPC += 2;
         RET(10);
 
     OP(0xca):   // JP   Z,nn
 OP_JP_Z:
         if (zF & CZ80_ZF) goto OP_JP;
-        PC += 2;
+        zPC += 2;
         RET(10);
 
     OP(0xc2):   // JP   NZ,nn
 OP_JP_NZ:
         if (!(zF & CZ80_ZF)) goto OP_JP;
-        PC += 2;
+        zPC += 2;
         RET(10);
 
     {
@@ -1079,32 +1079,32 @@ OP_JP_xx:
     OP(0x38):   // JR   C,n
 OP_JR_C:
         if (zF & CZ80_CF) goto OP_JR;
-        PC++;
+        zPC++;
         RET(7)
 
     OP(0x30):   // JR   NC,n
 OP_JR_NC:
         if (!(zF & CZ80_CF)) goto OP_JR;
-        PC++;
+        zPC++;
         RET(7)
 
     OP(0x28):   // JR   Z,n
 OP_JR_Z:
         if (zF & CZ80_ZF) goto OP_JR;
-        PC++;
+        zPC++;
         RET(7)
 
     OP(0x20):   // JR   NZ,n
 OP_JR_NZ:
         if (!(zF & CZ80_ZF)) goto OP_JR;
-        PC++;
+        zPC++;
         RET(7)
 
     OP(0x10):   // DJNZ n
 OP_DJNZ:
         CCnt--;
         if (--zB) goto OP_JR;
-        PC++;
+        zPC++;
         RET(9)
 
     OP(0x18):   // JR   n
@@ -1114,7 +1114,7 @@ OP_JR:
 
         adr = FETCH_BYTE_S;
         // no rebase needed here...
-        PC += adr;
+        zPC += adr;
         RET(12)
     }
 
@@ -1123,49 +1123,49 @@ OP_JR:
     OP(0xd4):   // CALL NC,nn
 OP_CALL_NC:
         if (!(zF & CZ80_CF)) goto OP_CALL;
-        PC += 2;
+        zPC += 2;
         RET(10)
 
     OP(0xdc):   // CALL C,nn
 OP_CALL_C:
         if (zF & CZ80_CF) goto OP_CALL;
-        PC += 2;
+        zPC += 2;
         RET(10)
 
     OP(0xe4):   // CALL PO,nn
 OP_CALL_PO:
         if (!(zF & CZ80_VF)) goto OP_CALL;
-        PC += 2;
+        zPC += 2;
         RET(10)
 
     OP(0xec):   // CALL PE,nn
 OP_CALL_PE:
         if (zF & CZ80_VF) goto OP_CALL;
-        PC += 2;
+        zPC += 2;
         RET(10)
 
     OP(0xf4):   // CALL P,nn
 OP_CALL_P:
         if (!(zF & CZ80_SF)) goto OP_CALL;
-        PC += 2;
+        zPC += 2;
         RET(10)
 
     OP(0xfc):   // CALL M,nn
 OP_CALL_M:
         if (zF & CZ80_SF) goto OP_CALL;
-        PC += 2;
+        zPC += 2;
         RET(10)
 
     OP(0xcc):   // CALL Z,nn
 OP_CALL_Z:
         if (zF & CZ80_ZF) goto OP_CALL;
-        PC += 2;
+        zPC += 2;
         RET(10)
 
     OP(0xc4):   // CALL NZ,nn
 OP_CALL_NZ:
         if (!(zF & CZ80_ZF)) goto OP_CALL;
-        PC += 2;
+        zPC += 2;
         RET(10)
 
     OP(0xcd):   // CALL nn

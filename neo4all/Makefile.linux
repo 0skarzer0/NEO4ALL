@@ -9,11 +9,13 @@ FAME_OBJ=src/68k/fame/fame.o
 FAME_SRC=src/68k/fame/fame.asm
 ASM_TYPE=elf
 
+all: program
+
 include config.mk
 
 PROG   = $(NAME)
 
-all: $(PROG)
+program: $(PROG)
 
 DEFAULT_CFLAGS = `sdl-config --cflags` -D_REENTRANT -DINLINE="static inline" -DLOWERCASEFILES -DDATA_PREFIX=\"data/\" -DROM_PREFIX=\"data/\" -DMEMCARD_PREFIX=\"/tmp/\"
 LDFLAGS        = `sdl-config --libs`

@@ -2,11 +2,12 @@
 
 NAME = neo4all
 
+#AES=1
 #MUSASHI_CORE=1
 FAME_CORE=1
 Z80_EMULATED=1
-#CZ80_CORE=1
-MAMEZ80_CORE=1
+CZ80_CORE=1
+#MAMEZ80_CORE=1
 SOUND=1
 #CONSOLE=1
 MENU=1
@@ -21,11 +22,11 @@ VIDEOGL=1
 CACHE_GL_AUTOCLEAN=1
 USE_THREAD_CDDA=1
 #SINGLE_MEMORY=1
-STDOUTPUT=1
+#STDOUTPUT=1
 #CACHE_INLINE=1
 #FM_INLINE=1
 #INPUT_INLINE=1
-#REBOOT_DREAMCAST=1
+REBOOT_DREAMCAST=1
 #DEBUG_FRAMESKIP=1
 #DEBUG_GL=1
 #DEBUG_CDROM=1
@@ -34,11 +35,16 @@ STDOUTPUT=1
 #PROFILER_NEO4ALL=1
 #AUTO_EVENTS=800
 #AUTO_MAX_EVENTS=1400
-
-
+#AES_PREFETCHING=1
 
 
 # --------------------------------------
+
+ifdef DREAMCAST
+ifdef AES_PREFETCHING
+NEO4ALL_CFLAGS+= -DAES_PREFETCHING -DSTDOUTPUT -DMMU_HANDLE_SLOT_SHIFT=0 -DMMU_HANDLE_SLICE=0
+endif
+endif
 
 ifdef USE_DMA
 NEO4ALL_CFLAGS+=-DUSE_DMA -DUSE_SQ
@@ -74,8 +80,20 @@ ifdef PD4990A
 NEO4ALL_CFLAGS+=-DUSE_PD4990A
 endif
 
+ifdef AES
+NAME = aes4all
+ifndef DREAMCAST
+NEO4ALL_CFLAGS+=-DAES=\"${AES}\"
+else
+KOS_AFLAGS+= --defsym AES=1
+NEO4ALL_CFLAGS+=-DAES="${AES}" -Isrc/mmu_file
+endif
+endif
+
 ifdef CDDA
+ifndef AES
 NEO4ALL_CFLAGS+=-DENABLE_CDDA
+endif
 endif
 
 ifdef DEBUG_GL
@@ -148,7 +166,9 @@ NEO4ALL_CFLAGS+=-DDEBUG_NEO4ALL -DBEGINTRACE=19 -DTOTRACE=19 -DDEBUG_REGISTERS
 endif
 
 ifdef USE_THREAD_CDDA
+ifndef AES
 NEO4ALL_CFLAGS+=-DUSE_THREAD_CDDA
+endif
 endif
 
 ifdef SINGLE_MEMORY
@@ -182,15 +202,32 @@ endif
 
 
 OBJS =	\
-	src/cdrom/cdrom.o \
-	$(CDROM_OBJ) \
 	src/video/video.o \
 	src/video/draw.o \
-	src/cdaudio/cdaudio.o \
 	src/input/input.o \
-	src/neocd.o \
+	src/main.o \
 	src/icon.o \
 	src/memcard.o 
+
+ifdef AES
+OBJS+= \
+	src/menu/menu_load.o \
+	src/aes/load.o \
+	src/aes/aes.o
+
+ifdef DREAMCAST
+OBJS+= \
+	src/mmu_file/mmu_file.o \
+	src/mmu_file/mmu_handle.o
+endif
+
+else
+OBJS+= \
+	src/cdrom/cdrom.o \
+	src/cdaudio/cdaudio.o \
+	$(CDROM_OBJ) 
+
+endif
 
 ifdef PROFILER_NEO4ALL
 OBJS+= \

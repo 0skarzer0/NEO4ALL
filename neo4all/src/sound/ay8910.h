@@ -5,7 +5,7 @@
 #include <config.h>
 #endif
 
-#include "neocd.h"
+#include "neo4all.h"
 
 
 #define MAX_8910 5

@@ -5,14 +5,14 @@
 #include <math.h>
 
 #include "video.h"
-#include "../neocd.h"
+#include "../neo4all.h"
 
 extern unsigned char	video_shrinky[17];
 char	full_y_skip[16]={0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1};
 
 //-- Defines ----------------------------------------------------------------- 
-#define LINE_BEGIN   mydword = *((int *)fspr) 
-#define LINE_MID     mydword = *((int *)fspr+1) 
+#define _LINE_BEGIN   mydword = *((int *)fspr) 
+#define _LINE_MID     mydword = *((int *)fspr+1) 
 #define PIXEL_LAST   col = (mydword&0x0F); if (col) *bm = paldata[col] 
 #define PIXEL_R      col = (mydword&0x0F); if (col) *bm = paldata[col]; bm-- 
 #define PIXEL_F      col = (mydword&0x0F); if (col) *bm = paldata[col]; bm++ 
@@ -23,6 +23,14 @@ char	full_y_skip[16]={0,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1};
 #define SHIFT3      mydword >>= 12 
 #define SHIFT2      mydword >>= 8 
 #define SHIFT1      mydword >>= 4 
+
+#ifndef AES
+#define LINE_BEGIN _LINE_BEGIN
+#define LINE_MID _LINE_MID
+#else
+#define LINE_BEGIN _LINE_MID
+#define LINE_MID _LINE_BEGIN
+#endif
 
 
 //---------------------------------------------------------------------------- 
@@ -57,11 +65,18 @@ void   video_draw_spr(unsigned int code, unsigned int color, int flipx,
    char               *l_y_skip; 
    const unsigned short   *paldata; 
 
+#ifdef _AES_
+   sx+=16;
+   if ((sx<=-8)||(sx+zx>=312)||(sy<0)||(sy+zy>=232))
+	  return;
+#else
+
    if (sx <= -8) 
       return; 
+#endif
 
 
-      if(zy == 16) 
+   if(zy == 16) 
        l_y_skip = full_y_skip; 
    else 
        l_y_skip = (char *)video_shrinky; 
@@ -70,29 +85,35 @@ void   video_draw_spr(unsigned int code, unsigned int color, int flipx,
 
    // Mish/AJP - Most clipping is done in main loop 
    oy = sy; 
-     ey = sy + zy -1;    // Clip for size of zoomed object 
+   ey = sy + zy -1;    // Clip for size of zoomed object 
 
    if (sy < 0) 
       sy = 0; 
    if (ey >= 224) 
       ey = 223; 
 
+#ifndef AES
    if (flipy)   // Y flip 
+#else
+   if (!flipy)   // Y flip 
+#endif
    { 
       dy = -8; 
-   //   fspr += (code+1)*128 - 8 - (sy-oy)*8; orgin code from pc source base 
-         fspr += ((code+1)<<7) - 8 - ((sy-oy)<<3); // Shift Sh4 saves 1 to 2 cycles maybe? 
+      fspr += ((code+1)<<7) - 8 - ((sy-oy)<<3); // Shift Sh4 saves 1 to 2 cycles maybe? 
    } 
    else      // normal 
    { 
       dy = 8; 
-   //   fspr += code*128 + (sy-oy)*8; //orgin code from pc source base 
-         fspr += ((code)<<7) + ((sy-oy)<<3); 
+      fspr += ((code)<<7) + ((sy-oy)<<3); 
    } 
 
    paldata = &video_paletteram_pc[color*16]; 
-    
+
+#ifndef AES
    if (flipx)   // X flip 
+#else
+   if (!flipx)   // X flip 
+#endif
    { 
       l=0; 
           switch(zx) { 

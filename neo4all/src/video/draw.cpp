@@ -10,14 +10,20 @@
 #include <math.h>
 
 #include "video.h"
-#include "../neocd.h"
+#include "../neo4all.h"
 #ifdef USE_VIDEO_GL
 #include "videogl.h"
 #endif
 
+#ifdef AES
+#include "aes/aes.h"
+#endif
+
 #include "console.h"
 
+#ifndef USE_VIDEO_GL
 unsigned char	video_shrinky[17];
+#endif
 
 unsigned eficiencia_media=50;
 
@@ -35,12 +41,14 @@ unsigned eficiencia_media=50;
 #endif
 
 
-static unsigned int   fc=0;
-
 int used_blitter=0;
 
 
 void blitter(void) {
+#ifdef USE_VIDEO_GL
+	if (!used_blitter)
+		neo4all_black_texture();
+#endif
 	used_blitter=1;
 
 #ifndef USE_VIDEO_GL
@@ -51,22 +59,18 @@ void blitter(void) {
 #else
 
 #ifndef DREAMCAST
-  glClearColor( ((video_paletteram_pc[4095]>>0)&0x1F),
-		((video_paletteram_pc[4095]>>5)&0x1F),
-		((video_paletteram_pc[4095]>>10)&0x1F), 255.0);
+  glClearColor(
+	((video_paletteram_pc[4095]>>0)&0x1F)/31.0,
+	((video_paletteram_pc[4095]>>5)&0x1F)/31.0,
+	((video_paletteram_pc[4095]>>10)&0x1F)/31.0,
+	1.0);
   glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 #else
   glKosBeginFrame();
-  {
-  	register unsigned r=(video_paletteram_pc[4095]>>10)&0x1F;
-  	register unsigned g=(video_paletteram_pc[4095]>>5)&0x1F;
-  	register unsigned b=(video_paletteram_pc[4095]>>0)&0x1F;
-  	pvr_set_bg_color(	((float)r)/31.9f,
-			  	((float)g)/31.9f,
-				((float)b)/31.9f
-		  	);
-//  	vid_border_color(r*8,g*8,b*8);
-  }
+  pvr_set_bg_color(
+	((float)((video_paletteram_pc[4095]>>10)&0x1F))/31.0,
+	((float)((video_paletteram_pc[4095]>>5)&0x1F))/31.0,
+	((float)((video_paletteram_pc[4095]>>0)&0x1F))/31.0);
   glKosFinishList();
 #endif
 
@@ -117,6 +121,7 @@ static __inline__ void video_draw_screen_first(void)
 #ifndef USE_VIDEO_GL
   int    a;
 
+//printf("draw_screen bgcolor=0x%X\n",video_paletteram_pc[4095]);
   for (a=0; a<224; a++) 
   	sq_set16(video_line_ptr[a], video_paletteram_pc[4095], 320*2);  
 #else
@@ -134,6 +139,8 @@ static __inline__ void video_draw_screen_first(void)
 
 }
 
+void  print_video_checksum(void);
+
 //---------------------------------------------------------------------------- 
 void video_draw_screen1() 
 {
@@ -146,16 +153,32 @@ void video_draw_screen1()
    if (!neo4all_skip_next_frame)
    	video_draw_screen_first();
 
+//printf("neogeo_frame_counter_fc=%i, neogeo_frame_counter_speed=%i\n",neogeo_frame_counter_fc,neogeo_frame_counter_speed);
+
+   if (neogeo_frame_counter_fc >= neogeo_frame_counter_speed) { 
+      neogeo_frame_counter++; 
+      neogeo_frame_counter_fc=0; //3;
+   } 
+
+//printf("neogeo_frame_counter=%i\n",neogeo_frame_counter);
+//print_video_checksum();
+
+   neogeo_frame_counter_fc++; 
    for (count=0;count<0x300;count+=2) { 
       t3 = *((unsigned short *)( &video_vidram[0x10000 + count] )); 
       t1 = *((unsigned short *)( &video_vidram[0x10400 + count] )); 
       t2 = *((unsigned short *)( &video_vidram[0x10800 + count] )); 
+//printf("%i, t1=0x%X, t2=0x%X, t3=0x%X\n",count,t1,t2,t3);
 
       // If this bit is set this new column is placed next to last one 
       if (t1 & 0x40) { 
+#ifndef _AES_
          sx += (rzx + 1); 
          if ( sx >= 0x1F0 ) 
-            sx -= 0x200; 
+            sx -= 0x200;
+#else
+	 sx += rzx;
+#endif
 
          // Get new zoom for this column 
          zx = (t3 >> 8)&0x0F; 
@@ -166,10 +189,15 @@ void video_draw_screen1()
          zx = (t3 >> 8)&0x0F; 
 
          rzy = t3 & 0xff; 
+#ifdef _AES_
+	 if (!rzy) continue;
+#endif
 
-         sx = (t2 >> 7); 
+         sx = (t2 >> 7);
+#ifndef _AES_
          if ( sx >= 0x1F0 ) 
             sx -= 0x200; 
+#endif
 
          // Number of tiles in this strip 
          my = t1 & 0x3f; 
@@ -180,29 +208,55 @@ void video_draw_screen1()
          else 
             fullmode = 0;   // Alpha Mission II uses 0x3f 
 
+#ifndef _AES_
          sy = 0x1F0 - (t1 >> 7); 
          if (sy > 0x100) sy -= 0x200; 
+#else
+	 sy = 0x200 - (t1 >> 7); /* sprite bank position */
+	 if (sy > 0x110) sy -= 0x200;
+#endif
           
          if (fullmode == 2 || (fullmode == 1 && rzy == 0xff)) 
          { 
+#ifndef _AES_
             while (sy < -16) sy += 2 * (rzy + 1); 
+#else
+	    while (sy < 0) sy += ((rzy + 1)<<1);
+#endif
          } 
          oy = sy; 
 
-           if(my==0x21) my=0x20; 
-         else if(rzy!=0xff && my!=0) 
-            my=((my*16*256)/(rzy+1) + 15)/16; 
+#ifndef _AES_
+         if(my==0x21)
+		 my=0x20; 
+         else
+		 if(rzy!=0xff && my!=0) 
+            		my=((my*16*256)/(rzy+1) + 15)/16; 
+#else
+	 if (rzy < 0xff && my < 0x10 && my){
+		 my = my*255/rzy;
+		 if (my > 0x10) my = 0x10;
+	 }
+#endif
 
-                  if(my>0x20) my=0x20; 
+         if(my>0x20) my=0x20; 
 
          ddax=0;   // setup x zoom 
       } 
 
+#ifndef _AES_
       rzx = zx; 
 
       // No point doing anything if tile strip is 0 
       if ((my==0)||(sx>311)) 
          continue; 
+#else
+      if (my==0) continue;
+      if(zx!=15) rzx=zx+1;
+      else rzx=16;
+      if ( sx >= 0x1F0 ) sx -= 0x200;
+      if(sx>=320) continue;
+#endif
 
       // Setup y zoom 
       if(rzy==255) 
@@ -212,71 +266,102 @@ void video_draw_screen1()
 
       offs = count<<6; 
 
+//printf("offs=%i\n",offs);
       // my holds the number of tiles in each vertical multisprite block 
       for (y=0; y < my ;y++) { 
          tileno  = *((unsigned short *)(&video_vidram[offs])); 
+//printf("tileno=%i, offs=%i\n",tileno,offs);
          offs+=2; 
          tileatr = *((unsigned short *)(&video_vidram[offs])); 
-         offs+=2; 
+         offs+=2;
 
+#ifdef AES
+	 if (aes4all_memory_nb_of_tiles>0x10000 && tileatr&0x10) tileno+=0x10000;
+	 if (aes4all_memory_nb_of_tiles>0x20000 && tileatr&0x20) tileno+=0x20000;
+	 if (aes4all_memory_nb_of_tiles>0x40000 && tileatr&0x40) tileno+=0x40000;
+
+	 if (tileatr&0x8)
+	    tileno=(tileno&~7)+((tileno+neogeo_frame_counter)&7);
+	 else if (tileatr&0x4)
+	    tileno=(tileno&~3)+((tileno+neogeo_frame_counter)&3);
+
+//printf("y=%i, tileno=%i, tileatr=0x%X\n",y,tileno,tileatr);
+	 if (tileno>aes4all_memory_nb_of_tiles)
+	    continue;
+#else
          if (tileatr&0x8) 
             tileno = (tileno&~7)|(neogeo_frame_counter&7); 
          else if (tileatr&0x4) 
             tileno = (tileno&~3)|(neogeo_frame_counter&3); 
               
-//         tileno &= 0x7FFF; 
          if (tileno>0x7FFF) 
             continue; 
+#endif
+
 
          if (fullmode == 2 || (fullmode == 1 && rzy == 0xff)) 
          { 
-            if (sy >= 248) sy -= 2 * (rzy + 1); 
+            if (sy >= 248) sy -= ((rzy + 1)<<1); 
          } 
          else if (fullmode == 1) 
          { 
-            if (y == 0x10) sy -= 2 * (rzy + 1); 
+            if (y == 0x10) sy -= ((rzy + 1)<<1); 
          } 
          else if (sy > 0x110) sy -= 0x200; 
 
          if(rzy!=255) 
          { 
             yskip=0; 
+#ifndef USE_VIDEO_GL
             video_shrinky[0]=0; 
+#endif
             for(i=0;i<16;i++) 
             { 
+#ifndef USE_VIDEO_GL
                video_shrinky[i+1]=0; 
+#endif
                dday-=rzy+1; 
                if(dday<=0) 
                { 
                   dday+=256; 
                   yskip++; 
+#ifndef USE_VIDEO_GL
                   video_shrinky[yskip]++; 
+#endif
                } 
+#ifndef USE_VIDEO_GL
                else 
                   video_shrinky[yskip]++; 
+#endif
             } 
          } 
 
 	 if (!neo4all_skip_next_frame)
+#ifdef _AES_
+//{
+//	   if (!((unsigned char *)aes4all_memory_pen_usage)[tileno])
+	   if (!(aes4all_pen_usage[tileno>>3]&(1<<(tileno&0x7))))
+//{
+		if (sx >= -16 && sx+15 < 336 && sy>=0 && sy+15 <256)
+#else
          	if (((tileatr>>8)||(tileno!=0))&&(sy<224)) 
-         	{ 
+#endif
+         	{
+//printf("PINTA %i, %i, %i, %i, %i, %i, %i, %i,\n",tileno,tileatr >> 8,tileatr & 0x01,tileatr & 0x02,sx,sy,rzx,yskip);
          		video_draw_spr( 
                			tileno,
 				tileatr >> 8, 
                			tileatr & 0x01,tileatr & 0x02, 
                			sx,sy,rzx,yskip); 
          	}
+//else printf("%i desechado\n",tileno);
+//}else printf("TILE INVISIBLE %i\n",tileno);
+//}
 
          sy +=yskip; 
       }  // for y 
    }  // for count 
 
-   if (fc >= neogeo_frame_counter_speed) { 
-      neogeo_frame_counter++; 
-      fc=3; 
-   } 
-
-   fc++; 
     
    if (!neo4all_skip_next_frame)
    {
@@ -286,6 +371,7 @@ void video_draw_screen1()
 } 
 
 
+#ifndef AES
 //---------------------------------------------------------------------------- 
 void video_draw_screen2() 
 { 
@@ -299,6 +385,11 @@ void video_draw_screen2()
    if (!neo4all_skip_next_frame)
    	video_draw_screen_first();
  
+   if (neogeo_frame_counter_fc >= neogeo_frame_counter_speed) { 
+      neogeo_frame_counter++; 
+      neogeo_frame_counter_fc=0; //3;
+   } 
+   neogeo_frame_counter_fc++; 
    t1 = *((unsigned short *)( &video_vidram[0x10400 + 4] )); 
 
    if ((t1 & 0x40) == 0) 
@@ -360,11 +451,13 @@ void video_draw_screen2()
          } 
          oy = sy; 
 
-           if(my==0x21) my=0x20; 
-         else if(rzy!=0xff && my!=0) 
-            my=((my*16*256)/(rzy+1) + 15)/16; 
+         if(my==0x21)
+		 my=0x20; 
+         else
+		 if(rzy!=0xff && my!=0) 
+            		my=((my*16*256)/(rzy+1) + 15)/16; 
 
-                  if(my>0x20) my=0x20; 
+         if(my>0x20) my=0x20; 
 
          ddax=0;   // setup x zoom 
       } 
@@ -395,36 +488,44 @@ void video_draw_screen2()
          else if (tileatr&0x4) 
             tileno = (tileno&~3)|(neogeo_frame_counter&3); 
               
-//         tileno &= 0x7FFF; 
          if (tileno>0x7FFF) 
             continue; 
 
+
          if (fullmode == 2 || (fullmode == 1 && rzy == 0xff)) 
          { 
-            if (sy >= 224) sy -= 2 * (rzy + 1); 
+            if (sy >= 224) sy -= ((rzy + 1)<<1); 
          } 
          else if (fullmode == 1) 
          { 
-            if (y == 0x10) sy -= 2 * (rzy + 1); 
+            if (y == 0x10) sy -= ((rzy + 1)<<1); 
          } 
          else if (sy > 0x100) sy -= 0x200; 
 
          if(rzy!=255) 
          { 
             yskip=0; 
+#ifndef USE_VIDEO_GL
             video_shrinky[0]=0; 
+#endif
             for(i=0;i<16;i++) 
             { 
+#ifndef USE_VIDEO_GL
                video_shrinky[i+1]=0; 
+#endif
                dday-=rzy+1; 
                if(dday<=0) 
                { 
                   dday+=256; 
                   yskip++; 
+#ifndef USE_VIDEO_GL
                   video_shrinky[yskip]++; 
+#endif
                } 
+#ifndef USE_VIDEO_GL
                else 
                   video_shrinky[yskip]++; 
+#endif
             } 
          } 
 
@@ -481,15 +582,16 @@ void video_draw_screen2()
           
          if (fullmode == 2 || (fullmode == 1 && rzy == 0xff)) 
          { 
-            while (sy < -16) sy += 2 * (rzy + 1); 
+	    while (sy < 0) sy += ((rzy + 1)<<1);
          } 
          oy = sy; 
 
-           if(my==0x21) my=0x20; 
-         else if(rzy!=0xff && my!=0) 
-            my=((my*16*256)/(rzy+1) + 15)/16; 
+	 if (rzy < 0xff && my < 0x10 && my){
+		 my = my*255/rzy;
+		 if (my > 0x10) my = 0x10;
+	 }
 
-                  if(my>0x20) my=0x20; 
+         if(my>0x20) my=0x20; 
 
          ddax=0;   // setup x zoom 
       } 
@@ -520,36 +622,44 @@ void video_draw_screen2()
          else if (tileatr&0x4) 
             tileno = (tileno&~3)|(neogeo_frame_counter&3); 
               
-//         tileno &= 0x7FFF; 
          if (tileno>0x7FFF) 
             continue; 
 
+
          if (fullmode == 2 || (fullmode == 1 && rzy == 0xff)) 
          { 
-            if (sy >= 248) sy -= 2 * (rzy + 1); 
+            if (sy >= 248) sy -= ((rzy + 1)<<1); 
          } 
          else if (fullmode == 1) 
          { 
-            if (y == 0x10) sy -= 2 * (rzy + 1); 
+            if (y == 0x10) sy -= ((rzy + 1)<<1); 
          } 
          else if (sy > 0x110) sy -= 0x200; 
 
          if(rzy!=255) 
          { 
             yskip=0; 
+#ifndef USE_VIDEO_GL
             video_shrinky[0]=0; 
+#endif
             for(i=0;i<16;i++) 
             { 
+#ifndef USE_VIDEO_GL
                video_shrinky[i+1]=0; 
+#endif
                dday-=rzy+1; 
                if(dday<=0) 
                { 
                   dday+=256; 
                   yskip++; 
+#ifndef USE_VIDEO_GL
                   video_shrinky[yskip]++; 
+#endif
                } 
+#ifndef USE_VIDEO_GL
                else 
                   video_shrinky[yskip]++; 
+#endif
             } 
          } 
 
@@ -563,16 +673,11 @@ void video_draw_screen2()
          			sx,sy,rzx,yskip); 
          	} 
 
+
          sy +=yskip; 
       }  // for y 
    }  // for count 
 
-   if (fc >= neogeo_frame_counter_speed) { 
-      neogeo_frame_counter++; 
-      fc=3; 
-   } 
-
-   fc++; 
     
    if (!neo4all_skip_next_frame)
    {
@@ -580,6 +685,9 @@ void video_draw_screen2()
    	blitter(); 
    }
 }
+#endif
+
+
 
 void video_flip(SDL_Surface *surface)
 {
@@ -657,18 +765,6 @@ void video_flip(SDL_Surface *surface)
 #else
   glKosFinishFrame();
 #endif
-#ifdef SHOW_CONSOLE
   used_blitter=0;
 #endif
-#endif
 }
-
-/*
-void video_final_flip(void)
-{
-	register unsigned short *p=(unsigned short *)neo4all_texture_surface;
-	register int i;
-	for(i=0;i<(16*16);i++)
-		*p++=0x8000;
-}
-*/

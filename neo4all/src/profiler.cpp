@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <SDL.h>
 
-#include "neocd.h"
+#include "neo4all.h"
 
 #ifdef PROFILER_NEO4ALL
 unsigned long long neo4all_prof_initial[NEO4ALL_PROFILER_MAX];

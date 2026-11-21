@@ -23,8 +23,7 @@ void pd4990a_addretrace (void);
 void pd4990a_init(void);
 int pd4990a_testbit_r (void);
 int pd4990a_databit_r (void);
-void pd4990a_control_w(unsigned short);
-void pd4990a_control_16_w (int,int);
+void pd4990a_control_w (unsigned,unsigned);
 void pd4990a_increment_day(void);
 void pd4990a_increment_month(void);
 

@@ -14,12 +14,23 @@
 .global _draw_font
 _draw_font:
 ! Set store queue
+	pref @r6
 	mov r4,r2               ! salvaguardar destino
 	mov.l sq_andmask,r0
 	and r0,r4
 	mov.l sq_ormask,r0
 	or r0,r4		! (0xe0000000 | (((unsigned long)dest) & 0x03ffffe0))
 
+.ifdef AES
+        mov #-24,r3
+        mov r2,r0
+        shld r3,r0
+        mov #21,r3
+        and #0x1C,r0
+        shld r3,r0
+        mov #16,r1        ! r1 = loop counter
+        or r0,r4
+.else
 	shlr16 r2
 	mov #0x1c,r1
 	shlr8 r2
@@ -28,6 +39,7 @@ _draw_font:
 	
 	mov.l r2,@r3
 	mov.l r2,@(4,r3)
+.endif
 
 	mov #4,r3         ! r3 = outer loop counter (y)
 	add #16,r4        ! getting up br to poke

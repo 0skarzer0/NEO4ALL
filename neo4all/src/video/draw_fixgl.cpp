@@ -5,9 +5,11 @@
 #include <math.h>
 
 #include "video.h"
-#include "../neocd.h"
+#include "../neo4all.h"
 #include "videogl.h"
 #include "sprgl.h"
+
+// #ifndef AES
 
 #ifdef DREAMCAST
 #ifdef __cplusplus
@@ -186,7 +188,7 @@ void video_draw_font_textures(void)
 	register int zy=8;
 
 #ifndef DREAMCAST
-	glBindTexture(GL_TEXTURE_2D, tile_opengl_tex[i]);
+//	glBindTexture(GL_TEXTURE_2D, tile_opengl_tex[i]);
 	loadTextureParams();
 	glTexImage2D(GL_TEXTURE_2D, 0, 4, 8, 8, 0, 
 		GL_RGBA, GL_UNSIGNED_SHORT_1_5_5_5_REV, font_buffer);
@@ -194,7 +196,11 @@ void video_draw_font_textures(void)
 #else
 	prepare_pvr_per_font(font_buffer);
 #endif
+#ifndef AES
 	VERTICE_FLIP_NONE
+#else
+	VERTICE_FLIP_X
+#endif
 #ifndef DREAMCAST
 	glEnd();
 #endif
@@ -241,3 +247,10 @@ void video_draw_font_textures_gl(void)
    }
 }
 #endif
+
+/*
+#else
+void video_draw_fix(void){ }
+void video_draw_font_textures(void){ }
+#endif // AES
+*/

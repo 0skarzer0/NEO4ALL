@@ -6,7 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <SDL.h>
-#include "../neocd.h"
+#include "../neo4all.h"
 
 #include "../menu/menu.h"
 
@@ -75,6 +75,23 @@ Uint32 joyup  [NUMJOYSTICKS][NUMJOYBUTTONS];
 Uint32 joymask[NUMJOYSTICKS][NUMAXES][AXISMAX];
 Uint32 joyset [NUMJOYSTICKS][NUMAXES][AXISMAX];
 
+unsigned char neo4all_intern_coin=7;
+
+#ifdef AES
+void input_init_aes_system(int system)
+{
+	if (system)
+	{
+    		keyup[SDLK_TAB]=joyup[0][9]=P1SEL;
+		keyup[SDLK_1]=joyup[1][9]=P2SEL;
+	}
+	else
+	{
+		keyup[SDLK_TAB]=joyup[0][9]=SPECIAL;
+		keyup[SDLK_1]=joyup[1][9]=SPECIAL;
+	}
+}
+#endif
             
 /*--------------------------------------------------------------------------*/
 void input_init(void) {
@@ -219,14 +236,26 @@ INPUT_STATIC_INLINE void goMenu(void)
 		menu_raise();
 		while(nook)
 		{
-			if (run_mainMenu()==2)
+			int cas=run_mainMenu();
+			if (cas>=2)
 			{
+#ifndef AES
 				cdda_resume();
 				SDL_Delay(100);
 				cdda_stop();
+#else
+				if (cas==2)
+				{
+					aes4all_load();
+					neo4all_init_memory();
+					neo4all_load_bios();
+				}
+#endif
 				nook=neogeo_hreset();
+#ifndef AES
 				if (nook)
 					drawNoNeoGeoCD();
+#endif
 			}
 			else
 			{
@@ -245,26 +274,48 @@ INPUT_STATIC_INLINE void goMenu(void)
 	}
 }
 
-#ifndef DREAMCAST
+static void insert_coin(int n)
+{
+	if (!n)
+		neo4all_intern_coin&=0x6;
+	else
+		neo4all_intern_coin&=0x5;
+}
+
+static void update_coin(void)
+{
+	static unsigned f=0;
+	if (!(f&127))
+		neo4all_intern_coin=0x7;
+	f++;
+}
+
+#if !defined(DREAMCAST) || defined(AES)
 INPUT_STATIC_INLINE void specialKey (SDLKey key) {
     switch(key) {
+#ifndef DREAMCAST
 	case SDLK_BACKSPACE:
 		pulsando_menu=1;
 		break;
 	case SDLK_F1: video_fullscreen_toggle(); break;
+	case SDLK_F2: insert_coin(0); break;
+	case SDLK_F3: insert_coin(1); break;
         case SDLK_F4: sound_toggle(); break;
         case SDLK_F12: video_save_snapshot(); break;
         case SDLK_ESCAPE: exit(0); break;
+#else
+	case SDLK_TAB: insert_coin(0); break;
+	case SDLK_1: insert_coin(1); break;
+#endif
         default:
 		pulsando_menu=0;
-            break;
     }
 }
 #endif
 
 
 INPUT_STATIC_INLINE void keyDown (SDLKey key) {
-#ifndef DREAMCAST
+#if !defined(DREAMCAST) || defined(AES)
     if(keyup[key]&SPECIAL) {
         specialKey(key);
     } else {
@@ -283,7 +334,7 @@ INPUT_STATIC_INLINE void keyUp (SDLKey key) {
     pulsando_menu=0;
 }
 
-
+#ifndef DREAMCAST
 INPUT_STATIC_INLINE void joyDown (int which, int button) {
     if (which<NUMJOYSTICKS && button<NUMJOYBUTTONS) {
         keys &= joydown[which][button];
@@ -296,6 +347,7 @@ INPUT_STATIC_INLINE void joyUp (int which, int button) {
         keys |= joyup[which][button];
     }
 }
+#endif
 
 
 INPUT_STATIC_INLINE void joyMotion (int which, int axis, int value) {
@@ -310,7 +362,8 @@ INPUT_STATIC_INLINE void joyMotion (int which, int axis, int value) {
 void processEvents(void) {
 #ifndef AUTO_EVENTS
     SDL_Event event;
-        
+    
+    update_coin();
     while(SDL_PollEvent(&event)) {
         switch(event.type) {
             case SDL_KEYDOWN: keyDown(event.key.keysym.sym); break;
@@ -387,7 +440,7 @@ unsigned char read_player2(void)
 
 /*--------------------------------------------------------------------------*/
 unsigned char read_pl12_startsel(void) {
-    return (keys>>16)&0x0f;
+    return (keys>>16)&0xff;
 }
 
 

@@ -1,31 +1,25 @@
 /********************************************************************************/
 /*                                                                              */
 /* CZ80 exec include source file                                                */
-/* C Z80 emulator version 0.9                                                   */
+/* C Z80 emulator version 0.92                                                  */
 /* Copyright 2004-2005 Stéphane Dallongeville                                   */
 /*                                                                              */
 /********************************************************************************/
 
-s32 FASTCALL Cz80_Exec(cz80_struc *cpu, s32 cycles)
+s32 CZ80_FASTCALL Cz80_Exec(cz80_struc *cpu, s32 cycles)
 {
 #if CZ80_USE_JUMPTABLE
     #include "cz80jmp.inc"
 #endif
 
-#if 0
-    register cz80_struc *CPU asm ("edi");
-    register u32 PC asm ("ebx");
-    register s32 CCnt asm ("esi");
-//    register u32 Opcode asm ("eax");
-    register u32 Opcode;
-#elif 0
-    register cz80_struc *CPU;
-    register u32 PC;
-    register s32 CCnt;
-    register u32 Opcode;
+#if __x86__
+    register cz80_struc *CPU asm ("ebx");
+    register u8 *PC asm ("esi");
+    register s32 CCnt asm ("edi");
+    register u32 Opcode asm ("edx");
 #else
     cz80_struc *CPU;
-    u32 PC;
+    u8 *PC;
     s32 CCnt;
     u32 Opcode;
 #endif
@@ -38,31 +32,57 @@ s32 FASTCALL Cz80_Exec(cz80_struc *cpu, s32 cycles)
         return (CPU->Status | 0x80000000);
     }
 
-#if CZ80_SIZE_OPT
-    CPU->CycleToDo = CPU->CycleSup = cycles;
-    CCnt = 0;
-#else
     CPU->CycleToDo = CCnt = cycles;
     CPU->CycleSup = 0;
-#endif
     CPU->Status |= CZ80_RUNNING;
     
-#if CZ80_SIZE_OPT
-Cz80_Exec_Check:
-    if (CCnt <= 0) goto Cz80_Exec_End;
-#else
-    goto Cz80_Exec_End;
-#endif
-
-Cz80_Exec:
+Cz80_Check_Int:
+    // check for interrupt
+    if (CPU->Status & (zIFF1 | CZ80_HAS_NMI))
     {
-        union16 *data = pzHL;
-        Opcode = FETCH_BYTE;
-        #include "cz80_op.inc"
+        u32 newPC;
+
+        if (CPU->Status & CZ80_HAS_NMI)
+        {
+            // NMI
+            CPU->Status &= ~(CZ80_HALTED | CZ80_HAS_NMI);
+            zIFF1 = 0;
+            newPC = 0x66;
+        }
+        else
+        {
+            // INT
+            CPU->Status &= ~(CZ80_HALTED | CZ80_HAS_INT);
+            zIFF= 0;
+
+            // IM = 1
+            if (zIM == 1) newPC = 0x38;
+            else
+            {
+                u32 adr;
+
+                Opcode = CPU->Interrupt_Ack(CPU->IntVect) & 0xFF;
+                // IM = 0
+                if (zIM == 0) goto Cz80_Exec;
+
+                // IM = 2
+                adr = Opcode | (zI << 8);
+                READ_WORD(adr, newPC)
+                CCnt -= 8;
+            }
+        }
+
+        // set new PC
+        {
+            u32 src = zRealPC;
+
+            PUSH_16(src)
+            SET_PC(newPC)
+            CCnt -= 11;
+        }
     }
 
-Cz80_Exec_End:
-    CHECK_INT
+    // if some cycles left
     if ((CCnt += CPU->CycleSup) > 0)
     {
         CPU->CycleSup = 0;
@@ -71,16 +91,29 @@ Cz80_Exec_End:
         // CPU halted
         CCnt = 0;
     }
-
+    
 Cz80_Exec_Really_End:
+    // no more cycles, end execution
     CPU->Status &= ~CZ80_RUNNING;
     CPU->PC = PC;
-    
+
     // number of executed cycles
     CCnt = CPU->CycleToDo - CCnt;
-    
+
     // update R register
     zR = (zR + (CCnt >> 2)) & 0x7F;
 
     return CCnt;
+
+#if CZ80_SIZE_OPT
+Cz80_Exec_Check:
+    if (CCnt <= 0) goto Cz80_Check_Int;
+#endif
+
+Cz80_Exec:
+    {
+        union16 *data = pzHL;
+        Opcode = FETCH_BYTE;
+        #include "cz80_op.inc"
+    }
 }

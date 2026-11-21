@@ -11,26 +11,44 @@
 #include <kos.h>
 #endif
 
+#ifdef WIN32
+#define bzero(BUF,SIZE) memset(BUF,0,SIZE)
+#endif
+
+#ifdef AES
+#define REFRESHTIME (1000/60)+2
+#else
 #define REFRESHTIME (1000/60)+1
+#endif
 
+#define NEOGEO_NB_INTERLACE 240
 
-//#define NEO4ALL_Z80_UNDER_CYCLES	 66666
+#ifndef AES
 #define NEO4ALL_Z80_UNDER_CYCLES	 33333
-//#define NEO4ALL_Z80_UNDER_CYCLES	 22222
+#else
+#define NEO4ALL_Z80_UNDER_CYCLES	 46666
+#endif
 #define NEO4ALL_68K_UNDER_CYCLES	166666
 
-//#define NEO4ALL_Z80_NORMAL_CYCLES	100000
+
+//#define NEO4ALL_Z80_REAL_CYCLES	 73333
+#define NEO4ALL_Z80_REAL_CYCLES	 	100000
+
+#ifndef AES
 #define NEO4ALL_Z80_NORMAL_CYCLES	 66666
-//#define NEO4ALL_Z80_NORMAL_CYCLES	 44444
+#else
+#define NEO4ALL_Z80_NORMAL_CYCLES	 73333 
+#endif
 #define NEO4ALL_68K_NORMAL_CYCLES	200000
 
-//#define NEO4ALL_Z80_OVER_CYCLES	133333
 #define NEO4ALL_Z80_OVER_CYCLES	 	 99999
-//#define NEO4ALL_Z80_OVER_CYCLES	 88888
-#define NEO4ALL_68K_OVER_CYCLES		233333
+#define NEO4ALL_68K_OVER_CYCLES		266666
 
-
+#ifdef DREAMCAST
 #define SAMPLE_RATE    22050
+#else
+#define SAMPLE_RATE    44100
+#endif
 
 #define REGION_JAPAN  0
 #define REGION_USA    1
@@ -40,7 +58,12 @@
 
 #define NEO4ALL_MEMCARD_SIZE 8192
 
+#include<stdio.h>
+#include<stdlib.h>
+#include<string.h>
+
 #include <SDL.h>
+
 
 #include "cdaudio/cdaudio.h"
 #include "cdrom/cdrom.h"
@@ -56,14 +79,18 @@
 #include "pd4990a.h"
 
 /*-- Version, date & time to display on startup ----------------------------*/
-#define VERSION1 "NEO4ALL based on NeoCD/SDL 0.3.1"
+#define VERSION1 "NEO4ALL based on NeoCD/SDL 0.3.1 and GnGeo 0.6.5"
 #define VERSION2 "Compiled on: "__DATE__" "__TIME__
 
 /*-- functions -------------------------------------------------------------*/
 
+int neo4all_load_bios(void);
+int neo4all_init_memory(void);
 
 /*-- globals ---------------------------------------------------------------*/
-extern char	global_error[80];
+//extern char	global_error[80];
+extern int neogeo_emulating;
+extern int neogeo_yet_running;
 
 extern char	*neogeo_rom_memory;
 extern char	*neogeo_prg_memory;
@@ -71,6 +98,7 @@ extern char	*neogeo_fix_memory;
 extern char	*neogeo_spr_memory;
 extern char	*neogeo_pcm_memory;
 
+extern unsigned char neogeo_game_vector[];
 extern unsigned char neogeo_memorycard[];
 void memcard_init(void);
 void memcard_shutdown(void);
@@ -80,9 +108,14 @@ extern int      neogeo_ipl_done;
 extern int	neogeo_sound_enable;
 extern int	neogeo_frameskip;
 
+extern int neogeo_irq2start, neogeo_irq2repeat, neogeo_irq2control, neogeo_irq2taken;
+extern int neogeo_current_line, neogeo_frame_counter_fc;
+
 extern Uint32 neo4all_z80_cycles;
 extern Uint32 neo4all_68k_cycles;
 extern unsigned z80_cycles_inited;
+
+extern unsigned char neo4all_intern_coin;
 
 int	neogeo_hreset(void);
 
@@ -95,10 +128,8 @@ void show_icon(void);
 void init_autoframeskip(void);
 void      neogeo_exit(void);
 
-
 extern char	neogeo_region;
 
-extern Uint32 neocd_time;
 extern int neo4all_skip_next_frame;
 
 #ifndef PROFILER_NEO4ALL

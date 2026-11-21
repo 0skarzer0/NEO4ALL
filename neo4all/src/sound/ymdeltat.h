@@ -1,7 +1,7 @@
 #ifndef __YMDELTAT_H_
 #define __YMDELTAT_H_
 
-#include "neocd.h"
+#include "neo4all.h"
 
 #define YM_DELTAT_SHIFT    (16)
 

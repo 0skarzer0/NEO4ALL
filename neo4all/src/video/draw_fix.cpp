@@ -8,13 +8,13 @@
 #include <ctype.h>
 
 #include "video.h"
-#include "../neocd.h"
+#include "../neo4all.h"
 
 #ifndef INLINE
 #define INLINE static __inline__
 #endif
 
-
+#ifndef AES
 /* Draw Single FIX character */
 INLINE void draw_fix(Uint16 code, Uint16 colour, Uint16 sx, Uint16 sy, Uint16 * palette, char * fix_memory)
 {
@@ -114,3 +114,7 @@ void fixputs( Uint16 x, Uint16 y, const char * string )
 
 	return;
 }
+
+#else
+void video_draw_fix(void){ }
+#endif // AES

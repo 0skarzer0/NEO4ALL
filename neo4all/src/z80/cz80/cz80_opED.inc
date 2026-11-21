@@ -1,7 +1,7 @@
 /********************************************************************************/
 /*                                                                              */
 /* CZ80 ED opcode include source file                                           */
-/* C Z80 emulator version 0.9                                                   */
+/* C Z80 emulator version 0.92                                                  */
 /* Copyright 2004-2005 Stéphane Dallongeville                                   */
 /*                                                                              */
 /********************************************************************************/
@@ -435,7 +435,7 @@ OP_OUT_mBC:
         zIFF1 = zIFF2;
         CCnt -= 10;
         // we need to test for interrupt
-        goto Cz80_Exec_End;
+        goto Cz80_Check_Int;
     }
 
     OPED(0x46): // IM   0
@@ -528,7 +528,7 @@ OP_LDXR:
             zF = F | CZ80_PF;
             zPC -= 2;
             CCnt += 4;
-            goto Cz80_Exec_End;
+            goto Cz80_Check_Int;
         }
 
         // instruction completed...
@@ -614,7 +614,7 @@ OP_CPXR:
             zF = F | CZ80_PF;
             zPC -= 2;
             CCnt += 4;
-            goto Cz80_Exec_End;
+            goto Cz80_Check_Int;
         }
 
         // instruction completed...
@@ -726,7 +726,7 @@ OP_INXR:
             // we will continu it at next CZ80_Exec
             zPC -= 2;
             CCnt += 4;
-            goto Cz80_Exec_End;
+            goto Cz80_Check_Int;
         }
 
         // instruction completed...
@@ -810,7 +810,7 @@ OP_OUTXR:
             // we will continu it at next CZ80_Exec
             zPC -= 2;
             CCnt += 4;
-            goto Cz80_Exec_End;
+            goto Cz80_Check_Int;
         }
 
         // instruction not yet completed...

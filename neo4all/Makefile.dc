@@ -4,17 +4,34 @@ CDROM_OBJ=src/cdrom/dc.o
 FAME_OBJ=src/68k/fame/fame.o
 FAME_SRC=src/68k/fame/fame.s
 
+DREAMCAST=YES
+
 include config.mk
 
+
+ifndef AES
 OBJS+=romdisk.o
+endif
 
 TARGET = $(NAME)
+
+ifdef AES
+KOS_CFLAGS= -Isrc/mmu_file/kos-patch/kernel/arch/dreamcast/include -O3 -fomit-frame-pointer -ml -m4-single-only -fno-optimize-sibling-calls -I$(KOS_BASE)/../kos-ports/include -I$(KOS_BASE)/include -I$(KOS_BASE)/kernel/arch/dreamcast/include -I$(KOS_BASE)/addons/include -D_arch_dreamcast -D_arch_sub_pristine -Wall -g -fno-builtin -fno-strict-aliasing
+
+KOS_LDFLAGS = -Lsrc/mmu_file/kos-patch/lib/dreamcast -Lsrc/mmu_file/kos-patch/addons/lib/dreamcast -ml -m4-single-only -Wl,-Ttext=0x8c010000 -nostartfiles -nostdlib -L$(KOS_BASE)/lib/dreamcast -L$(KOS_BASE)/addons/lib/dreamcast
+endif
 
 KOS_CFLAGS+= -I$(KOS_BASE)/addons/include/SDL -I$(KOS_BASE)/addons/include
 
 INLINE='static __inline__'
 
-KOS_CFLAGS+= -DDREAMCAST -DSDL -Isrc -Isrc/68k -Isrc/video -DDATA_PREFIX="/rd/" -DROM_PREFIX="/cd/" -DMEMCARD_PREFIX="/vmu/a1/"
+KOS_CFLAGS+= -DDREAMCAST -DSDL -Isrc -Isrc/68k -Isrc/video -DROM_PREFIX="/cd/" -DMEMCARD_PREFIX="/vmu/a1/"
+
+ifdef AES
+KOS_CFLAGS+=-DDATA_PREFIX="/cd/neo4all/"
+else
+KOS_CFLAGS+=-DDATA_PREFIX="/rd/"
+endif
 
 KOS_CFLAGS+=$(NEO4ALL_CFLAGS)
 KOS_CPPFLAGS+=$(KOS_CFLAGS)
@@ -22,6 +39,7 @@ KOS_CPPFLAGS+=$(KOS_CFLAGS)
 all: $(TARGET).elf
 
 include $(KOS_BASE)/Makefile.rules
+
 
 ifdef VIDEOGL
 LIB_SDL= -lSDL_mixer -lSDL_gl_129 -lgl 
@@ -43,9 +61,13 @@ romdisk.o: romdisk.img
 romdisk.img:
 	$(KOS_GENROMFS) -f romdisk.img -d data -v
 
-
+ifdef AES
+run: $(TARGET).bin
+else
 run: $(TARGET).bin example.iso
-	$(KOS_LOADER) $(TARGET).bin
+endif
+	$(KOS_LOADER) $(TARGET).bin -n
+#	$(KOS_LOADER) $(TARGET).bin 
 #	$(KOS_LOADER) $(TARGET).bin -i example.iso
 
 clean:
@@ -55,3 +77,4 @@ clean:
 
 clean-cores:
 	$(RM) $(Z80_OBJS) $(OBJS_68K)
+	

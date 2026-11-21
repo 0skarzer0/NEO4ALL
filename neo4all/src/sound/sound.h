@@ -19,9 +19,10 @@
 #ifndef SOUND_H
 #define SOUND_H
 
-#include "../neocd.h"
+#include "../neo4all.h"
 
 #define NB_SEGMENT 20
+
 
 #ifdef SOUND
 
@@ -42,6 +43,8 @@ void sound_play_saving(void);
 void sound_play_bye(void);
 void sound_play_beep(void);
 void sound_play_error(void);
+void sound_emulate_start(void);
+void sound_emulate_stop(void);
 
 #else
 
@@ -62,6 +65,8 @@ void sound_play_error(void);
 #define sound_play_bye()
 #define sound_play_beep()
 #define sound_play_error()
+#define sound_emulate_start()
+#define sound_emulate_stop()
 
 #endif
 

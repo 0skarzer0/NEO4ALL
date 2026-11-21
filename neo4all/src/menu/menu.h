@@ -3,8 +3,13 @@
 
 #ifdef SHOW_MENU
 
-#define MENU_FILE_SPLASH DATA_PREFIX "splash.bmp"
-#define MENU_FILE_BACKGROUND DATA_PREFIX "background.bmp"
+#ifdef AES
+#define MENU_FILE_SPLASH DATA_PREFIX "splash_aes.bmp"
+#define MENU_FILE_BACKGROUND DATA_PREFIX "background_aes.bmp"
+#else
+#define MENU_FILE_SPLASH DATA_PREFIX "splash_cd.bmp"
+#define MENU_FILE_BACKGROUND DATA_PREFIX "background_cd.bmp"
+#endif
 #define MENU_FILE_WINDOW DATA_PREFIX "window.bmp"
 #define MENU_FILE_TEXT DATA_PREFIX "text.bmp"
 #define MENU_FILE_TEXT_INV DATA_PREFIX "text2.bmp"

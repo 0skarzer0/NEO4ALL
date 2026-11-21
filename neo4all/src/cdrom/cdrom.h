@@ -6,6 +6,8 @@
 #ifndef	CDROM_H
 #define CDROM_H
 
+#ifndef AES
+
 #include <SDL.h>
 
 /*-- Exported Variables -----------------------------------------------------*/
@@ -37,5 +39,14 @@ unsigned int	motorola_peek(unsigned char*);
 
 /*-- sysdep functions --------------------------------------------------------*/
 int getMountPoint(int drive, char *mountpoint);
+
+#else
+
+#include "aes/aes.h"
+#define neogeo_cdrom_init1() aes4all_load()
+
+//#define neogeo_cdrom_init1() (1)
+
+#endif
 
 #endif /* CDROM_H */
