@@ -161,7 +161,9 @@ void video_draw_tile_textures(void)
 #endif
    unsigned i;
 
+#ifdef DREAMCAST
    prepare_pvr_init();
+#endif
    for(i=0;i<n_tile_list;i++)
    {
 	register void *texture_buffer=tile_list[i].buffer;

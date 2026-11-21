@@ -26,7 +26,7 @@ include $(KOS_BASE)/Makefile.rules
 ifdef VIDEOGL
 LIB_SDL= -lSDL_mixer -lSDL_gl_129 -lgl 
 else
-LIB_SDL= -lSDL_mixer -lSDL_dma_127
+LIB_SDL= -lSDL_mixer -lSDL_129
 endif
 
 $(TARGET).elf: $(OBJS) $(Z80_OBJS) $(MEMORY_OBJ) $(OBJS_68K)
@@ -44,9 +44,9 @@ romdisk.img:
 	$(KOS_GENROMFS) -f romdisk.img -d data -v
 
 
-run: $(TARGET).elf example.iso
-	$(KOS_LOADER) $(TARGET).elf
-#	$(KOS_LOADER) $(TARGET).elf -i example.iso
+run: $(TARGET).bin example.iso
+	$(KOS_LOADER) $(TARGET).bin
+#	$(KOS_LOADER) $(TARGET).bin -i example.iso
 
 clean:
 	$(RM) $(OBJS) src/68k/c68k/cpu68k.o src/z80/z80intrf.o $(MEMORY_OBJ) $(TARGET).elf $(TARGET).bin  romdisk.o romdisk.img

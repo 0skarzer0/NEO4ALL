@@ -49,11 +49,14 @@ int	neogeo_frameskip=-1;
 int	neogeo_sound_enable=1;
 #endif
 
+#define ACCURATE_PARTS	224
+
 static int neogeo_frameskip_count=0;
 
 unsigned z80_cycles_inited=0;
 #define Z80_CYCLES_INIT 90
 
+int	neogeo_accurate=0;
 
 #ifndef DREAMCAST
 static char		neocd_wm_title[255]=VERSION1;
@@ -553,8 +556,6 @@ void	neogeo_reset(void)
 //----------------------------------------------------------------------------
 void	neogeo_shutdown(void)
 {
-	FILE	*fp;
-	
 	console_println();
 	console_printf("NEOGEO: System Shutdown.\n");
 	// Close everything and free memory
@@ -641,7 +642,6 @@ void neogeo_adjust_cycles(int new_68k, int new_z80)
 //----------------------------------------------------------------------------
 void	neogeo_run(void)
 {
-    	int	i;
 
 	neogeo_emulating=1;
 	console_puts("NEOGEO RUN ...");
@@ -659,35 +659,56 @@ void	neogeo_run(void)
 	while(1)
 	{
 		neo4all_prof_end(NEO4ALL_PROFILER_MAIN);
-		neo4all_prof_start(NEO4ALL_PROFILER_MAIN);
-		neo4all_prof_start(NEO4ALL_PROFILER_Z80);
-
-		if (neogeo_sound_enable)
+		if ((!neogeo_accurate)||(!neogeo_sound_enable))
 		{
-			unsigned my_z80_cycles;
-			if (z80_cycles_inited<Z80_CYCLES_INIT)
+			neo4all_prof_start(NEO4ALL_PROFILER_MAIN);
+			neo4all_prof_start(NEO4ALL_PROFILER_Z80);
+			if (neogeo_sound_enable)
 			{
-				z80_cycles_inited++;
-				my_z80_cycles=NEO4ALL_Z80_OVER_CYCLES;
+				unsigned my_z80_cycles;
+				if (z80_cycles_inited<Z80_CYCLES_INIT)
+				{
+					z80_cycles_inited++;
+					my_z80_cycles=NEO4ALL_Z80_OVER_CYCLES;
+				}
+				else
+					my_z80_cycles=neo4all_z80_cycles;
+				// Execute Z80 timeslice (one VBL)
+				_z80raise(0);
+				{
+    				register int	i;
+				register int zc=neo4all_z80_cycles/ACCURATE_PARTS;
+				for (i = 0; i < ACCURATE_PARTS; i++) {
+					_z80exec(zc);
+					my_timer();
+				}
+				}
 			}
-			else
-				my_z80_cycles=neo4all_z80_cycles;
-			// Execute Z80 timeslice (one VBL)
+			neo4all_prof_end(NEO4ALL_PROFILER_Z80);
+			neo4all_prof_start(NEO4ALL_PROFILER_M68K);
+
+			// One-vbl timeslice
+			_68k_emulate(neo4all_68k_cycles);
+			_68k_interrupt(2);
+			neo4all_prof_end(NEO4ALL_PROFILER_M68K);
+		}
+		else
+		{
 			_z80raise(0);
-			for (i = 0; i < 256; i++) {
-				_z80exec(my_z80_cycles >> 8);
+			register int i;
+			register int zc=neo4all_z80_cycles/ACCURATE_PARTS;
+			register int mc=neo4all_68k_cycles/ACCURATE_PARTS;
+			for (i = 0; i < ACCURATE_PARTS ; i++)
+			{
+				_68k_emulate(mc);
+				_z80exec(zc);
 				my_timer();
 			}
+			_68k_interrupt(2);
 		}
 
-		neo4all_prof_end(NEO4ALL_PROFILER_Z80);
-		neo4all_prof_start(NEO4ALL_PROFILER_M68K);
 
-		// One-vbl timeslice
-		_68k_emulate(neo4all_68k_cycles);
-		_68k_interrupt(2);
 
-		neo4all_prof_end(NEO4ALL_PROFILER_M68K);
 
 		// update pd4990a
 		pd4990a_addretrace();

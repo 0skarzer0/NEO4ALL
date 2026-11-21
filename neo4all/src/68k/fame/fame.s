@@ -2,7 +2,7 @@
 ! Fast and Accurate Motorola 68000 Emulation Library
 ! FAME SH4 version 0.05 (06/09/2005)
 ! Oscar Orallo Pelaez
-! Assembly file generated on Oct  9 2005 23:24:36
+! Assembly file generated on Oct 12 2005 23:07:04
 ! --------------------------------------------------
 ! Opciones de generacion empleadas:
 ! - Formato de generacion SH4 (compilador GNU)
@@ -240518,12 +240518,17 @@ mov.l @(r0,r14),r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+extu.w r3,r3
 shar r3
+mov r3,r0
+shlr16 r0
+or r0,r3
 movt r8
 movt r9
 mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -240547,7 +240552,11 @@ mov.l @(r0,r14),r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+extu.w r3,r3
 shar r3
+mov r3,r0
+shlr16 r0
+or r0,r3
 movt r8
 movt r9
 mov.l @(ww_addr-fetch_idx,r11),r0
@@ -240556,6 +240565,7 @@ nop
 add #2,r4
 mov r2,r0
 mov.l r4,@(r0,r14)
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -240580,7 +240590,11 @@ add #-2,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+extu.w r3,r3
 shar r3
+mov r3,r0
+shlr16 r0
+or r0,r3
 movt r8
 movt r9
 mov.l @(ww_addr-fetch_idx,r11),r0
@@ -240588,6 +240602,7 @@ jsr @r0
 nop
 mov r2,r0
 mov.l r4,@(r0,r14)
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -240613,12 +240628,17 @@ add r1,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+extu.w r3,r3
 shar r3
+mov r3,r0
+shlr16 r0
+or r0,r3
 movt r8
 movt r9
 mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -240646,12 +240666,17 @@ add r1,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+extu.w r3,r3
 shar r3
+mov r3,r0
+shlr16 r0
+or r0,r3
 movt r8
 movt r9
 mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -240673,12 +240698,17 @@ mov.w @r6+,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+extu.w r3,r3
 shar r3
+mov r3,r0
+shlr16 r0
+or r0,r3
 movt r8
 movt r9
 mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -240703,12 +240733,17 @@ xtrct r0,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+extu.w r3,r3
 shar r3
+mov r3,r0
+shlr16 r0
+or r0,r3
 movt r8
 movt r9
 mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -241851,11 +241886,12 @@ mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 exts.w r3,r3
-shll r3
-movt r3
-xor r8,r3
-shll r3
-or r3,r8
+mov r3,r0
+shll r0
+movt r0
+xor r8,r0
+shll r0
+or r0,r8
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -241889,11 +241925,12 @@ add #2,r4
 mov r2,r0
 mov.l r4,@(r0,r14)
 exts.w r3,r3
-shll r3
-movt r3
-xor r8,r3
-shll r3
-or r3,r8
+mov r3,r0
+shll r0
+movt r0
+xor r8,r0
+shll r0
+or r0,r8
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -241927,11 +241964,12 @@ nop
 mov r2,r0
 mov.l r4,@(r0,r14)
 exts.w r3,r3
-shll r3
-movt r3
-xor r8,r3
-shll r3
-or r3,r8
+mov r3,r0
+shll r0
+movt r0
+xor r8,r0
+shll r0
+or r0,r8
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -241964,11 +242002,12 @@ mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 exts.w r3,r3
-shll r3
-movt r3
-xor r8,r3
-shll r3
-or r3,r8
+mov r3,r0
+shll r0
+movt r0
+xor r8,r0
+shll r0
+or r0,r8
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -242003,11 +242042,12 @@ mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 exts.w r3,r3
-shll r3
-movt r3
-xor r8,r3
-shll r3
-or r3,r8
+mov r3,r0
+shll r0
+movt r0
+xor r8,r0
+shll r0
+or r0,r8
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -242036,11 +242076,12 @@ mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 exts.w r3,r3
-shll r3
-movt r3
-xor r8,r3
-shll r3
-or r3,r8
+mov r3,r0
+shll r0
+movt r0
+xor r8,r0
+shll r0
+or r0,r8
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -242072,11 +242113,12 @@ mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 exts.w r3,r3
-shll r3
-movt r3
-xor r8,r3
-shll r3
-or r3,r8
+mov r3,r0
+shll r0
+movt r0
+xor r8,r0
+shll r0
+or r0,r8
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -243137,12 +243179,17 @@ mov.l @(r0,r14),r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+extu.w r3,r3
 shlr r3
+mov r3,r0
+shlr16 r0
+or r0,r3
 movt r8
 movt r9
 mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -243166,7 +243213,11 @@ mov.l @(r0,r14),r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+extu.w r3,r3
 shlr r3
+mov r3,r0
+shlr16 r0
+or r0,r3
 movt r8
 movt r9
 mov.l @(ww_addr-fetch_idx,r11),r0
@@ -243175,6 +243226,7 @@ nop
 add #2,r4
 mov r2,r0
 mov.l r4,@(r0,r14)
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -243199,7 +243251,11 @@ add #-2,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+extu.w r3,r3
 shlr r3
+mov r3,r0
+shlr16 r0
+or r0,r3
 movt r8
 movt r9
 mov.l @(ww_addr-fetch_idx,r11),r0
@@ -243207,6 +243263,7 @@ jsr @r0
 nop
 mov r2,r0
 mov.l r4,@(r0,r14)
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -243232,12 +243289,17 @@ add r1,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+extu.w r3,r3
 shlr r3
+mov r3,r0
+shlr16 r0
+or r0,r3
 movt r8
 movt r9
 mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -243265,12 +243327,17 @@ add r1,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+extu.w r3,r3
 shlr r3
+mov r3,r0
+shlr16 r0
+or r0,r3
 movt r8
 movt r9
 mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -243292,12 +243359,17 @@ mov.w @r6+,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+extu.w r3,r3
 shlr r3
+mov r3,r0
+shlr16 r0
+or r0,r3
 movt r8
 movt r9
 mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -243322,12 +243394,17 @@ xtrct r0,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+extu.w r3,r3
 shlr r3
+mov r3,r0
+shlr16 r0
+or r0,r3
 movt r8
 movt r9
 mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -244400,6 +244477,7 @@ movt r9
 mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -244432,6 +244510,7 @@ nop
 add #2,r4
 mov r2,r0
 mov.l r4,@(r0,r14)
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -244464,6 +244543,7 @@ jsr @r0
 nop
 mov r2,r0
 mov.l r4,@(r0,r14)
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -244495,6 +244575,7 @@ movt r9
 mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -244528,6 +244609,7 @@ movt r9
 mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -244555,6 +244637,7 @@ movt r9
 mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -244585,6 +244668,7 @@ movt r9
 mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -245645,14 +245729,18 @@ mov.l @(r0,r14),r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
-xor r8,r8
 shlr r9
+extu.w r3,r3
 rotcr r3
+mov r3,r0
+shlr16 r0
+or r0,r3
 movt r8
 movt r9
 mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -245676,9 +245764,12 @@ mov.l @(r0,r14),r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
-xor r8,r8
 shlr r9
+extu.w r3,r3
 rotcr r3
+mov r3,r0
+shlr16 r0
+or r0,r3
 movt r8
 movt r9
 mov.l @(ww_addr-fetch_idx,r11),r0
@@ -245687,6 +245778,7 @@ nop
 add #2,r4
 mov r2,r0
 mov.l r4,@(r0,r14)
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -245711,9 +245803,12 @@ add #-2,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
-xor r8,r8
 shlr r9
+extu.w r3,r3
 rotcr r3
+mov r3,r0
+shlr16 r0
+or r0,r3
 movt r8
 movt r9
 mov.l @(ww_addr-fetch_idx,r11),r0
@@ -245721,6 +245816,7 @@ jsr @r0
 nop
 mov r2,r0
 mov.l r4,@(r0,r14)
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -245746,14 +245842,18 @@ add r1,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
-xor r8,r8
 shlr r9
+extu.w r3,r3
 rotcr r3
+mov r3,r0
+shlr16 r0
+or r0,r3
 movt r8
 movt r9
 mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -245781,14 +245881,18 @@ add r1,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
-xor r8,r8
 shlr r9
+extu.w r3,r3
 rotcr r3
+mov r3,r0
+shlr16 r0
+or r0,r3
 movt r8
 movt r9
 mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -245810,14 +245914,18 @@ mov.w @r6+,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
-xor r8,r8
 shlr r9
+extu.w r3,r3
 rotcr r3
+mov r3,r0
+shlr16 r0
+or r0,r3
 movt r8
 movt r9
 mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -245842,14 +245950,18 @@ xtrct r0,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
-xor r8,r8
 shlr r9
+extu.w r3,r3
 rotcr r3
+mov r3,r0
+shlr16 r0
+or r0,r3
 movt r8
 movt r9
 mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -246931,7 +247043,6 @@ mov.l @(r0,r14),r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
-xor r8,r8
 shlr r9
 rotcl r3
 movt r8
@@ -246939,6 +247050,7 @@ movt r9
 mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -246962,7 +247074,6 @@ mov.l @(r0,r14),r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
-xor r8,r8
 shlr r9
 rotcl r3
 movt r8
@@ -246973,6 +247084,7 @@ nop
 add #2,r4
 mov r2,r0
 mov.l r4,@(r0,r14)
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -246997,7 +247109,6 @@ add #-2,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
-xor r8,r8
 shlr r9
 rotcl r3
 movt r8
@@ -247007,6 +247118,7 @@ jsr @r0
 nop
 mov r2,r0
 mov.l r4,@(r0,r14)
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -247032,7 +247144,6 @@ add r1,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
-xor r8,r8
 shlr r9
 rotcl r3
 movt r8
@@ -247040,6 +247151,7 @@ movt r9
 mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -247067,7 +247179,6 @@ add r1,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
-xor r8,r8
 shlr r9
 rotcl r3
 movt r8
@@ -247075,6 +247186,7 @@ movt r9
 mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -247096,7 +247208,6 @@ mov.w @r6+,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
-xor r8,r8
 shlr r9
 rotcl r3
 movt r8
@@ -247104,6 +247215,7 @@ movt r9
 mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -247128,7 +247240,6 @@ xtrct r0,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
-xor r8,r8
 shlr r9
 rotcl r3
 movt r8
@@ -247136,6 +247247,7 @@ movt r9
 mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -248196,12 +248308,16 @@ mov.l @(r0,r14),r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
-xor r8,r8
+extu.w r3,r3
 rotr r3
+mov r3,r0
+shlr16 r0
+or r0,r3
 movt r8
 mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -248225,8 +248341,11 @@ mov.l @(r0,r14),r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
-xor r8,r8
+extu.w r3,r3
 rotr r3
+mov r3,r0
+shlr16 r0
+or r0,r3
 movt r8
 mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
@@ -248234,6 +248353,7 @@ nop
 add #2,r4
 mov r2,r0
 mov.l r4,@(r0,r14)
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -248258,14 +248378,18 @@ add #-2,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
-xor r8,r8
+extu.w r3,r3
 rotr r3
+mov r3,r0
+shlr16 r0
+or r0,r3
 movt r8
 mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
 mov r2,r0
 mov.l r4,@(r0,r14)
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -248291,12 +248415,16 @@ add r1,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
-xor r8,r8
+extu.w r3,r3
 rotr r3
+mov r3,r0
+shlr16 r0
+or r0,r3
 movt r8
 mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -248324,12 +248452,16 @@ add r1,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
-xor r8,r8
+extu.w r3,r3
 rotr r3
+mov r3,r0
+shlr16 r0
+or r0,r3
 movt r8
 mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -248351,12 +248483,16 @@ mov.w @r6+,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
-xor r8,r8
+extu.w r3,r3
 rotr r3
+mov r3,r0
+shlr16 r0
+or r0,r3
 movt r8
 mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -248381,12 +248517,16 @@ xtrct r0,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
-xor r8,r8
+extu.w r3,r3
 rotr r3
+mov r3,r0
+shlr16 r0
+or r0,r3
 movt r8
 mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -249477,12 +249617,12 @@ mov.l @(r0,r14),r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
-xor r8,r8
 rotl r3
 movt r8
 mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -249506,7 +249646,6 @@ mov.l @(r0,r14),r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
-xor r8,r8
 rotl r3
 movt r8
 mov.l @(ww_addr-fetch_idx,r11),r0
@@ -249515,6 +249654,7 @@ nop
 add #2,r4
 mov r2,r0
 mov.l r4,@(r0,r14)
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -249539,7 +249679,6 @@ add #-2,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
-xor r8,r8
 rotl r3
 movt r8
 mov.l @(ww_addr-fetch_idx,r11),r0
@@ -249547,6 +249686,7 @@ jsr @r0
 nop
 mov r2,r0
 mov.l r4,@(r0,r14)
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -249572,12 +249712,12 @@ add r1,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
-xor r8,r8
 rotl r3
 movt r8
 mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -249605,12 +249745,12 @@ add r1,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
-xor r8,r8
 rotl r3
 movt r8
 mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -249632,12 +249772,12 @@ mov.w @r6+,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
-xor r8,r8
 rotl r3
 movt r8
 mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0
@@ -249662,12 +249802,12 @@ xtrct r0,r4
 mov.l @(rw_addr-fetch_idx,r11),r0
 jsr @r0
 nop
-xor r8,r8
 rotl r3
 movt r8
 mov.l @(ww_addr-fetch_idx,r11),r0
 jsr @r0
 nop
+exts.w r3,r3
 rotl r3
 addc r8,r8
 mov.w @r6+,r0

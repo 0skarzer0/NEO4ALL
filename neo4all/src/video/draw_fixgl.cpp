@@ -174,7 +174,9 @@ void video_draw_font_textures(void)
 
    unsigned i,j;
 
+#ifdef DREAMCAST
    prepare_pvr_init();
+#endif
    for(i=n_tile_list,j=0;j<n_font_list;i++,j++)
    {
 	register void *font_buffer=tile_list[i].buffer;

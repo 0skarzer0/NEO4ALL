@@ -20,7 +20,7 @@ extern int neogeo_emulating;
 #include <SDL_dreamcast.h>
 #endif
 
-static char *text_str_title="NEO4ALL - Main Menu --";
+static char *text_str_title="---- NEO4ALL beta4 ------";
 static char *text_str_68k="68K CLK";
 static char *text_str_z80="Z80 CLK";
 static char *text_str_under="Under";
@@ -44,6 +44,8 @@ static char *text_str_off="off";
 static char *text_str_filter="Filter";
 static char *text_str_filter_none="None";
 static char *text_str_filter_bilinear="Bilinear";
+static char *text_str_accurate="Sync SFX";
+static char *text_str_cdaudio="CDDA";
 static char *text_str_separator="------------------------------";
 static char *text_str_reset="Reset";
 static char *text_str_run="Run";
@@ -57,6 +59,8 @@ extern int	neogeo_frameskip;
 extern char	neogeo_region;
 extern int	neogeo_sound_enable;
 extern int	menu_moving;
+extern int	neogeo_accurate;
+extern int	cdda_disabled;
 
 enum { MAIN_MENU_CASE_REBOOT, MAIN_MENU_CASE_LOAD, MAIN_MENU_CASE_RUN, MAIN_MENU_CASE_RESET, MAIN_MENU_CASE_CANCEL };
 
@@ -177,22 +181,40 @@ static inline void draw_mainMenu(int c)
 	else
 		write_text(22,14,text_str_filter_bilinear);
 
-	write_text(6,16,text_str_separator);
-	if ((c==6)&&(bb))
-		write_text_sel(6,17,text_str_reset);
+	write_text(6,16,text_str_cdaudio);
+	if ((cdda_disabled!=0)&&((c!=6)||(bb)))
+		write_text_sel(16,16,text_str_off);
 	else
-		write_text(6,17,text_str_reset);
-	write_text(6,18,text_str_separator);
+		write_text(16,16,text_str_off);
+	if ((cdda_disabled==0)&&((c!=6)||(bb)))
+		write_text_sel(22,16,text_str_on);
+	else
+		write_text(22,16,text_str_on);
+
+	write_text(6,18,text_str_accurate);
+	if ((neogeo_accurate==0)&&((c!=7)||(bb)))
+		write_text_sel(16,18,text_str_off);
+	else
+		write_text(16,18,text_str_off);
+	if ((neogeo_accurate!=0)&&((c!=7)||(bb)))
+		write_text_sel(22,18,text_str_on);
+	else
+		write_text(22,18,text_str_on);
 
 	write_text(6,20,text_str_separator);
-	if ((c==7)&&(bb))
-		write_text_sel(6,21,text_str_run);
+	if ((c==8)&&(bb))
+		write_text_sel(6,21,text_str_reset);
 	else
-		write_text(6,21,text_str_run);
+		write_text(6,21,text_str_reset);
+
 	write_text(6,22,text_str_separator);
+	if ((c==9)&&(bb))
+		write_text_sel(6,23,text_str_run);
+	else
+		write_text(6,23,text_str_run);
 
 	write_text(6,24,text_str_separator);
-	if ((c==8)&&(bb))
+	if ((c==10)&&(bb))
 		write_text_sel(6,25,text_str_exit);
 	else
 		write_text(6,25,text_str_exit);
@@ -247,11 +269,11 @@ static inline int key_mainMenu(int *cp)
 			}
 			else if (up)
 			{
-				if (c>0) c=(c-1)%9;
-				else c=8;
+				if (c>0) c=(c-1)%11;
+				else c=10;
 			}
 			else if (down)
-				c=(c+1)%9;
+				c=(c+1)%11;
 			else
 			switch(c)
 			{
@@ -334,21 +356,45 @@ static inline int key_mainMenu(int *cp)
 					neogeo_adjust_filter(mainMenu_filter);
 #endif
 					break;
-				case 6:	// RESET
+				case 6:	// CDAUDIO
+					if (left)
+					{
+						if (!cdda_disabled)
+							cdda_disabled=1;
+					}
+					else if (right)
+					{
+						if (cdda_disabled)
+							cdda_disabled=0;
+					}
+					break;
+				case 7:	// ACCURATE
+					if (left)
+					{
+						if (neogeo_accurate)
+							neogeo_accurate=0;
+					}
+					else if (right)
+					{
+						if (!neogeo_accurate)
+							neogeo_accurate=1;
+					}
+					break;
+				case 8:	// RESET
 					if (hit0)
 					{
 						mainMenu_case=MAIN_MENU_CASE_RESET;
 						end=1;
 					}
 					break;
-				case 7:	// RUN
+				case 9:	// RUN
 					if (hit0)
 					{
 						mainMenu_case=MAIN_MENU_CASE_RUN;
 						end=1;
 					}
 					break;
-				case 8:	// EXIT
+				case 10:// EXIT
 					if (hit0)
 					{
 						mainMenu_case=MAIN_MENU_CASE_REBOOT;
@@ -462,7 +508,7 @@ void drawNoRom(void)
 
 int run_mainMenu()
 {
-	static int c=7;
+	static int c=9;
 	int end;
 	mainMenu_case=-1;
 #ifdef DREAMCAST

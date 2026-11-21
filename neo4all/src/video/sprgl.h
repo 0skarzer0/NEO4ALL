@@ -19,6 +19,7 @@
 #define SCALE_X GL_SCALE_X
 #define MOVE_X GL_MOVE_X
 #define SCALE_Y GL_SCALE_Y
+#define MOVE_Y GL_MOVE_X
 #else
 //#define SCALE_X (2.14f/(640.0f/VIDEO_GL_WIDTH))
 //#define SCALE_X (2.1399825021872266f/(640.0f/VIDEO_GL_WIDTH))
