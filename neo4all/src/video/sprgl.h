@@ -1,0 +1,127 @@
+
+#define COORD_A_U 0.0
+#define COORD_A_V 0.0
+
+#define COORD_B_U 1.0
+#define COORD_B_V 0.0
+
+#define COORD_C_U 1.0
+#define COORD_C_V 1.0
+
+#define COORD_D_U 0.0
+#define COORD_D_V 1.0
+
+#define SCALE_X 1.052631578947368f
+#define MOVE_X 8.0f
+
+#ifndef DREAMCAST
+#define SCALE_Y 1.071428571428571f
+#else
+#define SCALE_Y 1.0
+#endif
+
+#define VERTEX_1_X ((((float)sx)*SCALE_X)-MOVE_X)
+#define VERTEX_1_Y (((float)sy)*SCALE_Y)
+#define VERTEX_2_X ((((float)sx+(float)zx)*SCALE_X)-MOVE_X)
+#define VERTEX_2_Y (((float)sy)*SCALE_Y)
+#define VERTEX_3_X ((((float)sx+(float)zx)*SCALE_X)-MOVE_X)
+#define VERTEX_3_Y (((float)sy+(float)zy)*SCALE_Y)
+#define VERTEX_4_X ((((float)sx)*SCALE_X)-MOVE_X)
+#define VERTEX_4_Y (((float)sy+(float)zy)*SCALE_Y)
+
+
+#ifndef DREAMCAST
+#define VERTICE(U,V,X,Y) \
+	    glTexCoord2f(U,V); \
+    	    glVertex3f(X,Y,tile_z);
+
+#define VERTICE_EOL(U,V,X,Y) VERTICE(U,V,X,Y)
+
+#define VERTICE_FLIP_XY \
+   VERTICE(COORD_C_U,COORD_C_V,VERTEX_1_X,VERTEX_1_Y) \
+   VERTICE(COORD_D_U,COORD_C_V,VERTEX_2_X,VERTEX_2_Y) \
+   VERTICE(COORD_A_U,COORD_A_V,VERTEX_3_X,VERTEX_3_Y) \
+   VERTICE_EOL(COORD_B_U,COORD_B_V,VERTEX_4_X,VERTEX_4_Y)
+
+#define VERTICE_FLIP_X \
+   VERTICE(COORD_B_U,COORD_B_V,VERTEX_1_X,VERTEX_1_Y) \
+   VERTICE(COORD_A_U,COORD_A_U,VERTEX_2_X,VERTEX_2_Y) \
+   VERTICE(COORD_D_U,COORD_D_V,VERTEX_3_X,VERTEX_3_Y) \
+   VERTICE_EOL(COORD_C_U,COORD_C_V,VERTEX_4_X,VERTEX_4_Y)
+
+#define VERTICE_FLIP_Y \
+   VERTICE(COORD_D_U,COORD_D_V,VERTEX_1_X,VERTEX_1_Y) \
+   VERTICE(COORD_C_U,COORD_C_V,VERTEX_2_X,VERTEX_2_Y) \
+   VERTICE(COORD_B_U,COORD_B_V,VERTEX_3_X,VERTEX_3_Y) \
+   VERTICE_EOL(COORD_A_U,COORD_A_V,VERTEX_4_X,VERTEX_4_Y) 
+
+#define VERTICE_FLIP_NONE \
+   VERTICE(COORD_A_U,COORD_A_V,VERTEX_1_X,VERTEX_1_Y) \
+   VERTICE(COORD_B_U,COORD_B_V,VERTEX_2_X,VERTEX_2_Y) \
+   VERTICE(COORD_C_U,COORD_C_V,VERTEX_3_X,VERTEX_3_Y) \
+   VERTICE_EOL(COORD_D_U,COORD_D_V,VERTEX_4_X,VERTEX_4_Y)
+
+
+#else
+
+
+#define VERTICE_INIT \
+	{ \
+		pvr_vertex_t  *vert=pvr_dr_target(dr_state); \
+		vert->argb = 0xffffffff; \
+		vert->oargb = 0xff000000; \
+		vert->flags = PVR_CMD_VERTEX;
+
+#define VERTICE_INIT_EOL \
+	{ \
+		pvr_vertex_t  *vert=pvr_dr_target(dr_state); \
+		vert->argb = 0xffffffff; \
+		vert->oargb = 0xff000000; \
+		vert->flags = PVR_CMD_VERTEX_EOL; 
+
+#define VERTICE_BODY(X,Y,U,V) \
+		vert->x =X; \
+		vert->y =Y; \
+		vert->z =(float)tile_z; \
+		vert->u =U; \
+		vert->v =V; \
+		pvr_dr_commit(vert); \
+	}
+
+
+#define VERTICE(U,V,X,Y) \
+		VERTICE_INIT \
+		VERTICE_BODY((float)X,(float)Y,(float)U,(float)V)
+
+#define VERTICE_EOL(U,V,X,Y) \
+		VERTICE_INIT_EOL \
+		VERTICE_BODY((float)X,(float)Y,(float)U,(float)V)
+
+#define VERTICE_FLIP_XY \
+   VERTICE(COORD_B_U,COORD_B_V,VERTEX_4_X,VERTEX_4_Y) \
+   VERTICE(COORD_A_U,COORD_A_V,VERTEX_3_X,VERTEX_3_Y) \
+   VERTICE(COORD_C_U,COORD_C_V,VERTEX_1_X,VERTEX_1_Y) \
+   VERTICE_EOL(COORD_D_U,COORD_D_V,VERTEX_2_X,VERTEX_2_Y)
+
+#define VERTICE_FLIP_X \
+   VERTICE(COORD_B_U,COORD_B_V,VERTEX_1_X,VERTEX_1_Y) \
+   VERTICE(COORD_A_U,COORD_A_V,VERTEX_2_X,VERTEX_2_Y) \
+   VERTICE(COORD_C_U,COORD_C_V,VERTEX_4_X,VERTEX_4_Y) \
+   VERTICE_EOL(COORD_D_U,COORD_D_V,VERTEX_3_X,VERTEX_3_Y)
+
+#define VERTICE_FLIP_Y \
+   VERTICE(COORD_A_U,COORD_A_V,VERTEX_4_X,VERTEX_4_Y) \
+   VERTICE(COORD_B_U,COORD_B_V,VERTEX_3_X,VERTEX_3_Y) \
+   VERTICE(COORD_D_U,COORD_D_V,VERTEX_1_X,VERTEX_1_Y) \
+   VERTICE_EOL(COORD_C_U,COORD_C_V,VERTEX_2_X,VERTEX_2_Y)
+
+#define VERTICE_FLIP_NONE \
+   VERTICE(COORD_A_U,COORD_A_V,VERTEX_1_X,VERTEX_1_Y) \
+   VERTICE(COORD_B_U,COORD_B_V,VERTEX_2_X,VERTEX_2_Y) \
+   VERTICE(COORD_D_U,COORD_D_V,VERTEX_4_X,VERTEX_4_Y) \
+   VERTICE_EOL(COORD_C_U,COORD_C_V,VERTEX_3_X,VERTEX_3_Y)
+
+#endif
+
+extern void *neo4all_texture_buffer;
+

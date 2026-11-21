@@ -1,0 +1,58 @@
+NAME   = neo4all
+O      = o
+RM     = rm -f
+CC     = gcc
+STRIP  = strip
+
+PROG   = $(NAME).exe
+
+DEFAULT_CFLAGS = `sdl-config --cflags` -D_REENTRANT -DINLINE="static inline" -DLOWERCASEFILES -DDATA_PREFIX=\"data/\"
+LDFLAGS        = `sdl-config --libs` -lmingw32 -lmingwex -lSDL_mixer -mwindows
+
+#LDFLAGS+= -lstdc++
+
+MORE_CFLAGS = -O3 -DDATA_PREFIX=\"data/\" -DFILE_SEPARATOR=\"/\" -DAUDIO -DNONET
+
+MORE_CFLAGS = -O3 -fomit-frame-pointer -fstrict-aliasing -Isrc -Isrc/fame -Isrc/video
+
+CFLAGS  = $(DEFAULT_CFLAGS) $(MORE_CFLAGS)
+
+OBJS =	\
+	src/memory/memory.o \
+	src/cdrom/cdrom.o \
+	src/cdrom/win32.o \
+	src/video/video.o \
+	src/video/draw_fix.o \
+	src/video/console.o \
+	src/cdaudio/cdaudio.o \
+	src/input/input.o \
+	src/sound/sound.o \
+	src/sound/streams.o \
+	src/sound/2610intf.o \
+	src/sound/ay8910.o \
+	src/sound/fm.o \
+	src/sound/ymdeltat.o \
+	src/sound/timer.o \
+	src/neocd.o \
+	src/pd4990a.o 
+
+
+ifdef Z80_EMULATED
+Z80_OBJS = \
+	src/z80/z80.o \
+	src/z80/z80intrf.o 
+endif
+
+FAME=	src/fame/fame-win.o
+
+
+$(PROG): $(OBJS) $(Z80_OBJS)
+	$(CC) -L/usr/local/lib -o $(PROG) -lmingw32 $(OBJS) $(Z80_OBJS) $(FAME) -lSDL_static -lpthread -mwindows -mno-cygwin -luser32 -lgdi32 -lwinmm
+	$(STRIP) $(PROG)
+
+
+run: $(PROG)
+	$(PROG) -window
+
+clean:
+	$(RM) $(PROG) $(OBJS)

@@ -1,0 +1,146 @@
+NAME   = neo4all
+O      = o
+RM     = rm -f
+CC     = gcc
+CXX    = g++
+STRIP  = strip
+
+PROG   = $(NAME)
+
+all: $(PROG)
+
+#MUSASHI_CORE=1
+FAME_CORE=1
+Z80_EMULATED=1
+#MAMEZ80_CORE=1
+CZ80_CORE=1
+
+VIDEOGL=1
+
+DEFAULT_CFLAGS = `sdl-config --cflags` -D_REENTRANT -DINLINE="static inline" -DLOWERCASEFILES -DDATA_PREFIX=\"data/\" -DROM_PREFIX=\"data/\"
+LDFLAGS        = `sdl-config --libs`
+
+ifdef Z80_EMULATED
+DEFAULT_CFLAGS+= -DZ80_EMULATED
+ifdef MAMEZ80_CORE
+DEFAULT_CFLAGS+= -DUSE_MAMEZ80
+else
+ifdef CZ80_CORE
+DEFAULT_CFLAGS+= -DUSE_CZ80
+endif
+endif
+endif
+
+ifdef FAME_CORE
+DEFAULT_CFLAGS+=-DUSE_FAME_CORE
+else
+ifdef MUSASHI_CORE
+DEFAULT_CFLAGS+=-DCPU68K_USE_MUSASHI
+else
+DEFAULT_CFLAGS+=-DCPU68K_USE_C68K
+endif
+endif
+
+#DEFAULT_CFLAGS+= -DEBUG_NEO4ALL -DDEBUG_REGISTERS -DDEBUG_MEMORY -DBEGINTRACE=350 -DTOTRACE=370
+#DEFAULT_CFLAGS+= -DDEBUG_NEO4ALL -DDEBUG_REGISTERS -DBEGINTRACE=1 -DTOTRACE=1
+#DEFAULT_CFLAGS+= -DDEBUG_NEO4ALL -DDEBUG_REGISTERS -DDEBUG_MEMORY -DBEGINTRACE=1 -DTOTRACE=4
+#DEFAULT_CFLAGS+= -DDEBUG_NEO4ALL -DDEBUG_REGISTERS -DBEGINTRACE=1 -DTOTRACE=4
+#DEFAULT_CFLAGS+= -DPROFILER
+#DEFAULT_CFLAGS+= -DPROFILER_TIME=100
+#DEFAULT_CFLAGS+= -DAUTO_FIRE
+
+
+MORE_CFLAGS = -O3 -fomit-frame-pointer -fstrict-aliasing -Isrc -Isrc/68k -Isrc/video
+
+CFLAGS  = $(DEFAULT_CFLAGS) $(MORE_CFLAGS)
+
+
+OBJS =	\
+	src/menu/fade.o \
+	src/menu/menu.o \
+	src/menu/menu_main.o \
+	src/cdrom/cdrom.o \
+	src/cdrom/linux.o \
+	src/video/video.o \
+	src/video/draw.o \
+	src/video/console.o \
+	src/cdaudio/cdaudio.o \
+	src/input/input.o \
+	src/sound/sound.o \
+	src/sound/streams.o \
+	src/sound/2610intf.o \
+	src/sound/ay8910.o \
+	src/sound/fm.o \
+	src/sound/ymdeltat.o \
+	src/sound/timer.o \
+	src/neocd.o \
+	src/pd4990a.o 
+
+ifdef VIDEOGL
+	OBJS+=	src/video/sprgl.o \
+		src/video/videogl.o \
+		src/video/draw_fixgl.o
+	DEFAULT_CFLAGS+= -DUSE_VIDEO_GL
+	LDFLAGS+= -lGL
+else
+	OBJS+=	src/video/spr.o \
+		src/video/draw_fix.o
+endif
+
+
+ifdef Z80_EMULATED
+	ifdef MAMEZ80_CORE
+		Z80_OBJS = src/z80/mamez80/z80.o 
+	else
+		ifdef CZ80_CORE
+			Z80_OBJS = src/z80/cz80/cz80.o
+		else
+			Z80_OBJS = src/z80/mz80/z80.o 
+		endif
+	endif
+	Z80_OBJS+= src/z80/z80intrf.o
+endif
+
+ifdef FAME_CORE
+src/68k/fame/fame.o: src/68k/fame/fame.asm
+	nasm -f elf src/68k/fame/fame.asm
+OBJS_68K=	\
+	src/68k/fame/fame.o
+MEMORY_OBJ= src/memory/fame/memory.o 
+
+else
+ifdef MUSASHI_CORE
+OBJS_68K=	\
+	src/68k/c68k/m68kops.o \
+	src/68k/c68k/m68kcpu.o \
+	src/68k/c68k/m68kopac.o \
+	src/68k/c68k/m68kopdm.o \
+	src/68k/c68k/m68kopnz.o \
+	src/68k/c68k/m68kdasm.o
+else
+OBJS_68K=	\
+	src/68k/c68k/c68kexec.o	\
+	src/68k/c68k/c68k.o
+endif
+
+OBJS_68K+= src/68k/c68k/cpu68k.o
+
+MEMORY_OBJ= src/memory/c68k/memory.o
+
+endif
+
+
+$(PROG): $(OBJS) $(Z80_OBJS) $(MEMORY_OBJ) $(OBJS_68K)
+	$(CC) $(CFLAGS) -o $(PROG) $(OBJS) $(OBJS_68K) $(MEMORY_OBJ) $(Z80_OBJS) $(LDFLAGS)
+	$(STRIP) $(PROG)
+
+
+run: $(PROG)
+	./$(PROG)
+
+clean:
+	$(RM) $(PROG) $(OBJS) src/68k/c68k/cpu68k.o src/z80/z80intrf.o $(MEMORY_OBJ)
+
+clean-cores:
+	$(RM) $(Z80_OBJS) $(OBJS_68K)
+
