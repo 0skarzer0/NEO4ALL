@@ -13,7 +13,8 @@
 #include <string.h>
 #include <stdio.h>
 #include "ay8910.h"
-#include "../neocd.h"
+#include "streams.h"
+#include "memory/memory.h"
 
 #define MAX_OUTPUT 0x7fff
 

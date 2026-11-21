@@ -1,11 +1,14 @@
 #ifndef __2610INTF_H__
 #define __2610INTF_H__
 
-#include "SDL.h"
+#ifdef HAVE_CONFIG_H
+#include <config.h>
+#endif
+
 #include "fm.h"
 #include "ay8910.h"
 #ifdef BUILD_YM2610
-void YM2610UpdateRequest( void /*int chip */ );
+void YM2610UpdateRequest( /*int chip */ );
 #endif
 
 #define   MAX_2610    (2)

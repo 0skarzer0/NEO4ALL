@@ -9,7 +9,6 @@
 #include "videogl.h"
 #include "sprgl.h"
 
-
 #ifdef DREAMCAST
 void draw_tile(unsigned short *br, unsigned short *paldata, unsigned *gfxdata);
 #else
@@ -44,7 +43,7 @@ static __inline__ void draw_tile(unsigned short *br, unsigned short *paldata, un
 
 static __inline__ void create_tile(unsigned int tileno,int color,unsigned short *_br)
 {
-   unsigned short *br=(unsigned short*)neo4all_texture_buffer;
+    unsigned short *br=(unsigned short*)neo4all_texture_buffer;
 //printf("DRAW_TILE %i\n",tileno);
     unsigned short *paldata=(unsigned short *)&video_paletteram_pc[color<<4];
     unsigned int *gfxdata = (unsigned int *)&neogeo_spr_memory[tileno<<7];
@@ -98,6 +97,7 @@ void   video_draw_spr(unsigned int code, unsigned int color, int flipx,
 
    void *texture_buffer;
    unsigned int sel=code&TCACHE_MASK;
+   unsigned short pal=video_palette_selected+color;
 //printf("CODE=%i, SEL=%i, COL=%i\n",code,sel,color);
 
 #ifndef DREAMCAST
@@ -105,33 +105,27 @@ void   video_draw_spr(unsigned int code, unsigned int color, int flipx,
    loadTextureParams();
 #endif
 
-   if (tile_cache[sel].tileno!=code || tile_cache[sel].pal!=color)
+   if (tile_cache[sel].tileno!=code || tile_cache[sel].pal!=pal)
    {
-	   if (tile_l2_cache[sel])
+	   if (tile_used[sel])
 	   {
 		   if (tile_l2_ptr>TCACHE_L2_MASK)
-		   {
-			register unsigned l3=tile_l2_ptr-TCACHE_L2_SIZE;
-			if (l3>TCACHE_L3_MASK)
-				return;
-		   	texture_buffer=neo4all_texture_l3_buffer+(l3*16*16*2);
-		   }
-		   else
-		   	texture_buffer=neo4all_texture_l2_buffer+(tile_l2_ptr*16*16*2);
+			return;
+		   texture_buffer=neo4all_texture_l2_buffer+(tile_l2_ptr*16*16*2);
 		   tile_l2_ptr++;
 	   }
 	   else
 	   {
 		   texture_buffer=tile_cache[sel].buffer;
-		   tile_l2_cache[sel]=1;
+		   tile_used[sel]=1;
 	   	   tile_cache[sel].tileno=code;
-	    	   tile_cache[sel].pal=color;
+	    	   tile_cache[sel].pal=pal;
 	   }
 	   create_tile(code,color,texture_buffer);
    }
    else
    {
-	   tile_l2_cache[sel]=1;
+	   tile_used[sel]=1;
 	   texture_buffer=tile_cache[sel].buffer;
    }
 
@@ -173,7 +167,9 @@ void   video_draw_spr(unsigned int code, unsigned int color, int flipx,
    glEnd();
    tile_z+=0.0000001;
 #else
-   tile_z+=1.1f;
+//   tile_z+=1.1f;
+//   tile_z+=8.0f;
+   tile_z+=0.0000001;
 #endif
 }
 

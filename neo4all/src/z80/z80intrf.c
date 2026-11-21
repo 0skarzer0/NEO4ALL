@@ -3,6 +3,15 @@
 #include 	<stdlib.h>
 #include	"z80intrf.h"
 
+
+
+#ifdef USE_Z80_MAP
+Uint8 memory_z80mem[0x40000];
+Uint16 z80_bank[4];
+static Uint8 *z80map1, *z80map2, *z80map3, *z80map4;
+#endif
+
+
 #ifndef USE_MAMEZ80
 
 #ifdef USE_CZ80
@@ -74,18 +83,26 @@ Uint32 result_code;
 Uint32 pending_command;
 Uint32 z80_cycles;
 
-Uint16 z80_bank[4];
-
-static Uint8 *z80map1, *z80map2, *z80map3, *z80map4;
-
 int cpu_z80_irq_callback(int a)
 {
+	neogeo_sound_irq(a);
 	return 0;
 }
 
 
 void _z80_init(void)
 {
+#ifdef USE_Z80_MAP
+	z80map1 = memory_z80mem + 0x8000;
+	z80map2 = memory_z80mem + 0xc000;
+	z80map3 = memory_z80mem + 0xe000;
+	z80map4 = memory_z80mem + 0xf000;
+	z80_bank[0]=0x8000;
+	z80_bank[1]=0xc000;
+	z80_bank[2]=0xe000;
+	z80_bank[3]=0xf000;
+#endif
+
 #ifndef USE_MAMEZ80
 #ifdef USE_CZ80
 	Cz80_Init(&neo4all_cz80_struc);
@@ -100,7 +117,7 @@ void _z80_init(void)
 	Cz80_Set_OUTPort(&neo4all_cz80_struc,(CZ80_WRITE *)&cz80_z80_writeport16);
 	Cz80_Set_IRQ_Callback(&neo4all_cz80_struc,cpu_z80_irq_callback);
 	Cz80_Reset(&neo4all_cz80_struc);
-	Cz80_Exec(&neo4all_cz80_struc,100000);
+//	Cz80_Exec(&neo4all_cz80_struc,100000);
 #else
 	subcpu_context.z80Base = subcpu_memspace;
 	
@@ -119,14 +136,6 @@ void _z80_init(void)
 #endif
 #else
 	z80_init();
-	z80map1 = mame_z80mem + 0x8000;
-	z80map2 = mame_z80mem + 0xc000;
-	z80map3 = mame_z80mem + 0xe000;
-	z80map4 = mame_z80mem + 0xf000;
-	z80_bank[0]=0x8000;
-	z80_bank[1]=0xc000;
-	z80_bank[2]=0xe000;
-	z80_bank[3]=0xf000;
 	z80_reset(NULL);
 	z80_set_irq_callback(cpu_z80_irq_callback);
 #endif
@@ -143,7 +152,6 @@ void PortWrite(UINT16 PortNo, UINT8	data, struct z80PortWrite *ptr)
 void mame_z80_writeport16(Uint16 PortNo, Uint8 data)
 #endif
 {
-
 	switch( PortNo & 0xff)
 	{
 	case	0x4:
@@ -161,19 +169,19 @@ void mame_z80_writeport16(Uint16 PortNo, Uint8 data)
 	case	0x7:
 		YM2610_data_port_0_B_w(0,data);
 		break;
-
+/*
 	case	0x8:
-		/* NMI enable / acknowledge? (the data written doesn't matter) */
+		// NMI enable / acknowledge? (the data written doesn't matter) 
 		break;
-	
+*/	
 	case	0xc:
 		result_code = data;
 		break;
-	
+/*	
 	case	0x18:
-		/* NMI disable? (the data written doesn't matter) */
+		// NMI disable? (the data written doesn't matter)
 		break;
-
+*/
 	default:
 		//printf("Unimplemented Z80 Write Port: %x data: %x\n",PortNo&0xff,data);
 		break;
@@ -191,8 +199,6 @@ UINT16 PortRead(UINT16 PortNo, struct z80PortRead *ptr)
 Uint8 mame_z80_readport16(Uint16 PortNo)
 #endif
 {
-	static int bank[4];
-	
 	switch( PortNo & 0xff)
 	{
 	case	0x0:
@@ -212,33 +218,37 @@ Uint8 mame_z80_readport16(Uint16 PortNo)
 		return YM2610_status_port_0_B_r(0);
 		break;
 
-	case 0x08:
-		{
-		    bank[3] = 0x0800 * ((PortNo >> 8) & 0x7f);
-			return 0;
-			break;
-		}
-	case 0x09:
-		{
-			bank[2] = 0x1000 * ((PortNo >> 8) & 0x3f);
-			return 0;
-			break;
-		}	
-	case 0x0a:
-		{
-			bank[1] = 0x2000 * ((PortNo >> 8) & 0x1f);
-			return 0;
-			break;
-		}
-	case 0x0b:
-		{
-			bank[0] = 0x4000 * ((PortNo >> 8) & 0x0f);
-			return 0;
-			break;
-		}
+#ifdef USE_Z80_MAP
+	case 0x08: // cpu_z80_switchbank(3, PortNo);
+		z80map4 =  memory_z80mem + (0x0800 * ((PortNo >> 8) & 0x7f));
+		memcpy(mame_z80mem + 0xf000, z80map4, 0x0800);
+		return 0;
+		break;
+		
+	case 0x09: // cpu_z80_switchbank(2, PortNo);
+		z80map3 = memory_z80mem + (0x1000 * ((PortNo >> 8) & 0x3f));
+		memcpy(mame_z80mem + 0xe000, z80map3, 0x1000);
+		return 0;
+		break;
+		
+	case 0x0a: // cpu_z80_switchbank(1, PortNo);
+		z80map2 = memory_z80mem + (0x2000 * ((PortNo >> 8) & 0x1f));
+		memcpy(mame_z80mem + 0xc000, z80map2, 0x2000);
+		return 0;
+		break;
+
+	case 0x0b: // cpu_z80_switchbank(0, PortNo);
+		z80map1 = memory_z80mem + (0x4000 * ((PortNo >> 8) & 0x0f));
+		memcpy(mame_z80mem + 0x8000, z80map1, 0x4000);
+		return 0;
+		break;
+#endif
+
+/*
 	default:
 		//printf("Unimplemented Z80 Read Port: %d\n",PortNo&0xff);
 		break;
+*/
 	};	
 	return 0;
 }

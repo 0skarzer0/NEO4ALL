@@ -12,6 +12,9 @@
 #define INLINE static __inline__
 #endif
 
+#ifdef DREAMCAST
+extern int __sdl_dc_emulate_keyboard;
+#endif
 
 /* Joystick definitions */
 #define NUMJOYSTICKS    2
@@ -171,6 +174,9 @@ void input_init(void) {
 #endif
         }
     }
+#ifdef DREAMCAST
+    __sdl_dc_emulate_keyboard=1;
+#endif
     while(SDL_PollEvent(&event)) 
 	    SDL_Delay(10);
 }
@@ -197,6 +203,7 @@ INLINE void specialKey (SDLKey key) {
 			neogeo_hreset();
 		sound_enable();
 		break;
+	case SDLK_F1: video_fullscreen_toggle(); break;
         case SDLK_F4: sound_toggle(); break;
         case SDLK_F12: video_save_snapshot(); break;
         case SDLK_ESCAPE: exit(0); break;

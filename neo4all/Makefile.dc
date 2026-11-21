@@ -6,7 +6,7 @@ KOS_CFLAGS+= -I$(KOS_BASE)/../kos-ports/include/SDL -I$(KOS_BASE)/../kos-ports/z
 
 INLINE='static __inline__'
 
-KOS_CFLAGS+= -DDREAMCAST -DSDL -Isrc -Isrc/68k -Isrc/video -DDATA_PREFIX="/rd/" -DROM_PREFIX="/cd/"
+KOS_CFLAGS+= -DDREAMCAST -DSDL -Isrc -Isrc/68k -Isrc/video -DDATA_PREFIX="/rd/" -DROM_PREFIX="/rd/"
 
 #MUSASHI_CORE=1
 FAME_CORE=1
@@ -146,7 +146,7 @@ run: $(TARGET).elf example.iso
 #	$(KOS_LOADER) $(TARGET).elf -i example.iso
 
 clean:
-	rm -f $(OBJS) src/68k/c68k/cpu68k.o src/z80/z80intrf.o $(MEMORY_OBJ) $(TARGET).elf $(TARGET).bin  romdisk.o romdisk.img
+	rm -f $(OBJS) src/68k/c68k/cpu68k.o src/z80/z80intrf.o $(MEMORY_OBJ) $(TARGET).elf $(TARGET).bin  romdisk.o romdisk.img data/memcard.bin
 
 clean-cores:
 	$(RM) $(Z80_OBJS) $(OBJS_68K)

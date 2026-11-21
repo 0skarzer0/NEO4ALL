@@ -36,8 +36,8 @@ SDL_AudioSpec desired;
 #define BUFFER_LEN 16384
 extern Uint16 play_buffer[BUFFER_LEN];
 
-//#define NB_SAMPLES 512 /* better resolution */
-#define NB_SAMPLES 1024
+#define NB_SAMPLES 512 /* better resolution */
+//#define NB_SAMPLES 1024
 
 void update_sdl_stream(void *userdata, Uint8 * stream, int len)
 {

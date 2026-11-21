@@ -91,18 +91,17 @@ void   video_draw_font(unsigned int code, unsigned int color, int sx, int sy)
 
    if (font_cache[sel].tileno!=code || font_cache[sel].pal!=color)
    {
-	   if (font_l2_cache[sel])
+	   if (font_used[sel])
 	   {
 		   if (font_l2_ptr>FCACHE_L2_MASK)
 				return;
-		   else
-		   	font_buffer=neo4all_font_l2_buffer+(font_l2_ptr*8*8*2);
+		   font_buffer=neo4all_font_l2_buffer+(font_l2_ptr*8*8*2);
 		   font_l2_ptr++;
 	   }
 	   else
 	   {
 		   font_buffer=font_cache[sel].buffer;
-		   font_l2_cache[sel]=1;
+		   font_used[sel]=1;
 	   	   font_cache[sel].tileno=code;
 	    	   font_cache[sel].pal=color;
 	   }
@@ -110,10 +109,9 @@ void   video_draw_font(unsigned int code, unsigned int color, int sx, int sy)
    }
    else
    {
-	   font_l2_cache[sel]=1;
+	   font_used[sel]=1;
 	   font_buffer=font_cache[sel].buffer;
    }
-
 
 #ifndef DREAMCAST
     glTexImage2D(GL_TEXTURE_2D, 0, 4, 8, 8, 0, 
@@ -159,7 +157,8 @@ int zy=8;
    glEnd();
    tile_z+=0.0000001;
 #else
-   tile_z+=1.1f;
+//   tile_z+=1.1f;
+   tile_z+=0.0000001;
 #endif
 }
 

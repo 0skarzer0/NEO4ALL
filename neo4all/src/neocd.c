@@ -18,12 +18,6 @@ KOS_INIT_ROMDISK(romdisk);
 
 #include "console.h"
 
-#define REGION_JAPAN  0
-#define REGION_USA    1
-#define REGION_EUROPE 2
-
-#define REGION REGION_USA
-
 #ifndef BEGINTRACE
 #define BEGINTRACE 0
 #endif
@@ -515,6 +509,7 @@ void	neogeo_run(void)
 #ifdef Z80_EMULATED
 	my_timer();
 	z80_cycles = neo4all_z80_cycles >> 8;
+	_z80raise(0);
 #endif
 	unsigned long long ciclo=0;
 #ifdef PROFILER
@@ -538,6 +533,7 @@ profiler_actual=SDL_GetTicks();
 #endif
 	if (neogeo_sound_enable)
 	{
+/*
 		// Execute Z80 timeslice (one VBL)
 		_z80raise(0);
 		
@@ -550,6 +546,11 @@ profiler_actual=SDL_GetTicks();
 			}
 			z80_cycles += neo4all_z80_cycles >> 8;
 		    }
+		}
+*/
+		for (i = 0; i < 256; i++) {
+			_z80exec(neo4all_z80_cycles >> 8);
+			my_timer();
 		}
 	}
 #ifdef PROFILER
@@ -642,7 +643,6 @@ profiler_media2+=(SDL_GetTicks()-profiler_actual);
 		}
 
 		// Call display routine
-
 		if (neogeo_prio_mode)
 			video_draw_screen2();
 		else
@@ -688,15 +688,17 @@ profiler_media2+=(SDL_GetTicks()-profiler_actual);
 				break;
 			case 5:
 				if (!(neogeo_frameskip_count%6))
-					neo4all_skip_next_frame=1;
-				else
 					neo4all_skip_next_frame=0;
+				else
+					neo4all_skip_next_frame=1;
 				break;
 			default:
 				now=SDL_GetTicks();
 				if (now+3 < neocd_time) {
 					neo4all_skip_next_frame=0;
+#ifndef DREAMCAST
 					SDL_Delay(neocd_time-now);
+#endif
 				}
 				else
 				if (now > neocd_time-10) {

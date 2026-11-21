@@ -22,6 +22,7 @@ extern int trazando;
 #include "../neocd.h"
 
 extern unsigned short    *video_paletteram_ng;
+extern unsigned	video_palette_selected;
 
 #if 0
     #define logaccess(...) if (trazando) printf(__VA_ARGS__)
@@ -43,6 +44,7 @@ void m68k_write_memory_8(unsigned int address, unsigned int value);
 void m68k_write_memory_8_320000(unsigned int address, unsigned int value);
 void m68k_write_memory_8_3c0000(unsigned int address, unsigned int value);
 void m68k_write_memory_16(unsigned int address, unsigned int value);
+void m68k_write_memory_16_320000(unsigned int address, unsigned int value);
 void m68k_write_memory_16_400000(unsigned int address, unsigned int value);
 void m68k_write_memory_32(unsigned int address, unsigned int value);
 
@@ -131,12 +133,13 @@ static struct M68K_DATA neogeo_memmap_read_8[] = {
 static struct M68K_DATA neogeo_memmap_write_16[] = {
 	{0x000000, 0x1FFFFF, NULL, &neogeo_prg_memory},		// 0
 	{0x2f0000, 0x2FFFFF, m68k_write_memory_dummy, NULL},	// 1
-	{0x3a0000, 0x3aFFFF, cpu_writeswitch, NULL},		// 2
-	{0x3c0000, 0x3cFFFF, cpu_writevidreg, NULL},		// 3
-	{0x400000, 0x40FFFF, m68k_write_memory_16_400000, NULL},// 4
-	{0x800000, 0x80FFFF, write_memcard, NULL},		// 5
-	{0xe00000, 0xe3FFFF, write_upload_word, NULL},		// 6
-	{0xff0000, 0xFFFFFF, m68k_write_memory_dummy, NULL},	// 7
+	{0x320000, 0x32FFFF, m68k_write_memory_16_320000, NULL},// 2
+	{0x3a0000, 0x3aFFFF, cpu_writeswitch, NULL},		// 3
+	{0x3c0000, 0x3cFFFF, cpu_writevidreg, NULL},		// 4
+	{0x400000, 0x40FFFF, m68k_write_memory_16_400000, NULL},// 5
+	{0x800000, 0x80FFFF, write_memcard, NULL},		// 6
+	{0xe00000, 0xe3FFFF, write_upload_word, NULL},		// 7
+	{0xff0000, 0xFFFFFF, m68k_write_memory_dummy, NULL},	// 8
 	{-1,-1,NULL,NULL}
 };
 #else
@@ -387,14 +390,26 @@ return result;
 void m68k_write_memory_8_320000(unsigned int offset, unsigned int data) {
 #ifdef Z80_EMULATED
     	   if (neogeo_sound_enable)
-	    if(!(offset&0xffff)) {
+	   {
                 sound_code=data&0xff;
                 pending_command=1;
                 _z80nmi();
-                z80_cycles-=neo4all_z80_cycles >> 8;
-                _z80exec(neo4all_z80_cycles >> 8);
+                _z80exec(300);
                 my_timer();
-            }
+           }
+#endif
+}
+
+void m68k_write_memory_16_320000(unsigned int offset, unsigned int data) {
+#ifdef Z80_EMULATED
+    	   if (neogeo_sound_enable)
+	   {
+                sound_code=(data>>8)&0xff;
+                pending_command=1;
+                _z80nmi();
+                _z80exec(300);
+                my_timer();
+           }
 #endif
 }
 
@@ -456,7 +471,7 @@ if (trazando) printf("write_16_400000(0x%X)=0x%X\n",offset,data&0xFFFF);
         video_paletteram_ng[offset]=(Uint16)data;
         video_paletteram_pc[offset]=video_color_lut[data];
 	video_palette_dirty=-1;
-	video_palette_use[offset>>4]=-1;
+	video_palette_use[video_palette_selected+(offset>>4)]=-1;
 }
 
 void m68k_write_memory_16(unsigned int offset, unsigned int data) {
@@ -532,7 +547,7 @@ if (trazando) printf("write_32(0x%X)=0x%X\n",offset,data);
                          video_paletteram_ng[offset]  =(Uint16)temp;
                          video_paletteram_pc[offset]  =video_color_lut[temp];
 			 video_palette_dirty=-1;
-			 video_palette_use[offset>>4]=-1;
+			 video_palette_use[video_palette_selected+(offset>>4)]=-1;
                          video_paletteram_ng[offset+1]=(Uint16)data;
                          video_paletteram_pc[offset+1]=video_color_lut[data]; break;
 
@@ -618,12 +633,14 @@ if (trazando) printf("CPU_WRITEVIDREG(0x%X,0x%X)\n",offset,data);
 /***************************************************************************************************/
 
 static void     neogeo_setpalbank0 (void) {
+    video_palette_selected=0;
     video_paletteram_ng=video_palette_bank0_ng;
     video_paletteram_pc=video_palette_bank0_pc;
 }
 
 
 static void     neogeo_setpalbank1 (void) {
+    video_palette_selected=0x100;
     video_paletteram_ng=video_palette_bank1_ng;
     video_paletteram_pc=video_palette_bank1_pc;
 }

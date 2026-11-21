@@ -11,10 +11,10 @@ static SDL_Surface *gl_screen;
 
 TILE_CACHE tile_cache[TCACHE_SIZE];
 
-unsigned char tile_l2_cache[TCACHE_SIZE];
+unsigned char tile_used[TCACHE_SIZE];
 
 TILE_CACHE font_cache[FCACHE_SIZE];
-unsigned char font_l2_cache[FCACHE_SIZE];
+unsigned char font_used[FCACHE_SIZE];
 
 GLint screen_texture;
 
@@ -22,7 +22,6 @@ void *neo4all_texture_buffer=NULL;
 void *neo4all_texture_buffer_free=NULL;
 void *neo4all_texture_real_buffer=NULL;
 void *neo4all_texture_l2_buffer=NULL;
-void *neo4all_texture_l3_buffer=NULL;
 void *neo4all_font_real_buffer=NULL;
 void *neo4all_font_l2_buffer=NULL;
 unsigned tile_l2_ptr=0;
@@ -44,15 +43,28 @@ static __inline__ void init_cache(void) {
 	neo4all_texture_buffer_free=calloc(64+(16*16*2),1);
 	neo4all_texture_buffer=(void *)(((((unsigned)neo4all_texture_buffer_free)+32)/32)*32);
 #ifdef DREAMCAST
+/*
 	neo4all_texture_real_buffer=pvr_mem_malloc(16*16*2*TCACHE_SIZE);
 	neo4all_texture_l2_buffer=pvr_mem_malloc(16*16*2*TCACHE_L2_SIZE);
-	neo4all_texture_l3_buffer=pvr_mem_malloc(16*16*2*TCACHE_L3_SIZE);
 	neo4all_font_real_buffer=pvr_mem_malloc(8*8*2*FCACHE_SIZE);
 	neo4all_font_l2_buffer=pvr_mem_malloc(8*8*2*FCACHE_L2_SIZE);
+*/
+	{
+		unsigned dcpvrmem=(unsigned)pvr_mem_malloc(
+			(16*16*2*(TCACHE_SIZE+TCACHE_L2_SIZE))+
+			(8*8*2*(FCACHE_SIZE+FCACHE_L2_SIZE))
+				);
+		neo4all_texture_real_buffer=(void *)dcpvrmem;
+		dcpvrmem+=(16*16*2*TCACHE_SIZE);
+		neo4all_texture_l2_buffer=(void *)dcpvrmem;
+		dcpvrmem+=(16*16*2*TCACHE_L2_SIZE);
+		neo4all_font_real_buffer=(void *)dcpvrmem;
+		dcpvrmem+=(8*8*2*FCACHE_SIZE);
+		neo4all_font_l2_buffer=(void *)dcpvrmem;
+	}
 #else
 	neo4all_texture_real_buffer=calloc(16*16*2,TCACHE_SIZE);
 	neo4all_texture_l2_buffer=calloc(16*16*2,TCACHE_L2_SIZE);
-	neo4all_texture_l3_buffer=calloc(16*16*2,TCACHE_L3_SIZE);
 	neo4all_font_real_buffer=calloc(8*8*2,FCACHE_SIZE);
 	neo4all_font_l2_buffer=calloc(8*8*2,FCACHE_L2_SIZE);
 #endif
@@ -128,3 +140,10 @@ SDL_bool init_video_gl(void) {
     return SDL_TRUE;
 }
 
+void video_fullscreen_toggle_gl(void)
+{
+#ifndef DREAMCAST
+	SDL_WM_ToggleFullScreen(gl_screen);
+#endif
+
+}

@@ -7,21 +7,25 @@
 #define TCACHE_SIZE 0x1000
 #define TCACHE_MASK (TCACHE_SIZE - 1)
 
-#define TCACHE_L2_SIZE 0x800
+#define TCACHE_L2_SIZE 0x1000
 #define TCACHE_L2_MASK (TCACHE_L2_SIZE - 1)
 
-#define TCACHE_L3_SIZE 0x800
-#define TCACHE_L3_MASK (TCACHE_L3_SIZE - 1)
-
-#define FCACHE_SIZE 0x400
+//#define FCACHE_SIZE 0x400
+#define FCACHE_SIZE 0x200
 #define FCACHE_MASK (FCACHE_SIZE - 1)
 
-#define FCACHE_L2_SIZE 0x800
+//#define FCACHE_L2_SIZE 0x800
+#define FCACHE_L2_SIZE 0x400
 #define FCACHE_L2_MASK (FCACHE_L2_SIZE - 1)
 
 #ifdef DREAMCAST
+/*
 #define VIDEO_GL_WIDTH 320
 #define VIDEO_GL_HEIGHT 240
+*/
+#define VIDEO_GL_WIDTH 640
+#define VIDEO_GL_HEIGHT 480
+
 #else
 #define VIDEO_GL_WIDTH 800
 #define VIDEO_GL_HEIGHT 600
@@ -35,11 +39,11 @@ typedef struct TILE_CACHE{
 }TILE_CACHE;
 
 extern TILE_CACHE tile_cache[TCACHE_SIZE];
-extern unsigned char tile_l2_cache[TCACHE_SIZE];
+extern unsigned char tile_used[TCACHE_SIZE];
 extern unsigned tile_l2_ptr;
 
 extern TILE_CACHE font_cache[FCACHE_SIZE];
-extern unsigned char font_l2_cache[FCACHE_SIZE];
+extern unsigned char font_used[FCACHE_SIZE];
 extern unsigned font_l2_ptr;
 
 extern float tile_z;
@@ -58,7 +62,6 @@ SDL_bool init_video_gl(void);
 extern void *neo4all_texture_buffer;
 extern void *neo4all_texture_real_buffer;
 extern void *neo4all_texture_l2_buffer;
-extern void *neo4all_texture_l3_buffer;
 extern unsigned tile_l2_ptr;
 
 extern void *neo4all_font_real_buffer;

@@ -11,13 +11,14 @@
 
 ***************************************************************************/
 
-
 #include <stdio.h>
-#include "../neocd.h"
 #include "ay8910.h"
 #include "fm.h"
 #include "2610intf.h"
-#include "timer.h"
+#include "sound/streams.h"
+#include "neocd.h"
+#include "memory/memory.h"
+#include "sound/timer.h"
 
 #if BUILD_YM2610
 
@@ -103,8 +104,8 @@ int YM2610_sh_start(void)
     stream = stream_init_multi(YM2610_NUMBUF, 0, YM2610UpdateOne);
     pcmbufa = (void *) neogeo_pcm_memory;
     pcmsizea = 0x100000; //1048576;
-    pcmbufb = NULL; /*(void *) memory.sound2;*/
-    pcmsizeb = 0; /*memory.sound2_size;*/
+    pcmbufb = NULL; // (void *) memory.sound2;
+    pcmsizeb = 0; //memory.sound2_size;
 
     //}
 

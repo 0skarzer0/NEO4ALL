@@ -9,16 +9,22 @@
 
 #define REFRESHTIME 1000/60
 
-#define NEO4ALL_Z80_UNDER_CYCLES	 33333
+#define NEO4ALL_Z80_UNDER_CYCLES	 66666
 #define NEO4ALL_68K_UNDER_CYCLES	166666
 
-#define NEO4ALL_Z80_NORMAL_CYCLES	 66666
+#define NEO4ALL_Z80_NORMAL_CYCLES	100000
 #define NEO4ALL_68K_NORMAL_CYCLES	200000
 
-#define NEO4ALL_Z80_OVER_CYCLES		 99999
+#define NEO4ALL_Z80_OVER_CYCLES		133333
 #define NEO4ALL_68K_OVER_CYCLES		233333
 
 #define SAMPLE_RATE    22050
+
+#define REGION_JAPAN  0
+#define REGION_USA    1
+#define REGION_EUROPE 2
+
+#define REGION REGION_USA
 
 #include <SDL.h>
 
@@ -31,7 +37,7 @@
 #include "z80/z80intrf.h"
 #include "sound/sound.h"
 #include "sound/streams.h"
-#include "sound/2610intf.h"
+// #include "sound/2610intf.h"
 #include "sound/timer.h"
 #include "pd4990a.h"
 
@@ -62,6 +68,8 @@ extern Uint32 neo4all_68k_cycles;
 
 void neogeo_adjust_frameskip(int new_frameskip);
 void neogeo_adjust_cycles(int new_68k, int new_z80);
+
+extern char	neogeo_region;
 
 extern Uint32 neocd_time;
 extern int neo4all_skip_next_frame;

@@ -132,8 +132,8 @@ Uint32 prof_actual=SDL_GetTicks();
   }
   tile_l2_ptr=0;
   font_l2_ptr=0;
-  memset(tile_l2_cache,0,TCACHE_SIZE);
-  memset(font_l2_cache,0,FCACHE_SIZE);
+  memset(tile_used,0,TCACHE_SIZE);
+  memset(font_used,0,FCACHE_SIZE);
   tile_z=1.0;
 
 #endif

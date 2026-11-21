@@ -14,6 +14,7 @@
 #define	VIDEO_SCANLINES	2
 
 /*-- Global Variables ------------------------------------------------------*/
+extern unsigned	video_palette_selected;
 extern char		*video_vidram;
 extern unsigned short	*video_paletteram_ng;
 extern unsigned short	video_palette_bank0_ng[4096];
@@ -34,7 +35,7 @@ extern unsigned char	video_spr_usage[32768];
 extern unsigned char	rom_spr_usage[32768];
 extern unsigned int	video_hide_fps;
 extern unsigned short	video_color_lut[32768];
-extern char	video_palette_use[0x100];
+extern char	video_palette_use[0x200];
 extern int	video_palette_dirty;
 
 extern SDL_Surface	*screen;

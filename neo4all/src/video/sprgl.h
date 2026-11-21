@@ -11,13 +11,16 @@
 #define COORD_D_U 0.0
 #define COORD_D_V 1.0
 
-#define SCALE_X 1.052631578947368f
-#define MOVE_X 8.0f
 
 #ifndef DREAMCAST
+#define SCALE_X 1.052631578947368f
+#define MOVE_X 8.0f
 #define SCALE_Y 1.071428571428571f
 #else
-#define SCALE_Y 1.0
+#define SCALE_X (2.105263157894736f/(640.0f/VIDEO_GL_WIDTH))
+#define MOVE_X (16.0f/(640.0f/VIDEO_GL_WIDTH))
+//#define SCALE_Y 2.0f
+#define SCALE_Y SCALE_X
 #endif
 
 #define VERTEX_1_X ((((float)sx)*SCALE_X)-MOVE_X)

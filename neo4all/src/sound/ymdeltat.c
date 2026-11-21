@@ -24,7 +24,7 @@
 // #include "neo_snd.h"
 #include "fm.h"
 #include "ymdeltat.h"
-//#include "../state.h"
+#include "../state.h"
 
 Uint8 *ym_deltat_memory;	/* memory pointer */
 
@@ -197,9 +197,9 @@ void adpcmb_post_load(void)
 void YM_DELTAT_savestate(YM_DELTAT *DELTAT)
 {
 #if 0
-    create_state_register(ST_YM2610_ADPCMB, "DT.portstate" ,1, &DELTAT->portstate , 1*sizeof(Uint8),REG_UINT8);
-    create_state_register(ST_YM2610_ADPCMB, "DT.address"   ,1, &DELTAT->now_addr  , 1*sizeof(Uint32),REG_UINT32);
-    create_state_register(ST_YM2610_ADPCMB, "DT.step"      ,1, &DELTAT->now_step  , 1*sizeof(Uint32),REG_UINT32);
+    create_state_register(ST_YM2610_ADPCMB, "DT.portstate" ,1, &DELTAT->portstate , 1*sizeof(Uint8),REG_Uint8);
+    create_state_register(ST_YM2610_ADPCMB, "DT.address"   ,1, &DELTAT->now_addr  , 1*sizeof(Uint32),REG_Uint32);
+    create_state_register(ST_YM2610_ADPCMB, "DT.step"      ,1, &DELTAT->now_step  , 1*sizeof(Uint32),REG_Uint32);
     create_state_register(ST_YM2610_ADPCMB, "DT.adpcmx"       ,1, &DELTAT->adpcmx    , 1*sizeof(Sint32),REG_INT32);
     create_state_register(ST_YM2610_ADPCMB, "DT.adpcmd"    ,1, &DELTAT->adpcmd    , 1*sizeof(Sint32),REG_INT32);
     create_state_register(ST_YM2610_ADPCMB, "DT.adpcml"    ,1, &DELTAT->adpcml    , 1*sizeof(Sint32),REG_INT32);

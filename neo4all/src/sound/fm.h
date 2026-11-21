@@ -10,7 +10,6 @@
 /* --- select emulation chips --- */
 
 #define BUILD_YM2610  1		//(HAS_YM2610)  /* build YM2610(OPNB)  emulator */
-#define BUILD_YM2608  0
 
 /* --- system optimize --- */
 /* select stereo output buffer : 1=mixing / 0=separate */
@@ -243,7 +242,7 @@ int YM2610Init(int baseclock, int rate,
 	       FM_TIMERHANDLER TimerHandler, FM_IRQHANDLER IRQHandler);
 void YM2610Shutdown(void);
 void YM2610ResetChip(void);
-void YM2610UpdateOne(int num, Sint16 **buffer, int length);
+void YM2610UpdateOne(int num, short **buffer, int length);
 
 int YM2610Write(int a, unsigned char v);
 unsigned char YM2610Read(int a);

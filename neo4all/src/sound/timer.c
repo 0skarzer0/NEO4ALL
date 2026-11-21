@@ -1,30 +1,32 @@
 /*  gngeo a neogeo emulator
  *  Copyright (C) 2001 Peponas Mathieu
  * 
- *  This library is free software; you can redistribute it and/or
- *  modify it under the terms of the GNU Lesser General Public
- *  License as published by the Free Software Foundation; either
- *  version 2.1 of the License, or (at your option) any later version.
+ *  This program is free software; you can redistribute it and/or modify  
+ *  it under the terms of the GNU General Public License as published by   
+ *  the Free Software Foundation; either version 2 of the License, or    
+ *  (at your option) any later version.
  *
- *  This library is distributed in the hope that it will be useful,
+ *  This program is distributed in the hope that it will be useful,
  *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
- *  Lesser General Public License for more details.
+ *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ *  GNU Library General Public License for more details.
  *
- *  You should have received a copy of the GNU Lesser General Public
- *  License along with this library; if not, write to the Free Software
- *  Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
+ *  You should have received a copy of the GNU General Public License
+ *  along with this program; if not, write to the Free Software
+ *  Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA. 
  */
 
 #include <stdlib.h>
+#include "neocd.h"
 #include "timer.h"
-#include <stdio.h>
+#include "state.h"
 
 double neogeo_timer_count;
 timer_struct *timer_list;
 #define MAX_TIMER 3
 timer_struct timers[MAX_TIMER];
 int nb_interlace=256;
+//extern int nb_interlace;
 //int nb_timer=0;
 
 double timer_get_time(void) {
@@ -55,6 +57,40 @@ void free_all_timer(void) {
     }
 }
 
+
+void timer_callback_2610(int param);
+void timer_post_load_state(void) {
+    int i;
+    for (i = 0; i < MAX_TIMER; i++) {
+	if (timers[i].del_it) {
+	    timers[i].func=NULL;
+	} else {
+	    /* FIXME: Ugly.... */
+	    timers[i].func=timer_callback_2610;
+	}
+    }
+}
+
+void timer_pre_save_state(void)
+{
+
+}
+
+void timer_init_save_state(void) {
+#if 0
+    int i;
+    create_state_register(ST_TIMER,"neogeo_timer_count",1,&neogeo_timer_count,sizeof(double),REG_UINT32);
+
+    for(i=0;i<MAX_TIMER;i++) {
+	create_state_register(ST_TIMER,"t.del_it",i,&timers[i].del_it,sizeof(Uint32),REG_UINT32);
+	create_state_register(ST_TIMER,"t.time",i,&timers[i].time,sizeof(double),REG_UINT32);
+	create_state_register(ST_TIMER,"t.param",i,&timers[i].param,sizeof(Sint32),REG_INT32);
+    }
+    set_post_load_function(ST_TIMER,timer_post_load_state);
+    set_pre_save_function(ST_TIMER,timer_pre_save_state);
+#endif
+}
+
 void del_timer(timer_struct * ts)
 {
     ts->del_it = 1;
@@ -68,9 +104,9 @@ void my_timer(void)
     int i;
 
     if (init) {
-	//timer_init_save_state();
+	timer_init_save_state();
 	init = 0;
-	if (0) {
+	if (neogeo_region==REGION_EUROPE) {
 	    inc = (double) (0.02) / nb_interlace;
 			  //(conf.sound ? (double) nb_interlace : 1.0);
 	} else {

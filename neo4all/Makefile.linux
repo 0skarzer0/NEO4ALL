@@ -139,7 +139,7 @@ run: $(PROG)
 	./$(PROG)
 
 clean:
-	$(RM) $(PROG) $(OBJS) src/68k/c68k/cpu68k.o src/z80/z80intrf.o $(MEMORY_OBJ)
+	$(RM) $(PROG) $(OBJS) src/68k/c68k/cpu68k.o src/z80/z80intrf.o $(MEMORY_OBJ) data/memcard.bin
 
 clean-cores:
 	$(RM) $(Z80_OBJS) $(OBJS_68K)

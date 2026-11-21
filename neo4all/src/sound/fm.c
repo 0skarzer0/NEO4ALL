@@ -71,11 +71,11 @@
 #include <string.h>
 #include <stdarg.h>
 #include <math.h>
-#include "../sound/sound.h"
+#include "sound.h"
 #include "ay8910.h"
 #include "fm.h"
 #include "2610intf.h"
-//#include "../state.h"
+#include "state.h"
 
 #ifndef PI
 #define PI 3.14159265358979323846
@@ -1197,10 +1197,9 @@ static void FM_pre_save(FM_CH *CH,int num_ch) {
     }
 }
 #endif
-
-#if 0
 static void FMsave_state_channel(FM_CH *CH,int num_ch)
 {
+#if 0
     int slot , ch;
     const char slot_array[4] = { 1 , 3 , 2 , 4 };
 
@@ -1233,8 +1232,8 @@ static void FMsave_state_channel(FM_CH *CH,int num_ch)
 //	    create_state_register(ST_YM2610_FM, "EG_NEXT"     ,(ch<<4)|slot, &fm_state[(ch<<4)|slot].eg_next, 1*sizeof(Uint8));
 	}
     }
+#endif 
 }
-#endif
 /*
 static void FM_ST_post_load(FM_ST *ST)
 {
@@ -1280,7 +1279,6 @@ void fm_post_load(void)
 //    FM_post_load(FM2610.CH,6);
 }
 
-#if 0
 void fm_pre_save(void)
 {
     YM2610 *F2610 = &(FM2610);
@@ -1289,6 +1287,7 @@ void fm_pre_save(void)
 
 static void FMsave_state_st(FM_ST *ST)
 {
+#if 0
 	create_state_register(ST_YM2610_FM, "address"   ,1, &ST->address , 1*sizeof(Uint8),REG_UINT8);
 	create_state_register(ST_YM2610_FM, "IRQ"       ,1, &ST->irq     , 1*sizeof(Uint8),REG_UINT8);
 	create_state_register(ST_YM2610_FM, "IRQ MASK"  ,1, &ST->irqmask , 1*sizeof(Uint8),REG_UINT8);
@@ -1302,8 +1301,8 @@ static void FMsave_state_st(FM_ST *ST)
 	create_state_register(ST_YM2610_FM, "TIMER Bcnt",1, &ST->TBC  ,1*sizeof(Sint32),REG_INT32);
 	set_post_load_function(ST_YM2610_FM,fm_post_load);
 //	set_pre_save_function(ST_YM2610_FM,fm_pres_save);
-}
 #endif
+}
 
 
 #if BUILD_OPN
@@ -1799,8 +1798,8 @@ static void FM_ADPCMAWrite(YM2610 * F2610, int r, int v)
 /* FM channel save , internal state only */
 static void adpcma_post_load(void)
 {
-    /*YM2610 *F2610 = &(FM2610);
-    int r;*/
+    YM2610 *F2610 = &(FM2610);
+    int r;
     /* rhythm(ADPCMA) *//*
     FM_ADPCMAWrite(F2610,1,F2610->REGS[0x111]);
     for( r=0x08 ; r<0x0c ; r++)
@@ -1809,9 +1808,9 @@ static void adpcma_post_load(void)
 
 }
 
-#if 0
 static void FMsave_state_adpcma(ADPCM_CH *adpcm)
 {
+#if 0
     int ch;
 
     for(ch=0;ch<6;ch++,adpcm++) {
@@ -1832,8 +1831,8 @@ static void FMsave_state_adpcma(ADPCM_CH *adpcm)
 	create_state_register(ST_YM2610_ADPCMA, "volume"   ,ch+1, &adpcm->volume , 1*sizeof(Sint32),REG_INT32);
     }
     set_post_load_function(ST_YM2610_ADPCMA,adpcma_post_load);
-}
 #endif
+}
 
 #endif				/* BUILD_FM_ADPCMA */
 
@@ -1852,8 +1851,8 @@ void YM2610UpdateOne(int num, Sint16 ** buffer, int length)
     int i, j;
     int ch;
     FMSAMPLE *bufL, *bufR;
-/*    Sint16 *aybuf[3];
-
+    Sint16 *aybuf[3];
+/*
     for (i = 0; i < 0; i++) {
 	aybuf[i] = alloca(sizeof(Sint16) * 16384);
     }
@@ -1947,7 +1946,7 @@ void YM2610UpdateOne(int num, Sint16 ** buffer, int length)
 
 static void YM2610_postload(void)
 {
-    int r; /*,num*/
+    int num , r;
     YM2610 *F2610 = &(FM2610);
 
     //printf("POSTLOAD DUMP:\n");
@@ -1966,12 +1965,10 @@ static void YM2610_postload(void)
 }
 
 static void YM2610_presave(void) {
-    //YM2610 *F2610 = &(FM2610);
+    YM2610 *F2610 = &(FM2610);
     //printf("PRESAVE DUMP:\n");
     //dump_struct(F2610,1);
 }
-
-
 
 static void YM2610_save_state(void)
 {
@@ -1985,7 +1982,7 @@ static void YM2610_save_state(void)
     create_state_register(ST_YM2610, "pg_in4"   ,1, &pg_in4   , 1*sizeof(Sint32),REG_INT32);
     
   
-#if 1
+// #if 1
     create_state_register(ST_YM2610, "regs"   ,1, F2610->REGS   , 512*sizeof(Uint8),REG_UINT8);
     FMsave_state_st(&FM2610.OPN.ST);
     FMsave_state_channel(FM2610.CH,6);
@@ -2002,13 +1999,11 @@ static void YM2610_save_state(void)
     YM_DELTAT_savestate(&FM2610.deltaT);
 
 
-#endif
     set_post_load_function(ST_YM2610,YM2610_postload);
     set_pre_save_function(ST_YM2610,YM2610_presave);
-
-#endif  
+#endif
+  
 }
-
 
 #endif				/* BUILD_OPNB */
 

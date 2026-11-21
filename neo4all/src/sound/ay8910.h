@@ -1,7 +1,12 @@
 #ifndef AY8910_H
 #define AY8910_H
 
-#include "SDL.h"
+#ifdef HAVE_CONFIG_H
+#include <config.h>
+#endif
+
+#include "neocd.h"
+
 
 #define MAX_8910 5
 #define ALL_8910_CHANNELS -1

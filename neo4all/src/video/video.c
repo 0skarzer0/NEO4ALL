@@ -23,6 +23,7 @@
 
 
 //-- Global Variables --------------------------------------------------------
+unsigned	video_palette_selected=0;
 char *          video_vidram;
 unsigned short	*video_paletteram_ng;
 unsigned short	video_palette_bank0_ng[4096];
@@ -31,7 +32,7 @@ unsigned short	*video_paletteram_pc;
 unsigned short	video_palette_bank0_pc[4096];
 unsigned short	video_palette_bank1_pc[4096];
 unsigned short	video_color_lut[32768];
-char	video_palette_use[0x100];
+char	video_palette_use[0x200];
 int	video_palette_dirty=0;
 
 short			video_modulo;
@@ -236,7 +237,7 @@ void	video_precalc_lut(void)
 			}
 		}
 	}
-	memset(video_palette_use,0,0x100);
+	memset(video_palette_use,0,0x200);
 	video_palette_dirty=0;
 	
 }
@@ -268,5 +269,17 @@ void video_save_snapshot(void)
 	char name[30];
 	sprintf(name,"snap%04d.bmp", snap_no++);
 	SDL_SaveBMP(screen,name);
+}
+
+void video_fullscreen_toggle(void)
+{
+#ifndef DREAMCAST
+#ifndef USE_VIDEO_GL
+	SDL_WM_ToggleFullScreen(screen);
+#else
+	video_fullscreen_toggle_gl();
+#endif
+#endif
+
 }
 
