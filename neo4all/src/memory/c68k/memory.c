@@ -13,6 +13,10 @@
 
 #include "../neocd.h"
 
+#ifdef DEBUG_MEMORY
+extern int trazando;
+#endif
+
 extern unsigned short    *video_paletteram_ng;
 
 #if 0
@@ -61,9 +65,12 @@ void initialize_memmap(void) {
 /***************************************************************************************************/
 
 unsigned int  FASTCALL m68k_read_memory_8f(const unsigned int off) {
+#ifdef DEBUG_MEMORY
+if (trazando) printf("m68k_read_memory_8f(0x%X)\n",off); fflush(stdout);
+#endif
     unsigned int offset = off & 0xffffff;
     if(offset<0x200000)
-        return neogeo_prg_memory[offset^1];
+        return *((Uint8*)&neogeo_prg_memory[offset^1]);
 
     switch(offset>>16)
     {
@@ -99,11 +106,17 @@ unsigned int  FASTCALL m68k_read_memory_8f(const unsigned int off) {
 
 
 unsigned int  m68k_read_memory_8(unsigned int offset) {
+#ifdef DEBUG_MEMORY
+if (trazando) printf("m68k_read_memory_8(0x%X)\n",offset); fflush(stdout);
+#endif
     return m68k_read_memory_8f(offset);
 }
 
 /***************************************************************************************************/
 unsigned int  FASTCALL m68k_read_memory_16f(const unsigned int off) {
+#ifdef DEBUG_MEMORY
+if (trazando) printf("m68k_read_memory_16f(0x%X)\n",off); fflush(stdout);
+#endif
     unsigned int offset = off & 0xffffff;
     if(offset<0x200000)
         return *((Uint16*)&neogeo_prg_memory[offset]);
@@ -136,12 +149,18 @@ unsigned int  FASTCALL m68k_read_memory_16f(const unsigned int off) {
 
 
 unsigned int  m68k_read_memory_16(unsigned int offset) {
+#ifdef DEBUG_MEMORY
+if (trazando) printf("m68k_read_memory_16(0x%X)\n",offset); fflush(stdout);
+#endif
     return m68k_read_memory_16f(offset);
 }
 
 
 /***************************************************************************************************/
 unsigned int  FASTCALL m68k_read_memory_32f(const unsigned int off) {
+#ifdef DEBUG_MEMORY
+if (trazando) printf("m68k_read_memory_32f(0x%X)\n",off); fflush(stdout);
+#endif
     unsigned int offset = off & 0xffffff;
     unsigned int data;
     data=m68k_read_memory_16(offset)<<16;
@@ -150,12 +169,18 @@ unsigned int  FASTCALL m68k_read_memory_32f(const unsigned int off) {
 }
 
 unsigned int  m68k_read_memory_32(unsigned int offset) {
+#ifdef DEBUG_MEMORY
+if (trazando) printf("m68k_read_memory_32(0x%X)\n",offset); fflush(stdout);
+#endif
     return m68k_read_memory_32f(offset);
 }
 
 
 /***************************************************************************************************/
 void FASTCALL m68k_write_memory_8f(const unsigned int off, unsigned int data) {
+#ifdef DEBUG_MEMORY
+if (trazando) printf("m68k_write_memory_8f(0x%X,0x%X)\n",off,data); fflush(stdout);
+#endif
     int temp;
     unsigned int offset = off & 0xffffff;
     data&=0xff;
@@ -206,12 +231,18 @@ void FASTCALL m68k_write_memory_8f(const unsigned int off, unsigned int data) {
 
 
 void  m68k_write_memory_8(unsigned int offset, unsigned int data) {
+#ifdef DEBUG_MEMORY
+if (trazando) printf("m68k_write_memory_8(0x%X,0x%X)\n",offset,data); fflush(stdout);
+#endif
     m68k_write_memory_8f(offset, data);
 }
 
 
 /***************************************************************************************************/
 void FASTCALL m68k_write_memory_16f(const unsigned int off, unsigned int data) {
+#ifdef DEBUG_MEMORY
+if (trazando) printf("m68k_write_memory_16f(0x%X,0x%X)\n",off,data); fflush(stdout);
+#endif
     unsigned int offset = off & 0xffffff;
     data&=0xffff;
 
@@ -222,7 +253,7 @@ void FASTCALL m68k_write_memory_16f(const unsigned int off, unsigned int data) {
 
     switch(offset>>16)
     {
-		case	0x2f:	break;
+	case	0x2f:	break;
         case    0x3a:    cpu_writeswitch(offset, data); break;
         case    0x3c:    cpu_writevidreg(offset, data); break;
         case    0x40:    offset =(offset&0x1fff)>>1;
@@ -247,6 +278,9 @@ void FASTCALL m68k_write_memory_16f(const unsigned int off, unsigned int data) {
 
 
 void  m68k_write_memory_16(unsigned int offset, unsigned int data) {
+#ifdef DEBUG_MEMORY
+if (trazando) printf("m68k_write_memory_16(0x%X,0x%X)\n",offset,data); fflush(stdout);
+#endif
     m68k_write_memory_16f(offset, data);
 }
 
@@ -254,6 +288,9 @@ void  m68k_write_memory_16(unsigned int offset, unsigned int data) {
 /***************************************************************************************************/
 #if 1
 void FASTCALL m68k_write_memory_32f(const unsigned int off, unsigned int data) {
+#ifdef DEBUG_MEMORY
+if (trazando) printf("m68k_write_memory_32f(0x%X,0x%X)\n",off,data); fflush(stdout);
+#endif
       unsigned int offset = off & 0xffffff;
 	unsigned int word1=(data>>16)&0xffff;
 	unsigned int word2=data&0xffff;
@@ -263,6 +300,9 @@ void FASTCALL m68k_write_memory_32f(const unsigned int off, unsigned int data) {
 
 #else
 void FASTCALL m68k_write_memory_32f(const unsigned int off, unsigned int data) {
+#ifdef DEBUG_MEMORY
+if (trazando) printf("m68k_write_memory_32f(0x%X,0x%X)\n",off,data); fflush(stdout);
+#endif
     int temp=((data&0xffff)<<16)|((data>>16)&0xffff);
     unsigned int offset = off & 0xffffff;
 
@@ -303,12 +343,18 @@ void FASTCALL m68k_write_memory_32f(const unsigned int off, unsigned int data) {
 #endif
 
 void  m68k_write_memory_32(unsigned int offset, unsigned int data) {
+#ifdef DEBUG_MEMORY
+if (trazando) printf("m68k_write_memory_32(0x%X,0x%X)\n",offset,data); fflush(stdout);
+#endif
     m68k_write_memory_32f(offset, data);
 }
 
 /***************************************************************************************************/
 static int    cpu_readvidreg(int offset)
 {
+#ifdef DEBUG_MEMORY
+if (trazando) printf("cpu_readvidreg(0x%X)\n",offset); fflush(stdout);
+#endif
     switch(offset)
     {
         case    0x3c0000:    return *(Uint16*)&video_vidram[video_pointer<<1]; break;
@@ -330,6 +376,9 @@ static int    cpu_readvidreg(int offset)
 /***************************************************************************************************/
 static void    cpu_writevidreg(int offset, int data)
 {
+#ifdef DEBUG_MEMORY
+if (trazando) printf("cpu_writevidreg(0x%X,0x%X)\n",offset,data); fflush(stdout);
+#endif
     switch(offset)
     {
         case    0x3c0000:    video_pointer=(Uint16)data; break;
@@ -352,29 +401,44 @@ static void    cpu_writevidreg(int offset, int data)
 /***************************************************************************************************/
 
 static void     neogeo_setpalbank0 (void) {
+#ifdef DEBUG_MEMORY
+if (trazando) puts("neogeo_setpalbank0()"); fflush(stdout);
+#endif
     video_paletteram_ng=video_palette_bank0_ng;
     video_paletteram_pc=video_palette_bank0_pc;
 }
 
 
 static void     neogeo_setpalbank1 (void) {
+#ifdef DEBUG_MEMORY
+if (trazando) puts("neogeo_setpalbank1()"); fflush(stdout);
+#endif
     video_paletteram_ng=video_palette_bank1_ng;
     video_paletteram_pc=video_palette_bank1_pc;
 }
 
 
 static void    neogeo_select_bios_vectors (void) {
+#ifdef DEBUG_MEMORY
+if (trazando) puts("neogeo_select_bios_vectors()"); fflush(stdout);
+#endif
     memcpy(neogeo_prg_memory, neogeo_rom_memory, 0x80);
 }
 
 
 static void    neogeo_select_game_vectors (void) {
+#ifdef DEBUG_MEMORY
+if (trazando) puts("neogeo_select_game_vectors()"); fflush(stdout);
+#endif
     logaccess("write game vectors stub\n");
 }
 
 
 static void    cpu_writeswitch(int offset, int data)
 {
+#ifdef DEBUG_MEMORY
+if (trazando) printf("cpu_writeswitch(0x%X,0x%X)\n",offset,data); fflush(stdout);
+#endif
     switch(offset)
     {
         case 0x3a0000: /* NOP */ break;
@@ -406,6 +470,9 @@ static void    cpu_writeswitch(int offset, int data)
 
 void neogeo_sound_irq(int irq)
 {
+#ifdef DEBUG_MEMORY
+if (trazando) printf("neogeo_sound_irq(0x%X)\n",irq); fflush(stdout);
+#endif
 #ifdef Z80_EMULATED
     if (neogeo_sound_enable)
     {
@@ -425,6 +492,9 @@ void neogeo_sound_irq(int irq)
 
 static int cpu_readcoin(int addr)
 {
+#ifdef DEBUG_MEMORY
+if (trazando) printf("cpu_readcoin(0x%X)\n",addr); fflush(stdout);
+#endif
     addr &= 0xFFFF;
     if (addr == 0x1) {
         int coinflip = pd4990a_testbit_r();
@@ -451,18 +521,25 @@ static int cpu_readcoin(int addr)
 
 static void watchdog_reset_w (void)
 {
+#ifdef DEBUG_MEMORY
+if (trazando) puts("watchdog_reset_w()"); fflush(stdout);
+#endif
     //if (watchdog_counter == -1) logaccess("Watchdog Armed!\n");
     watchdog_counter=3 * 60;  /* 3s * 60 fps */
 }
 
 
 static int read_upload(int offset) {
+#ifdef DEBUG_MEMORY
+if (trazando) printf("read_upload(0x%X)\n",offset); fflush(stdout);
+#endif
+    return -1;
+#if 0
     int zone = m68k_read_memory_8(0x10FEDA);
     /* int bank = m68k_read_memory_8(0x10FEDB); */
 
     /* read_upload is disabled for now.*/
 	/* fixes Metal Slug */
-//    return -1;
 
     switch (zone) {
         case 0x00: /* 68000 */
@@ -470,17 +547,21 @@ static int read_upload(int offset) {
         case 0x01: /* Z80 */
 #ifdef Z80_EMULATED
     		if (neogeo_sound_enable)
-           	 return subcpu_memspace[(offset>>1)&0xFFFF];
+           	 return mame_z80mem[(offset>>1)&0xFFFF];
 #endif
 	    return -1;
         default:
            // logaccess ("read_upload unimplemented zone %x\n",zone);
             return -1;
     }
+#endif
 }
 
 
 static void write_upload(int offset, int data) {
+#ifdef DEBUG_MEMORY
+if (trazando) printf("write_upload(0x%X,0x%X)\n",offset,data); fflush(stdout);
+#endif
     int zone = m68k_read_memory_8(0x10FEDA);
     /* int bank = m68k_read_memory_8(0x10FEDB); */
 
@@ -491,7 +572,7 @@ static void write_upload(int offset, int data) {
         case 0x01: /* Z80 */
 #ifdef Z80_EMULATED
     	    if (neogeo_sound_enable)
-            	subcpu_memspace[(offset>>1)&0xFFFF]=(char)data;
+            	mame_z80mem[(offset>>1)&0xFFFF]=(char)data;
 #endif
             break;
         case 0x11: /* FIX */
@@ -506,6 +587,9 @@ static void write_upload(int offset, int data) {
 
 
 static void write_upload_word(int offset, int data) {
+#ifdef DEBUG_MEMORY
+if (trazando) printf("write_upload_word(0x%X,0x%X)\n",offset,data); fflush(stdout);
+#endif
     int zone = m68k_read_memory_8(0x10FEDA);
     int bank = m68k_read_memory_8(0x10FEDB);
     int offset2;
@@ -543,7 +627,7 @@ static void write_upload_word(int offset, int data) {
         case 0x13: /* Z80 */
 #ifdef Z80_EMULATED
     	    if (neogeo_sound_enable)
-            	subcpu_memspace[(offset>>1)&0xFFFF]=(char)data;
+            	mame_z80mem[(offset>>1)&0xFFFF]=(char)data;
 #endif
             break;
         case 0x14: /* PCM */
@@ -558,6 +642,9 @@ static void write_upload_word(int offset, int data) {
 
 
 static void write_upload_dword(int offset, int data) {
+#ifdef DEBUG_MEMORY
+if (trazando) printf("write_upload_dword(0x%X,0x%X)\n",offset,data); fflush(stdout);
+#endif
     int zone = m68k_read_memory_8(0x10FEDA);
     int bank = m68k_read_memory_8(0x10FEDB);
     char *dest;
@@ -586,6 +673,9 @@ static void write_upload_dword(int offset, int data) {
 
 
 static void write_memcard(int offset, int data) {
+#ifdef DEBUG_MEMORY
+if (trazando) printf("write_memcard(0x%X,0x%X)\n",offset,data); fflush(stdout);
+#endif
     data&=0xff;
     neogeo_memorycard[(offset&0x3fff)>>1]=(char)data; 
 

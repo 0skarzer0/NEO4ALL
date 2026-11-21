@@ -22,6 +22,7 @@ static char *console_filename[NUM_BACKGROUNDS+2]={
 
 static unsigned int console_y=0;
 static unsigned int console_offset=0;
+
 static char *console_str_separator="----------------------------------------";
 
 void console_draw_background(int y, int h)
@@ -319,7 +320,9 @@ void console_puts(char *str_orig)
 
 	str=(char *)tmp_text;
 	strcpy(str,str_orig);
+#ifdef STDOUTPUT
 	puts(str);
+#endif
 	if (view_console)
 	{
 		while(len>max_len)
@@ -431,4 +434,5 @@ void console_pag(void)
 {
 	console_y=(screen->h/background[0]->h);
 }
+
 

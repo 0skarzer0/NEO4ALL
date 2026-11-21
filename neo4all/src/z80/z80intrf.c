@@ -137,6 +137,7 @@ void _z80_init(void)
 	z80_init();
 	z80_reset(NULL);
 	z80_set_irq_callback(cpu_z80_irq_callback);
+	z80_execute(100000);
 #endif
 }
 
@@ -217,6 +218,7 @@ Uint8 mame_z80_readport16(Uint16 PortNo)
 		return YM2610_status_port_0_B_r(0);
 		break;
 
+
 	case 0x08: // cpu_z80_switchbank(3, PortNo);
 		z80_bank[3]=PortNo;
 		z80map4 =  subcpu_memspace + (0x0800 * ((PortNo >> 8) & 0x7f));
@@ -255,9 +257,6 @@ Uint8 mame_z80_readport16(Uint16 PortNo)
 
 
 #ifdef USE_MAMEZ80
-#ifdef USE_CZ80
-
-#else
 void cpu_z80_nmi(void)
 {
 	z80_set_irq_line(IRQ_LINE_NMI, ASSERT_LINE);
@@ -266,6 +265,7 @@ void cpu_z80_nmi(void)
 
 void cpu_z80_init(void)
 {
+	z80_set_irq_callback(cpu_z80_irq_callback);
 }
 
 void cpu_z80_raise_irq(int l)
@@ -279,7 +279,9 @@ void cpu_z80_lower_irq(void)
 
 void cpu_z80_reset(void)
 {
+	z80_set_irq_callback(cpu_z80_irq_callback);
 	z80_reset(NULL);
+	z80_set_irq_callback(cpu_z80_irq_callback);
+	z80_execute(100000);
 }
-#endif
 #endif

@@ -26,18 +26,42 @@
 #include "streams.h"
 
 static unsigned char sound_muted=0x3;
-static SDL_AudioSpec desired;
 
 #include "sound.h"
 
 #define MIXER_MAX_CHANNELS 16
-
-//#define CPU_FPS 60
+#define MUSIC_VOLUME 96
 #define BUFFER_LEN 16384
 extern Uint16 play_buffer[BUFFER_LEN];
 
 #define NB_SAMPLES 512 /* better resolution */
-//#define NB_SAMPLES 1024
+
+#ifdef MENU_MUSIC
+#include <SDL_mixer.h>
+enum{
+	SAMPLE_LOADING,
+	SAMPLE_SAVING,
+	SAMPLE_MENU,
+	SAMPLE_BYE,
+	SAMPLE_BEEP,
+	SAMPLE_ERROR,
+	NUM_SAMPLES
+};
+
+static char *sample_filename[NUM_SAMPLES]={
+	DATA_PREFIX "loading.wav",
+	DATA_PREFIX "saving.wav",
+	DATA_PREFIX "menu.wav",
+	DATA_PREFIX "goodbye.wav",
+	DATA_PREFIX "beep.wav",
+	DATA_PREFIX "error.wav"
+};
+
+static Mix_Chunk *sample[NUM_SAMPLES];
+
+#define play_sample(NSAMPLE) Mix_PlayChannel(0,sample[(NSAMPLE)],0)
+
+#endif
 
 void update_sdl_stream(void *userdata, Uint8 * stream, int len)
 {
@@ -53,6 +77,14 @@ void update_sdl_stream(void *userdata, Uint8 * stream, int len)
 int init_sdl_audio(void)
 {
 #ifdef Z80_EMULATED
+#ifdef MENU_MUSIC
+    unsigned i;
+    Mix_OpenAudio(SAMPLE_RATE, AUDIO_S16, 2, NB_SAMPLES);
+    for(i=0;i<NUM_SAMPLES;i++)
+	    sample[i]=Mix_LoadWAV(sample_filename[i]);
+#else
+    SDL_AudioSpec desired;
+
     desired.freq = SAMPLE_RATE;
     desired.samples = NB_SAMPLES;
     
@@ -65,6 +97,7 @@ int init_sdl_audio(void)
     desired.callback = update_sdl_stream;
     desired.userdata = NULL;
     SDL_OpenAudio(&desired, NULL);
+#endif
     SDL_PauseAudio(1);
     
     sound_reset();
@@ -72,24 +105,93 @@ int init_sdl_audio(void)
     return 1;
 }
 
+
+void sound_play_menu_music(void)
+{
+#ifdef MENU_MUSIC
+    Mix_PlayMusic(Mix_LoadMUS(DATA_PREFIX "music.mod"),-1);
+    sound_mute();
+#endif
+}
+
+void sound_play_loading(void)
+{
+#ifdef MENU_MUSIC
+	play_sample(SAMPLE_LOADING);
+#endif
+}
+
+void sound_play_saving(void)
+{
+#ifdef MENU_MUSIC
+	play_sample(SAMPLE_SAVING);
+#endif
+}
+
+void sound_play_menu(void)
+{
+#ifdef MENU_MUSIC
+	play_sample(SAMPLE_MENU);
+#endif
+}
+
+void sound_play_bye(void)
+{
+#ifdef MENU_MUSIC
+	play_sample(SAMPLE_BYE);
+#endif
+}
+
+void sound_play_beep(void)
+{
+#ifdef MENU_MUSIC
+	play_sample(SAMPLE_BEEP);
+#endif
+}
+
+void sound_play_error(void)
+{
+#ifdef MENU_MUSIC
+	play_sample(SAMPLE_ERROR);
+#endif
+}
+
 void sound_enable(void) {
 #ifdef Z80_EMULATED
+//puts("sound_enable");
 	if ((sound_muted&0x1)&&(!(sound_muted&0x2)))
+	{
+#ifdef MENU_MUSIC
+		SDL_PauseAudio(1);
+		Mix_HookMusic(&update_sdl_stream,NULL);
+#endif
 		SDL_PauseAudio(0);
+	}
 	sound_muted&=0xFE;
 #endif
 }
 
 void sound_disable(void) {
 #ifdef Z80_EMULATED
+//puts("sound_disable");
 	if (!(sound_muted&0x3))
+	{
+#ifdef MENU_MUSIC
 		SDL_PauseAudio(1);
+		Mix_HookMusic(NULL,NULL);
+		SDL_PauseAudio(0);
+		Mix_VolumeMusic(MUSIC_VOLUME);
+#else
+		SDL_PauseAudio(1);
+#endif
+	}
 	sound_muted|=0x1;
 #endif
 }
 
 void sound_toggle(void) {
 #ifdef Z80_EMULATED
+//puts("sound_toggle");
 	if (!(sound_muted&0x2))
 	{
 		if (sound_muted&0x1)
@@ -102,6 +204,7 @@ void sound_toggle(void) {
 
 void sound_shutdown(void) {
 #ifdef Z80_EMULATED
+//puts("sound_shutdown");
     sound_stop();
     SDL_CloseAudio();
 #endif
@@ -109,6 +212,7 @@ void sound_shutdown(void) {
 
 void sound_stop(void) {
 #ifdef Z80_EMULATED
+//puts("sound_stop");
     sound_mute();
     streams_sh_stop();
     YM2610_sh_stop();
@@ -118,6 +222,7 @@ void sound_stop(void) {
 
 void sound_reset(void) {
 #ifdef Z80_EMULATED
+//puts("sound_reset");
     streams_sh_start();
     YM2610_sh_start();
     sound_unmute();
@@ -126,16 +231,33 @@ void sound_reset(void) {
 
 void sound_mute(void){
 #ifdef Z80_EMULATED
+//puts("sound_mute");
 	if (!(sound_muted&0x2))
+	{
+#ifdef MENU_MUSIC
 		SDL_PauseAudio(1);
+		Mix_HookMusic(NULL,NULL);
+		SDL_PauseAudio(0);
+		Mix_VolumeMusic(MUSIC_VOLUME);
+#else
+		SDL_PauseAudio(1);
+#endif
+	}
 	sound_muted=0x3;
 #endif
 }
 
 void sound_unmute(void){
 #ifdef Z80_EMULATED
+//puts("sound_unmute");
 	if (sound_muted&0x2)
+	{
+#ifdef MENU_MUSIC
+		SDL_PauseAudio(1);
+		Mix_HookMusic(&update_sdl_stream,NULL);
+#endif
 		SDL_PauseAudio(0);
+	}
 	sound_muted=0;
 #endif
 }

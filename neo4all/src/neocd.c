@@ -16,6 +16,7 @@ KOS_INIT_ROMDISK(romdisk);
 #include "neocd.h"
 
 #include "console.h"
+#include "menu/menu.h"
 
 #ifdef DEBUG_FRAMESKIP
 static unsigned total_frameskip=0;
@@ -37,6 +38,9 @@ int	neogeo_sound_enable=1;
 int	neogeo_frameskip=-1;
 
 static int neogeo_frameskip_count=0;
+
+unsigned z80_cycles_inited=0;
+#define Z80_CYCLES_INIT 90
 
 #ifndef DREAMCAST
 static char		neocd_wm_title[255]=VERSION1;
@@ -72,7 +76,6 @@ int				cur_mrhard = 0;
 //-- Function Prototypes -----------------------------------------------------
 void	neogeo_init(void);
 void	neogeo_reset(void);
-void	neogeo_hreset(void);
 void	neogeo_shutdown(void);
 void	MC68000_Cause_Interrupt(int);
 void	neogeo_exception(void);
@@ -108,6 +111,35 @@ void init_autoframeskip(void)
 #endif
 }
 
+static unsigned char startup_bin[3328];
+
+void ram_startup(void)
+{
+	static int passed=0;
+
+	bzero(neogeo_prg_memory, 0x200000);
+#ifdef Z80_EMULATED
+	bzero(mame_z80mem, 0x10000);
+	bzero(subcpu_memspace, 0x10000);
+#endif
+	if (!passed)
+	{
+		passed++;
+		// Load startup RAM
+		FILE *fp = fopen(DATA_PREFIX "startup.bin", "rb");
+		if (fp==NULL) {
+			console_println();
+			console_printf("Fatal Error: Could not load STARTUP.BIN\n");
+			console_wait();
+			exit(0);
+		}
+		fread((void *)&startup_bin,1,3328,fp);
+		fclose(fp);
+		swab(startup_bin, startup_bin, 3328);
+	}
+	memcpy(neogeo_prg_memory + 0x10F300, (void *)&startup_bin, 3328);
+}
+
 //----------------------------------------------------------------------------
 int	main(int argc, char* argv[])
 {
@@ -118,9 +150,12 @@ int	main(int argc, char* argv[])
 	neogeo_emulating=0;
 	char * fixtmp;
 
+#ifdef STDOUTPUT
 	puts("MAIN!!!");
+#endif
 	// Initialise SDL
-	if((SDL_Init(SDL_INIT_VIDEO|SDL_INIT_CDROM|SDL_INIT_AUDIO|SDL_INIT_JOYSTICK)==-1)) { 
+//	if((SDL_Init(SDL_INIT_VIDEO|SDL_INIT_CDROM|SDL_INIT_AUDIO|SDL_INIT_JOYSTICK)==-1)) { 
+	if((SDL_Init(SDL_INIT_VIDEO|SDL_INIT_CDROM|SDL_INIT_JOYSTICK)==-1)) { 
             console_printf("Could not initialize SDL: %s.\n", SDL_GetError());
             exit(-1);
         }
@@ -181,9 +216,14 @@ int	main(int argc, char* argv[])
 	// Load BIOS
 	fp = fopen(ROM_PREFIX "neocd.bin", "rb");
 	if (fp==NULL) {
+#ifdef SHOW_CONSOLE
 		console_println();
 		console_printf("Fatal Error: Could not load NEOCD.BIN\n");
 		console_wait();
+#else
+		init_text(0);
+		drawNoBIOS();
+#endif
 		return 0;
 	}
 	fread(neogeo_rom_memory, 1, 0x80000, fp);
@@ -197,18 +237,7 @@ int	main(int argc, char* argv[])
 	free(fixtmp);
 	fixtmp=NULL;
 
-	// Load startup RAM
-	fp = fopen(DATA_PREFIX "startup.bin", "rb");
-	if (fp==NULL) {
-		console_println();
-		console_printf("Fatal Error: Could not load STARTUP.BIN\n");
-		console_wait();
-		return 0;
-	}
-	fread(neogeo_prg_memory + 0x10F300, 1, 3328, fp);
-	fclose(fp);
-	swab(neogeo_prg_memory + 0x10F300, neogeo_prg_memory + 0x10F300, 3328);
-
+	ram_startup();
 
 	// Check BIOS validity
 	if (*((short*)(neogeo_rom_memory+0xA822)) != 0x4BF9)
@@ -256,9 +285,14 @@ int	main(int argc, char* argv[])
 
 	init_text(1);
 
+#ifdef SHOW_MENU
 	do{
   		run_mainMenu();
 	}while(!neogeo_cdrom_init1());
+#else
+	if (!neogeo_cdrom_init1())
+		exit(-1);
+#endif
 
 	console_pag();
 	console_println();
@@ -284,12 +318,15 @@ void	neogeo_init(void)
 }
 
 //----------------------------------------------------------------------------
-void	neogeo_hreset(void)
+int	neogeo_hreset(void)
 {
+	static int num_resets=0;
+
 	console_pag();
 	console_println();
 	console_puts("Reset!\n");
-	sound_unmute();
+	if (num_resets)
+		sound_unmute();
 	pd4990a_init();
 	video_reset();
 	input_reset();
@@ -301,17 +338,39 @@ void	neogeo_hreset(void)
 	my_timer();
 	_z80exec(100000);
 #endif
-	SDL_Delay(333);
-	sound_mute();
+	ram_startup();
+	if (num_resets)
+	{
+//		SDL_Delay(333);
+		sound_mute();
+	}
 	neogeo_ipl_done = 0;
 	while(!neogeo_ipl_done)
 	{
+		unsigned fmax=0;
 		neogeo_cdrom_load_title();
-		if (!neogeo_cdrom_process_ipl()) {
+		fmax=neogeo_cdrom_process_ipl(0);
+		if (!fmax)
+		{
+			console_println();
+			console_printf("Error: Error while check IPL.TXT.\n");
+			console_wait();
+#ifdef SHOW_MENU
+			return -1;
+#else
+			exit(-3);
+#endif
+		}
+		sound_play_loading();
+		if (!neogeo_cdrom_process_ipl(fmax)) {
 			console_println();
 			console_printf("Error: Error while processing IPL.TXT.\n");
 			console_wait();
-			run_mainMenu();
+#ifdef SHOW_MENU
+			return -1;
+#else
+			exit(-2);
+#endif
 		}
 		else
 			neogeo_ipl_done = 1;
@@ -383,8 +442,13 @@ void	neogeo_hreset(void)
 	YM2610_sh_reset();
 	AY8910_reset();
 #endif
+	if (!num_resets)
+        	menu_unraise();
 	sound_unmute();
 	init_autoframeskip();
+        z80_cycles_inited=0;
+	num_resets++;
+	return 0;
 }	
 
 //----------------------------------------------------------------------------
@@ -520,7 +584,8 @@ void	neogeo_run(void)
 
 	// If IPL.TXT not loaded, load it !
 	if (!neogeo_ipl_done)
-		neogeo_hreset();
+		while(neogeo_hreset())
+			drawNoNeoGeoCD();
 
 	/* get time for speed throttle */
 	init_autoframeskip();
@@ -528,8 +593,6 @@ void	neogeo_run(void)
 	tiempoactual=SDL_GetTicks();
 	// Main loop
 	unsigned long long ciclo=0;
-#ifdef PROFILER
-#endif
 #ifndef DEBUG_NEO4ALL
 #ifndef PROFILER_TIME
 	while(1)
@@ -539,7 +602,7 @@ void	neogeo_run(void)
 #endif
 	{
 //puts("WHILE");fflush(stdout);
-//printf("CICLO=%i\n",ciclo);SDL_Delay(250); fflush(stdout); ciclo++;
+//printf("CICLO=%i\n",ciclo); SDL_Delay(250); fflush(stdout); ciclo++;
 #ifdef PROFILER
 ciclo++;
 #endif
@@ -547,15 +610,26 @@ ciclo++;
 #ifdef PROFILER
 profiler_actual=SDL_GetTicks();
 #endif
+
 	if (neogeo_sound_enable)
 	{
+		unsigned my_z80_cycles;
+		if (z80_cycles_inited<Z80_CYCLES_INIT)
+		{
+			z80_cycles_inited++;
+			my_z80_cycles=NEO4ALL_Z80_OVER_CYCLES;
+		}
+		else
+			my_z80_cycles=neo4all_z80_cycles;
 		// Execute Z80 timeslice (one VBL)
 		_z80raise(0);
 		for (i = 0; i < 256; i++) {
-			_z80exec(neo4all_z80_cycles >> 8);
+			_z80exec(my_z80_cycles >> 8);
 			my_timer();
 		}
 	}
+
+
 #ifdef PROFILER
 profiler_media1+=(SDL_GetTicks()-profiler_actual);
 #endif
@@ -576,16 +650,15 @@ trazando=1;
 		//M68K_SUP_ADDR_SPACE | M68K_DATA_ADDR_SPACE),
 printf("\t%X %X    PC=%X  FPC=%X  SR=%X\n", ciclo, _68k_get_pc(), _68k_fetch(_68k_get_pc(),0), _68k_get_register(_68K_REG_SR)&0xA71F);
 #ifdef DEBUG_REGISTERS
-printf("\t\tPC+2=%X\n",_68k_fetch(_68k_get_pc()+2,0));
-printf("\t\t +2(A5)=%X\n",
-	0xFF&_68k_fetch(_68k_get_register(_68K_REG_A5)+_68k_fetch(_68k_get_pc()+2,0),0)
-);
 
 //printf("\t\tPC+4=%X\n",_68k_fetch(_68k_get_pc()+4,0));
 printf("A0=%X  A1=%X  A2=%X  A3=%X\n",_68k_get_register(_68K_REG_A0),_68k_get_register(_68K_REG_A1),_68k_get_register(_68K_REG_A2),_68k_get_register(_68K_REG_A3));
 printf("A4=%X  A5=%X  A6=%X  A7=%X\n",_68k_get_register(_68K_REG_A4),_68k_get_register(_68K_REG_A5),_68k_get_register(_68K_REG_A6),_68k_get_register(_68K_REG_A7));
 printf("D0=%X  D1=%X  D2=%X  D3=%X\n",_68k_get_register(_68K_REG_D0),_68k_get_register(_68K_REG_D1),_68k_get_register(_68K_REG_D2),_68k_get_register(_68K_REG_D3));
 printf("D4=%X  D5=%X  D6=%X  D7=%X\n",_68k_get_register(_68K_REG_D4),_68k_get_register(_68K_REG_D5),_68k_get_register(_68K_REG_D6),_68k_get_register(_68K_REG_D7));
+
+//if (ciclo==0x01251ll) printf("(A0)=%X %X\n",_68k_fetch(_68k_get_register(_68K_REG_A0),0),_68k_fetch(_68k_get_register(_68K_REG_A0)+2,0));
+
 #endif
 fflush(stdout);
 }else trazando=0;
@@ -594,7 +667,7 @@ _68k_emulate(1); ciclo++;
 printf("INT %i\n",j);fflush(stdout);
 _68k_interrupt(2);
 #ifdef USE_FAME_CORE
-if (j>=BEGINTRACE) trazando=1;
+// if (j>=BEGINTRACE) trazando=1;
 _68k_emulate(1);
 #endif
 puts("pd4990a_addretrace...");;fflush(stdout);
@@ -617,18 +690,21 @@ puts("SALIDA ...");;fflush(stdout);
 #ifdef PROFILER
 profiler_actual=SDL_GetTicks();
 #endif
+//puts("ANTES");fflush(stdout);
 //printf("ciclo=%u\n",ciclo); fflush(stdout);
 		// One-vbl timeslice
 		_68k_emulate(neo4all_68k_cycles);
 		_68k_interrupt(2);
+//puts("DESPUES");fflush(stdout);
 #ifdef PROFILER
 profiler_media2+=(SDL_GetTicks()-profiler_actual);
 #endif
 //puts("68000 EMULADO"); fflush(stdout);
-		/* update pd4990a */
+
+		// update pd4990a
 		pd4990a_addretrace();
 		
-		/* check the watchdog */
+		// check the watchdog 
 		if (watchdog_counter > 0) {
 		    if (--watchdog_counter == 0) {
 			//logerror("reset caused by the watchdog\n");
@@ -642,7 +718,6 @@ profiler_media2+=(SDL_GetTicks()-profiler_actual);
 		total_frames++;
 		total_frameskip+=neo4all_skip_next_frame;
 #endif
-
 
 		// Call display routine
 		if (neogeo_prio_mode)
@@ -659,7 +734,6 @@ profiler_media2+=(SDL_GetTicks()-profiler_actual);
 		processEvents();
 
 		/* Speed Throttle */	
-
 		switch(neogeo_frameskip)
 		{
 			case 0:
@@ -792,6 +866,7 @@ void	neogeo_quit(void)
 //----------------------------------------------------------------------------
 void neogeo_cdda_check(void)
 {
+#ifdef ENABLE_CDDA
 	int		Offset;
 	
 	Offset = m68k_read_memory_32(0x10F6EA);
@@ -800,11 +875,12 @@ void neogeo_cdda_check(void)
 
 	Offset -= 0xE00000;
 	Offset >>= 1;
-	
+
 #ifdef Z80_EMULATED
 	if (neogeo_sound_enable)
-		neogeo_do_cdda(subcpu_memspace[Offset], subcpu_memspace[Offset+1]);
+		neogeo_do_cdda(mame_z80mem[Offset&0xFFFF], mame_z80mem[(Offset+1)&0xFFFF]);
 
+#endif
 #endif
 }
 
@@ -812,6 +888,7 @@ void neogeo_cdda_check(void)
 //----------------------------------------------------------------------------
 void neogeo_cdda_control(void)
 {
+#ifdef ENABLE_CDDA
 #ifdef PROFILER
 	Uint32 ahora=SDL_GetTicks();
 #endif
@@ -820,11 +897,13 @@ void neogeo_cdda_control(void)
 #ifdef PROFILER
 	profiler_actual+=(SDL_GetTicks()-ahora);
 #endif
+#endif
 }
 
 //----------------------------------------------------------------------------
 void neogeo_do_cdda( int command, int track_number_bcd)
 {
+#ifdef ENABLE_CDDA
 	int		track_number;
 	int		offset;
 
@@ -848,8 +927,8 @@ void neogeo_do_cdda( int command, int track_number_bcd)
 #ifdef Z80_EMULATED
 		if (neogeo_sound_enable)
 		{
-			subcpu_memspace[offset] = 0;
-			subcpu_memspace[offset+1] = 0;
+			mame_z80mem[offset&0xFFFF] = 0;
+			mame_z80mem[(offset+1)&0xFFFF] = 0;
 		}
 #endif
 	}
@@ -884,6 +963,7 @@ void neogeo_do_cdda( int command, int track_number_bcd)
 			}
 			break;
 	}
+#endif
 }
 //----------------------------------------------------------------------------
 void neogeo_read_gamename(void)

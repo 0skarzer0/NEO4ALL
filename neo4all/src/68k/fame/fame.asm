@@ -2,20 +2,19 @@
 ; Fast and Accurate Motorola 68000 Emulation Library
 ; FAME x86 version 1.21 (19/02/2005)
 ; Oscar Orallo Pelaez
-; Assembly file generated on Feb 20 2005 23:27:01
+; Assembly file generated on Mar 19 2005 00:34:11
 ; --------------------------------------------------
 ; Opciones de generacion empleadas:
 ; - Formato de generacion ELF (Linux)
 ; - Convencion de llamada por la pila
 ; - Optimizacion de velocidad (codigo en linea)
 ; - Bus de direcciones de 24 bits
-; - Emulacion de lecturas tontas (ON)
+; - Emulacion de lecturas tontas (OFF)
 ; - Emulacion de comportamiento no documentado (ON)
 ; - Espacio de memoria multiple (usuario y supervisor)
 ; - Emulacion de excepciones del grupo 0 (ON)
 ; - Prefijo del nombre de las funciones: m68k
-; - Atender interrupciones sin ciclos restantes (OFF)
-; - Realizar calculo preciso de ciclos de reloj (ON)
+; - Realizar calculo preciso de ciclos de reloj (OFF)
 ; --------------------------------------------------
 
 section .data
@@ -705,8 +704,8 @@ movzx eax,word[eax]
 pop edx
 ret
 .base_dat:
-cmp dword[ecx+8],byte 0
-jne short .callio
+test dword[ecx+8],0xFFFFFFFF
+jnz short .callio
 add eax,[ecx+12]
 movzx eax,word[eax]
 pop edx
@@ -716,6 +715,7 @@ push edx
 push eax
 call dword[ecx+8]
 add esp,byte 8
+pop edx
 ret
 global m68k_get_cycles_counter
 m68k_get_cycles_counter:
@@ -1418,7 +1418,6 @@ mov [__io_fetchbase],ebp
 mov [__io_fetchbased_pc],esi
 push ebx
 push eax
-mov eax,edx
 push edx
 call dword[ecx+edx*4]
 add esp,byte 4
@@ -1900,13 +1899,10 @@ sets [__xflag]
 shr al,7
 adc ah,ah
 sub edi,byte 20
+test edi,edi
 js near execexit
 test byte[__sr+1],80h
 jnz near trace_excep
-mov cl,[__sr+1]
-and cl,7
-cmp byte[__pending_int_level],cl
-ja flush_int
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
@@ -3426,13 +3422,10 @@ sets [__xflag]
 shr al,7
 adc ah,ah
 sub edi,byte 20
+test edi,edi
 js near execexit
 test byte[__sr+1],80h
 jnz near trace_excep
-mov cl,[__sr+1]
-and cl,7
-cmp byte[__pending_int_level],cl
-ja flush_int
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
@@ -9837,13 +9830,10 @@ sets [__xflag]
 shr al,7
 adc ah,ah
 sub edi,byte 20
+test edi,edi
 js near execexit
 test byte[__sr+1],80h
 jnz near trace_excep
-mov cl,[__sr+1]
-and cl,7
-cmp byte[__pending_int_level],cl
-ja flush_int
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
@@ -46723,8 +46713,6 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 40D0 - 40D7
 O0D0:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemoryword
 mov cx,ax
 btr cx,8
 adc cl,cl
@@ -46733,6 +46721,7 @@ rol ch,4
 and ch,1Ch
 or cl,ch
 mov ch,[__sr+1]
+mov edx,[__areg+ebx*4]
 call writememoryword
 sub edi,byte 12
 js near execexit
@@ -46742,8 +46731,6 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 40D8 - 40DF
 O0D8:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemoryword
 mov cx,ax
 btr cx,8
 adc cl,cl
@@ -46752,6 +46739,7 @@ rol ch,4
 and ch,1Ch
 or cl,ch
 mov ch,[__sr+1]
+mov edx,[__areg+ebx*4]
 call writememoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
@@ -46763,9 +46751,6 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 40E0 - 40E7
 O0E0:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-sub edx,byte 2
-call readmemoryword
 mov cx,ax
 btr cx,8
 adc cl,cl
@@ -46774,6 +46759,8 @@ rol ch,4
 and ch,1Ch
 or cl,ch
 mov ch,[__sr+1]
+mov edx,[__areg+ebx*4]
+sub edx,byte 2
 call writememoryword
 mov [__areg+ebx*4],edx
 sub edi,byte 14
@@ -46784,10 +46771,6 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 40E8 - 40EF
 O0E8:
 and ebx,byte 7
-movsx edx,word[esi]
-add esi,byte 2
-add edx,[__areg+ebx*4]
-call readmemoryword
 mov cx,ax
 btr cx,8
 adc cl,cl
@@ -46796,6 +46779,9 @@ rol ch,4
 and ch,1Ch
 or cl,ch
 mov ch,[__sr+1]
+movsx edx,word[esi]
+add esi,byte 2
+add edx,[__areg+ebx*4]
 call writememoryword
 sub edi,byte 16
 js near execexit
@@ -46805,9 +46791,6 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 40F0 - 40F7
 O0F0:
 and ebx,byte 7
-call decode_ext
-add edx,[__areg+ebx*4]
-call readmemoryword
 mov cx,ax
 btr cx,8
 adc cl,cl
@@ -46816,6 +46799,8 @@ rol ch,4
 and ch,1Ch
 or cl,ch
 mov ch,[__sr+1]
+call decode_ext
+add edx,[__areg+ebx*4]
 call writememoryword
 sub edi,byte 18
 js near execexit
@@ -46824,9 +46809,6 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 40F8
 O0F8:
-movsx edx,word[esi]
-add esi,byte 2
-call readmemoryword
 mov cx,ax
 btr cx,8
 adc cl,cl
@@ -46835,6 +46817,8 @@ rol ch,4
 and ch,1Ch
 or cl,ch
 mov ch,[__sr+1]
+movsx edx,word[esi]
+add esi,byte 2
 call writememoryword
 sub edi,byte 16
 js near execexit
@@ -46843,10 +46827,6 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 40F9
 O0F9:
-mov edx,[esi]
-add esi,byte 4
-rol edx,16
-call readmemoryword
 mov cx,ax
 btr cx,8
 adc cl,cl
@@ -46855,6 +46835,9 @@ rol ch,4
 and ch,1Ch
 or cl,ch
 mov ch,[__sr+1]
+mov edx,[esi]
+add esi,byte 4
+rol edx,16
 call writememoryword
 sub edi,byte 20
 js near execexit
@@ -47370,9 +47353,8 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 4210 - 4217
 O210:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemorybyte
 xor ecx,ecx
+mov edx,[__areg+ebx*4]
 call writememorybyte
 mov ax,4000h
 sub edi,byte 12
@@ -47383,9 +47365,8 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 4218 - 421F
 O218:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemorybyte
 xor ecx,ecx
+mov edx,[__areg+ebx*4]
 call writememorybyte
 cmp bl,7
 sbb edx,byte -2
@@ -47399,11 +47380,10 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 4220 - 4227
 O220:
 and ebx,byte 7
+xor ecx,ecx
 mov edx,[__areg+ebx*4]
 cmp bl,7
 adc edx,byte -2
-call readmemorybyte
-xor ecx,ecx
 call writememorybyte
 mov [__areg+ebx*4],edx
 mov ax,4000h
@@ -47415,11 +47395,10 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 4228 - 422F
 O228:
 and ebx,byte 7
+xor ecx,ecx
 movsx edx,word[esi]
 add esi,byte 2
 add edx,[__areg+ebx*4]
-call readmemorybyte
-xor ecx,ecx
 call writememorybyte
 mov ax,4000h
 sub edi,byte 16
@@ -47430,10 +47409,9 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 4230 - 4237
 O230:
 and ebx,byte 7
+xor ecx,ecx
 call decode_ext
 add edx,[__areg+ebx*4]
-call readmemorybyte
-xor ecx,ecx
 call writememorybyte
 mov ax,4000h
 sub edi,byte 18
@@ -47443,10 +47421,9 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 4238
 O238:
+xor ecx,ecx
 movsx edx,word[esi]
 add esi,byte 2
-call readmemorybyte
-xor ecx,ecx
 call writememorybyte
 mov ax,4000h
 sub edi,byte 16
@@ -47456,11 +47433,10 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 4239
 O239:
+xor ecx,ecx
 mov edx,[esi]
 add esi,byte 4
 rol edx,16
-call readmemorybyte
-xor ecx,ecx
 call writememorybyte
 mov ax,4000h
 sub edi,byte 20
@@ -47482,9 +47458,8 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 4250 - 4257
 O250:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemoryword
 xor ecx,ecx
+mov edx,[__areg+ebx*4]
 call writememoryword
 mov ax,4000h
 sub edi,byte 12
@@ -47495,9 +47470,8 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 4258 - 425F
 O258:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemoryword
 xor ecx,ecx
+mov edx,[__areg+ebx*4]
 call writememoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
@@ -47510,10 +47484,9 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 4260 - 4267
 O260:
 and ebx,byte 7
+xor ecx,ecx
 mov edx,[__areg+ebx*4]
 sub edx,byte 2
-call readmemoryword
-xor ecx,ecx
 call writememoryword
 mov [__areg+ebx*4],edx
 mov ax,4000h
@@ -47525,11 +47498,10 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 4268 - 426F
 O268:
 and ebx,byte 7
+xor ecx,ecx
 movsx edx,word[esi]
 add esi,byte 2
 add edx,[__areg+ebx*4]
-call readmemoryword
-xor ecx,ecx
 call writememoryword
 mov ax,4000h
 sub edi,byte 16
@@ -47540,10 +47512,9 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 4270 - 4277
 O270:
 and ebx,byte 7
+xor ecx,ecx
 call decode_ext
 add edx,[__areg+ebx*4]
-call readmemoryword
-xor ecx,ecx
 call writememoryword
 mov ax,4000h
 sub edi,byte 18
@@ -47553,10 +47524,9 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 4278
 O278:
+xor ecx,ecx
 movsx edx,word[esi]
 add esi,byte 2
-call readmemoryword
-xor ecx,ecx
 call writememoryword
 mov ax,4000h
 sub edi,byte 16
@@ -47566,11 +47536,10 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 4279
 O279:
+xor ecx,ecx
 mov edx,[esi]
 add esi,byte 4
 rol edx,16
-call readmemoryword
-xor ecx,ecx
 call writememoryword
 mov ax,4000h
 sub edi,byte 20
@@ -47592,9 +47561,8 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 4290 - 4297
 O290:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemorydword
 xor ecx,ecx
+mov edx,[__areg+ebx*4]
 call writememorydword
 mov ax,4000h
 sub edi,byte 12
@@ -47605,9 +47573,8 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 4298 - 429F
 O298:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemorydword
 xor ecx,ecx
+mov edx,[__areg+ebx*4]
 call writememorydword
 add edx,byte 4
 mov [__areg+ebx*4],edx
@@ -47620,10 +47587,9 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 42A0 - 42A7
 O2A0:
 and ebx,byte 7
+xor ecx,ecx
 mov edx,[__areg+ebx*4]
 sub edx,byte 4
-call readmemorydword
-xor ecx,ecx
 call writememorydword
 mov [__areg+ebx*4],edx
 mov ax,4000h
@@ -47635,11 +47601,10 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 42A8 - 42AF
 O2A8:
 and ebx,byte 7
+xor ecx,ecx
 movsx edx,word[esi]
 add esi,byte 2
 add edx,[__areg+ebx*4]
-call readmemorydword
-xor ecx,ecx
 call writememorydword
 mov ax,4000h
 sub edi,byte 12
@@ -47650,10 +47615,9 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 42B0 - 42B7
 O2B0:
 and ebx,byte 7
+xor ecx,ecx
 call decode_ext
 add edx,[__areg+ebx*4]
-call readmemorydword
-xor ecx,ecx
 call writememorydword
 mov ax,4000h
 sub edi,byte 12
@@ -47663,10 +47627,9 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 42B8
 O2B8:
+xor ecx,ecx
 movsx edx,word[esi]
 add esi,byte 2
-call readmemorydword
-xor ecx,ecx
 call writememorydword
 mov ax,4000h
 sub edi,byte 12
@@ -47676,11 +47639,10 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 42B9
 O2B9:
+xor ecx,ecx
 mov edx,[esi]
 add esi,byte 4
 rol edx,16
-call readmemorydword
-xor ecx,ecx
 call writememorydword
 mov ax,4000h
 sub edi,byte 12
@@ -49633,13 +49595,10 @@ sets [__xflag]
 shr al,7
 adc ah,ah
 sub edi,byte 12
+test edi,edi
 js near execexit
 test byte[__sr+1],80h
 jnz near trace_excep
-mov cl,[__sr+1]
-and cl,7
-cmp byte[__pending_int_level],cl
-ja flush_int
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
@@ -49683,13 +49642,10 @@ sets [__xflag]
 shr al,7
 adc ah,ah
 sub edi,byte 16
+test edi,edi
 js near execexit
 test byte[__sr+1],80h
 jnz near trace_excep
-mov cl,[__sr+1]
-and cl,7
-cmp byte[__pending_int_level],cl
-ja flush_int
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
@@ -49735,13 +49691,10 @@ sets [__xflag]
 shr al,7
 adc ah,ah
 sub edi,byte 16
+test edi,edi
 js near execexit
 test byte[__sr+1],80h
 jnz near trace_excep
-mov cl,[__sr+1]
-and cl,7
-cmp byte[__pending_int_level],cl
-ja flush_int
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
@@ -49787,13 +49740,10 @@ sets [__xflag]
 shr al,7
 adc ah,ah
 sub edi,byte 18
+test edi,edi
 js near execexit
 test byte[__sr+1],80h
 jnz near trace_excep
-mov cl,[__sr+1]
-and cl,7
-cmp byte[__pending_int_level],cl
-ja flush_int
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
@@ -49839,13 +49789,10 @@ sets [__xflag]
 shr al,7
 adc ah,ah
 sub edi,byte 20
+test edi,edi
 js near execexit
 test byte[__sr+1],80h
 jnz near trace_excep
-mov cl,[__sr+1]
-and cl,7
-cmp byte[__pending_int_level],cl
-ja flush_int
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
@@ -49890,13 +49837,10 @@ sets [__xflag]
 shr al,7
 adc ah,ah
 sub edi,byte 22
+test edi,edi
 js near execexit
 test byte[__sr+1],80h
 jnz near trace_excep
-mov cl,[__sr+1]
-and cl,7
-cmp byte[__pending_int_level],cl
-ja flush_int
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
@@ -49940,13 +49884,10 @@ sets [__xflag]
 shr al,7
 adc ah,ah
 sub edi,byte 20
+test edi,edi
 js near execexit
 test byte[__sr+1],80h
 jnz near trace_excep
-mov cl,[__sr+1]
-and cl,7
-cmp byte[__pending_int_level],cl
-ja flush_int
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
@@ -49991,13 +49932,10 @@ sets [__xflag]
 shr al,7
 adc ah,ah
 sub edi,byte 24
+test edi,edi
 js near execexit
 test byte[__sr+1],80h
 jnz near trace_excep
-mov cl,[__sr+1]
-and cl,7
-cmp byte[__pending_int_level],cl
-ja flush_int
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
@@ -50043,13 +49981,10 @@ sets [__xflag]
 shr al,7
 adc ah,ah
 sub edi,byte 20
+test edi,edi
 js near execexit
 test byte[__sr+1],80h
 jnz near trace_excep
-mov cl,[__sr+1]
-and cl,7
-cmp byte[__pending_int_level],cl
-ja flush_int
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
@@ -50095,13 +50030,10 @@ sets [__xflag]
 shr al,7
 adc ah,ah
 sub edi,byte 22
+test edi,edi
 js near execexit
 test byte[__sr+1],80h
 jnz near trace_excep
-mov cl,[__sr+1]
-and cl,7
-cmp byte[__pending_int_level],cl
-ja flush_int
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
@@ -50144,13 +50076,10 @@ sets [__xflag]
 shr al,7
 adc ah,ah
 sub edi,byte 16
+test edi,edi
 js near execexit
 test byte[__sr+1],80h
 jnz near trace_excep
-mov cl,[__sr+1]
-and cl,7
-cmp byte[__pending_int_level],cl
-ja flush_int
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
@@ -54137,13 +54066,10 @@ call basefunction
 ln929:
 add esi,ebp
 sub edi,byte 20
+test edi,edi
 js near execexit
 test byte[__sr+1],80h
 jnz near trace_excep
-mov cl,[__sr+1]
-and cl,7
-cmp byte[__pending_int_level],cl
-ja flush_int
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
@@ -55453,9 +55379,8 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 50D0 - 50D7
 P0D0:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemorybyte
 mov cl,255
+mov edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 12
 js near execexit
@@ -55465,9 +55390,8 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 50D8 - 50DF
 P0D8:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemorybyte
 mov cl,255
+mov edx,[__areg+ebx*4]
 call writememorybyte
 cmp bl,7
 sbb edx,byte -2
@@ -55480,11 +55404,10 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 50E0 - 50E7
 P0E0:
 and ebx,byte 7
+mov cl,255
 mov edx,[__areg+ebx*4]
 cmp bl,7
 adc edx,byte -2
-call readmemorybyte
-mov cl,255
 call writememorybyte
 mov [__areg+ebx*4],edx
 sub edi,byte 14
@@ -55495,11 +55418,10 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 50E8 - 50EF
 P0E8:
 and ebx,byte 7
+mov cl,255
 movsx edx,word[esi]
 add esi,byte 2
 add edx,[__areg+ebx*4]
-call readmemorybyte
-mov cl,255
 call writememorybyte
 sub edi,byte 16
 js near execexit
@@ -55509,10 +55431,9 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 50F0 - 50F7
 P0F0:
 and ebx,byte 7
+mov cl,255
 call decode_ext
 add edx,[__areg+ebx*4]
-call readmemorybyte
-mov cl,255
 call writememorybyte
 sub edi,byte 18
 js near execexit
@@ -55521,10 +55442,9 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 50F8
 P0F8:
+mov cl,255
 movsx edx,word[esi]
 add esi,byte 2
-call readmemorybyte
-mov cl,255
 call writememorybyte
 sub edi,byte 16
 js near execexit
@@ -55533,11 +55453,10 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 50F9
 P0F9:
+mov cl,255
 mov edx,[esi]
 add esi,byte 4
 rol edx,16
-call readmemorybyte
-mov cl,255
 call writememorybyte
 sub edi,byte 20
 js near execexit
@@ -55976,9 +55895,8 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 51D0 - 51D7
 P1D0:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemorybyte
 mov cl,0
+mov edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 12
 js near execexit
@@ -55988,9 +55906,8 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 51D8 - 51DF
 P1D8:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemorybyte
 mov cl,0
+mov edx,[__areg+ebx*4]
 call writememorybyte
 cmp bl,7
 sbb edx,byte -2
@@ -56003,11 +55920,10 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 51E0 - 51E7
 P1E0:
 and ebx,byte 7
+mov cl,0
 mov edx,[__areg+ebx*4]
 cmp bl,7
 adc edx,byte -2
-call readmemorybyte
-mov cl,0
 call writememorybyte
 mov [__areg+ebx*4],edx
 sub edi,byte 14
@@ -56018,11 +55934,10 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 51E8 - 51EF
 P1E8:
 and ebx,byte 7
+mov cl,0
 movsx edx,word[esi]
 add esi,byte 2
 add edx,[__areg+ebx*4]
-call readmemorybyte
-mov cl,0
 call writememorybyte
 sub edi,byte 16
 js near execexit
@@ -56032,10 +55947,9 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 51F0 - 51F7
 P1F0:
 and ebx,byte 7
+mov cl,0
 call decode_ext
 add edx,[__areg+ebx*4]
-call readmemorybyte
-mov cl,0
 call writememorybyte
 sub edi,byte 18
 js near execexit
@@ -56044,10 +55958,9 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 51F8
 P1F8:
+mov cl,0
 movsx edx,word[esi]
 add esi,byte 2
-call readmemorybyte
-mov cl,0
 call writememorybyte
 sub edi,byte 16
 js near execexit
@@ -56056,11 +55969,10 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 51F9
 P1F9:
+mov cl,0
 mov edx,[esi]
 add esi,byte 4
 rol edx,16
-call readmemorybyte
-mov cl,0
 call writememorybyte
 sub edi,byte 20
 js near execexit
@@ -56502,11 +56414,10 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 52D0 - 52D7
 P2D0:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemorybyte
 test ah,41h
 setz cl
 neg cl
+mov edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 12
 js near execexit
@@ -56516,11 +56427,10 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 52D8 - 52DF
 P2D8:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemorybyte
 test ah,41h
 setz cl
 neg cl
+mov edx,[__areg+ebx*4]
 call writememorybyte
 cmp bl,7
 sbb edx,byte -2
@@ -56533,13 +56443,12 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 52E0 - 52E7
 P2E0:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-cmp bl,7
-adc edx,byte -2
-call readmemorybyte
 test ah,41h
 setz cl
 neg cl
+mov edx,[__areg+ebx*4]
+cmp bl,7
+adc edx,byte -2
 call writememorybyte
 mov [__areg+ebx*4],edx
 sub edi,byte 14
@@ -56550,13 +56459,12 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 52E8 - 52EF
 P2E8:
 and ebx,byte 7
-movsx edx,word[esi]
-add esi,byte 2
-add edx,[__areg+ebx*4]
-call readmemorybyte
 test ah,41h
 setz cl
 neg cl
+movsx edx,word[esi]
+add esi,byte 2
+add edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 16
 js near execexit
@@ -56566,12 +56474,11 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 52F0 - 52F7
 P2F0:
 and ebx,byte 7
-call decode_ext
-add edx,[__areg+ebx*4]
-call readmemorybyte
 test ah,41h
 setz cl
 neg cl
+call decode_ext
+add edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 18
 js near execexit
@@ -56580,12 +56487,11 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 52F8
 P2F8:
-movsx edx,word[esi]
-add esi,byte 2
-call readmemorybyte
 test ah,41h
 setz cl
 neg cl
+movsx edx,word[esi]
+add esi,byte 2
 call writememorybyte
 sub edi,byte 16
 js near execexit
@@ -56594,13 +56500,12 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 52F9
 P2F9:
-mov edx,[esi]
-add esi,byte 4
-rol edx,16
-call readmemorybyte
 test ah,41h
 setz cl
 neg cl
+mov edx,[esi]
+add esi,byte 4
+rol edx,16
 call writememorybyte
 sub edi,byte 20
 js near execexit
@@ -57042,11 +56947,10 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 53D0 - 53D7
 P3D0:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemorybyte
 test ah,41h
 setnz cl
 neg cl
+mov edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 12
 js near execexit
@@ -57056,11 +56960,10 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 53D8 - 53DF
 P3D8:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemorybyte
 test ah,41h
 setnz cl
 neg cl
+mov edx,[__areg+ebx*4]
 call writememorybyte
 cmp bl,7
 sbb edx,byte -2
@@ -57073,13 +56976,12 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 53E0 - 53E7
 P3E0:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-cmp bl,7
-adc edx,byte -2
-call readmemorybyte
 test ah,41h
 setnz cl
 neg cl
+mov edx,[__areg+ebx*4]
+cmp bl,7
+adc edx,byte -2
 call writememorybyte
 mov [__areg+ebx*4],edx
 sub edi,byte 14
@@ -57090,13 +56992,12 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 53E8 - 53EF
 P3E8:
 and ebx,byte 7
-movsx edx,word[esi]
-add esi,byte 2
-add edx,[__areg+ebx*4]
-call readmemorybyte
 test ah,41h
 setnz cl
 neg cl
+movsx edx,word[esi]
+add esi,byte 2
+add edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 16
 js near execexit
@@ -57106,12 +57007,11 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 53F0 - 53F7
 P3F0:
 and ebx,byte 7
-call decode_ext
-add edx,[__areg+ebx*4]
-call readmemorybyte
 test ah,41h
 setnz cl
 neg cl
+call decode_ext
+add edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 18
 js near execexit
@@ -57120,12 +57020,11 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 53F8
 P3F8:
-movsx edx,word[esi]
-add esi,byte 2
-call readmemorybyte
 test ah,41h
 setnz cl
 neg cl
+movsx edx,word[esi]
+add esi,byte 2
 call writememorybyte
 sub edi,byte 16
 js near execexit
@@ -57134,13 +57033,12 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 53F9
 P3F9:
-mov edx,[esi]
-add esi,byte 4
-rol edx,16
-call readmemorybyte
 test ah,41h
 setnz cl
 neg cl
+mov edx,[esi]
+add esi,byte 4
+rol edx,16
 call writememorybyte
 sub edi,byte 20
 js near execexit
@@ -57582,11 +57480,10 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 54D0 - 54D7
 P4D0:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemorybyte
 test ah,1
 setz cl
 neg cl
+mov edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 12
 js near execexit
@@ -57596,11 +57493,10 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 54D8 - 54DF
 P4D8:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemorybyte
 test ah,1
 setz cl
 neg cl
+mov edx,[__areg+ebx*4]
 call writememorybyte
 cmp bl,7
 sbb edx,byte -2
@@ -57613,13 +57509,12 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 54E0 - 54E7
 P4E0:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-cmp bl,7
-adc edx,byte -2
-call readmemorybyte
 test ah,1
 setz cl
 neg cl
+mov edx,[__areg+ebx*4]
+cmp bl,7
+adc edx,byte -2
 call writememorybyte
 mov [__areg+ebx*4],edx
 sub edi,byte 14
@@ -57630,13 +57525,12 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 54E8 - 54EF
 P4E8:
 and ebx,byte 7
-movsx edx,word[esi]
-add esi,byte 2
-add edx,[__areg+ebx*4]
-call readmemorybyte
 test ah,1
 setz cl
 neg cl
+movsx edx,word[esi]
+add esi,byte 2
+add edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 16
 js near execexit
@@ -57646,12 +57540,11 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 54F0 - 54F7
 P4F0:
 and ebx,byte 7
-call decode_ext
-add edx,[__areg+ebx*4]
-call readmemorybyte
 test ah,1
 setz cl
 neg cl
+call decode_ext
+add edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 18
 js near execexit
@@ -57660,12 +57553,11 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 54F8
 P4F8:
-movsx edx,word[esi]
-add esi,byte 2
-call readmemorybyte
 test ah,1
 setz cl
 neg cl
+movsx edx,word[esi]
+add esi,byte 2
 call writememorybyte
 sub edi,byte 16
 js near execexit
@@ -57674,13 +57566,12 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 54F9
 P4F9:
-mov edx,[esi]
-add esi,byte 4
-rol edx,16
-call readmemorybyte
 test ah,1
 setz cl
 neg cl
+mov edx,[esi]
+add esi,byte 4
+rol edx,16
 call writememorybyte
 sub edi,byte 20
 js near execexit
@@ -58122,11 +58013,10 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 55D0 - 55D7
 P5D0:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemorybyte
 test ah,1
 setnz cl
 neg cl
+mov edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 12
 js near execexit
@@ -58136,11 +58026,10 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 55D8 - 55DF
 P5D8:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemorybyte
 test ah,1
 setnz cl
 neg cl
+mov edx,[__areg+ebx*4]
 call writememorybyte
 cmp bl,7
 sbb edx,byte -2
@@ -58153,13 +58042,12 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 55E0 - 55E7
 P5E0:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-cmp bl,7
-adc edx,byte -2
-call readmemorybyte
 test ah,1
 setnz cl
 neg cl
+mov edx,[__areg+ebx*4]
+cmp bl,7
+adc edx,byte -2
 call writememorybyte
 mov [__areg+ebx*4],edx
 sub edi,byte 14
@@ -58170,13 +58058,12 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 55E8 - 55EF
 P5E8:
 and ebx,byte 7
-movsx edx,word[esi]
-add esi,byte 2
-add edx,[__areg+ebx*4]
-call readmemorybyte
 test ah,1
 setnz cl
 neg cl
+movsx edx,word[esi]
+add esi,byte 2
+add edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 16
 js near execexit
@@ -58186,12 +58073,11 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 55F0 - 55F7
 P5F0:
 and ebx,byte 7
-call decode_ext
-add edx,[__areg+ebx*4]
-call readmemorybyte
 test ah,1
 setnz cl
 neg cl
+call decode_ext
+add edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 18
 js near execexit
@@ -58200,12 +58086,11 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 55F8
 P5F8:
-movsx edx,word[esi]
-add esi,byte 2
-call readmemorybyte
 test ah,1
 setnz cl
 neg cl
+movsx edx,word[esi]
+add esi,byte 2
 call writememorybyte
 sub edi,byte 16
 js near execexit
@@ -58214,13 +58099,12 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 55F9
 P5F9:
-mov edx,[esi]
-add esi,byte 4
-rol edx,16
-call readmemorybyte
 test ah,1
 setnz cl
 neg cl
+mov edx,[esi]
+add esi,byte 4
+rol edx,16
 call writememorybyte
 sub edi,byte 20
 js near execexit
@@ -58662,11 +58546,10 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 56D0 - 56D7
 P6D0:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemorybyte
 test ah,40h
 setz cl
 neg cl
+mov edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 12
 js near execexit
@@ -58676,11 +58559,10 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 56D8 - 56DF
 P6D8:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemorybyte
 test ah,40h
 setz cl
 neg cl
+mov edx,[__areg+ebx*4]
 call writememorybyte
 cmp bl,7
 sbb edx,byte -2
@@ -58693,13 +58575,12 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 56E0 - 56E7
 P6E0:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-cmp bl,7
-adc edx,byte -2
-call readmemorybyte
 test ah,40h
 setz cl
 neg cl
+mov edx,[__areg+ebx*4]
+cmp bl,7
+adc edx,byte -2
 call writememorybyte
 mov [__areg+ebx*4],edx
 sub edi,byte 14
@@ -58710,13 +58591,12 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 56E8 - 56EF
 P6E8:
 and ebx,byte 7
-movsx edx,word[esi]
-add esi,byte 2
-add edx,[__areg+ebx*4]
-call readmemorybyte
 test ah,40h
 setz cl
 neg cl
+movsx edx,word[esi]
+add esi,byte 2
+add edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 16
 js near execexit
@@ -58726,12 +58606,11 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 56F0 - 56F7
 P6F0:
 and ebx,byte 7
-call decode_ext
-add edx,[__areg+ebx*4]
-call readmemorybyte
 test ah,40h
 setz cl
 neg cl
+call decode_ext
+add edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 18
 js near execexit
@@ -58740,12 +58619,11 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 56F8
 P6F8:
-movsx edx,word[esi]
-add esi,byte 2
-call readmemorybyte
 test ah,40h
 setz cl
 neg cl
+movsx edx,word[esi]
+add esi,byte 2
 call writememorybyte
 sub edi,byte 16
 js near execexit
@@ -58754,13 +58632,12 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 56F9
 P6F9:
-mov edx,[esi]
-add esi,byte 4
-rol edx,16
-call readmemorybyte
 test ah,40h
 setz cl
 neg cl
+mov edx,[esi]
+add esi,byte 4
+rol edx,16
 call writememorybyte
 sub edi,byte 20
 js near execexit
@@ -59202,11 +59079,10 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 57D0 - 57D7
 P7D0:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemorybyte
 test ah,40h
 setnz cl
 neg cl
+mov edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 12
 js near execexit
@@ -59216,11 +59092,10 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 57D8 - 57DF
 P7D8:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemorybyte
 test ah,40h
 setnz cl
 neg cl
+mov edx,[__areg+ebx*4]
 call writememorybyte
 cmp bl,7
 sbb edx,byte -2
@@ -59233,13 +59108,12 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 57E0 - 57E7
 P7E0:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-cmp bl,7
-adc edx,byte -2
-call readmemorybyte
 test ah,40h
 setnz cl
 neg cl
+mov edx,[__areg+ebx*4]
+cmp bl,7
+adc edx,byte -2
 call writememorybyte
 mov [__areg+ebx*4],edx
 sub edi,byte 14
@@ -59250,13 +59124,12 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 57E8 - 57EF
 P7E8:
 and ebx,byte 7
-movsx edx,word[esi]
-add esi,byte 2
-add edx,[__areg+ebx*4]
-call readmemorybyte
 test ah,40h
 setnz cl
 neg cl
+movsx edx,word[esi]
+add esi,byte 2
+add edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 16
 js near execexit
@@ -59266,12 +59139,11 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 57F0 - 57F7
 P7F0:
 and ebx,byte 7
-call decode_ext
-add edx,[__areg+ebx*4]
-call readmemorybyte
 test ah,40h
 setnz cl
 neg cl
+call decode_ext
+add edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 18
 js near execexit
@@ -59280,12 +59152,11 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 57F8
 P7F8:
-movsx edx,word[esi]
-add esi,byte 2
-call readmemorybyte
 test ah,40h
 setnz cl
 neg cl
+movsx edx,word[esi]
+add esi,byte 2
 call writememorybyte
 sub edi,byte 16
 js near execexit
@@ -59294,13 +59165,12 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 57F9
 P7F9:
-mov edx,[esi]
-add esi,byte 4
-rol edx,16
-call readmemorybyte
 test ah,40h
 setnz cl
 neg cl
+mov edx,[esi]
+add esi,byte 4
+rol edx,16
 call writememorybyte
 sub edi,byte 20
 js near execexit
@@ -59742,11 +59612,10 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 58D0 - 58D7
 P8D0:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemorybyte
 test al,1
 setz cl
 neg cl
+mov edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 12
 js near execexit
@@ -59756,11 +59625,10 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 58D8 - 58DF
 P8D8:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemorybyte
 test al,1
 setz cl
 neg cl
+mov edx,[__areg+ebx*4]
 call writememorybyte
 cmp bl,7
 sbb edx,byte -2
@@ -59773,13 +59641,12 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 58E0 - 58E7
 P8E0:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-cmp bl,7
-adc edx,byte -2
-call readmemorybyte
 test al,1
 setz cl
 neg cl
+mov edx,[__areg+ebx*4]
+cmp bl,7
+adc edx,byte -2
 call writememorybyte
 mov [__areg+ebx*4],edx
 sub edi,byte 14
@@ -59790,13 +59657,12 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 58E8 - 58EF
 P8E8:
 and ebx,byte 7
-movsx edx,word[esi]
-add esi,byte 2
-add edx,[__areg+ebx*4]
-call readmemorybyte
 test al,1
 setz cl
 neg cl
+movsx edx,word[esi]
+add esi,byte 2
+add edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 16
 js near execexit
@@ -59806,12 +59672,11 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 58F0 - 58F7
 P8F0:
 and ebx,byte 7
-call decode_ext
-add edx,[__areg+ebx*4]
-call readmemorybyte
 test al,1
 setz cl
 neg cl
+call decode_ext
+add edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 18
 js near execexit
@@ -59820,12 +59685,11 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 58F8
 P8F8:
-movsx edx,word[esi]
-add esi,byte 2
-call readmemorybyte
 test al,1
 setz cl
 neg cl
+movsx edx,word[esi]
+add esi,byte 2
 call writememorybyte
 sub edi,byte 16
 js near execexit
@@ -59834,13 +59698,12 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 58F9
 P8F9:
-mov edx,[esi]
-add esi,byte 4
-rol edx,16
-call readmemorybyte
 test al,1
 setz cl
 neg cl
+mov edx,[esi]
+add esi,byte 4
+rol edx,16
 call writememorybyte
 sub edi,byte 20
 js near execexit
@@ -60282,11 +60145,10 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 59D0 - 59D7
 P9D0:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemorybyte
 test al,1
 setnz cl
 neg cl
+mov edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 12
 js near execexit
@@ -60296,11 +60158,10 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 59D8 - 59DF
 P9D8:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemorybyte
 test al,1
 setnz cl
 neg cl
+mov edx,[__areg+ebx*4]
 call writememorybyte
 cmp bl,7
 sbb edx,byte -2
@@ -60313,13 +60174,12 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 59E0 - 59E7
 P9E0:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-cmp bl,7
-adc edx,byte -2
-call readmemorybyte
 test al,1
 setnz cl
 neg cl
+mov edx,[__areg+ebx*4]
+cmp bl,7
+adc edx,byte -2
 call writememorybyte
 mov [__areg+ebx*4],edx
 sub edi,byte 14
@@ -60330,13 +60190,12 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 59E8 - 59EF
 P9E8:
 and ebx,byte 7
-movsx edx,word[esi]
-add esi,byte 2
-add edx,[__areg+ebx*4]
-call readmemorybyte
 test al,1
 setnz cl
 neg cl
+movsx edx,word[esi]
+add esi,byte 2
+add edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 16
 js near execexit
@@ -60346,12 +60205,11 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 59F0 - 59F7
 P9F0:
 and ebx,byte 7
-call decode_ext
-add edx,[__areg+ebx*4]
-call readmemorybyte
 test al,1
 setnz cl
 neg cl
+call decode_ext
+add edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 18
 js near execexit
@@ -60360,12 +60218,11 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 59F8
 P9F8:
-movsx edx,word[esi]
-add esi,byte 2
-call readmemorybyte
 test al,1
 setnz cl
 neg cl
+movsx edx,word[esi]
+add esi,byte 2
 call writememorybyte
 sub edi,byte 16
 js near execexit
@@ -60374,13 +60231,12 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 59F9
 P9F9:
-mov edx,[esi]
-add esi,byte 4
-rol edx,16
-call readmemorybyte
 test al,1
 setnz cl
 neg cl
+mov edx,[esi]
+add esi,byte 4
+rol edx,16
 call writememorybyte
 sub edi,byte 20
 js near execexit
@@ -60822,11 +60678,10 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 5AD0 - 5AD7
 PAD0:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemorybyte
 test ah,ah
 setns cl
 neg cl
+mov edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 12
 js near execexit
@@ -60836,11 +60691,10 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 5AD8 - 5ADF
 PAD8:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemorybyte
 test ah,ah
 setns cl
 neg cl
+mov edx,[__areg+ebx*4]
 call writememorybyte
 cmp bl,7
 sbb edx,byte -2
@@ -60853,13 +60707,12 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 5AE0 - 5AE7
 PAE0:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-cmp bl,7
-adc edx,byte -2
-call readmemorybyte
 test ah,ah
 setns cl
 neg cl
+mov edx,[__areg+ebx*4]
+cmp bl,7
+adc edx,byte -2
 call writememorybyte
 mov [__areg+ebx*4],edx
 sub edi,byte 14
@@ -60870,13 +60723,12 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 5AE8 - 5AEF
 PAE8:
 and ebx,byte 7
-movsx edx,word[esi]
-add esi,byte 2
-add edx,[__areg+ebx*4]
-call readmemorybyte
 test ah,ah
 setns cl
 neg cl
+movsx edx,word[esi]
+add esi,byte 2
+add edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 16
 js near execexit
@@ -60886,12 +60738,11 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 5AF0 - 5AF7
 PAF0:
 and ebx,byte 7
-call decode_ext
-add edx,[__areg+ebx*4]
-call readmemorybyte
 test ah,ah
 setns cl
 neg cl
+call decode_ext
+add edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 18
 js near execexit
@@ -60900,12 +60751,11 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 5AF8
 PAF8:
-movsx edx,word[esi]
-add esi,byte 2
-call readmemorybyte
 test ah,ah
 setns cl
 neg cl
+movsx edx,word[esi]
+add esi,byte 2
 call writememorybyte
 sub edi,byte 16
 js near execexit
@@ -60914,13 +60764,12 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 5AF9
 PAF9:
-mov edx,[esi]
-add esi,byte 4
-rol edx,16
-call readmemorybyte
 test ah,ah
 setns cl
 neg cl
+mov edx,[esi]
+add esi,byte 4
+rol edx,16
 call writememorybyte
 sub edi,byte 20
 js near execexit
@@ -61362,11 +61211,10 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 5BD0 - 5BD7
 PBD0:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemorybyte
 test ah,ah
 sets cl
 neg cl
+mov edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 12
 js near execexit
@@ -61376,11 +61224,10 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 5BD8 - 5BDF
 PBD8:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemorybyte
 test ah,ah
 sets cl
 neg cl
+mov edx,[__areg+ebx*4]
 call writememorybyte
 cmp bl,7
 sbb edx,byte -2
@@ -61393,13 +61240,12 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 5BE0 - 5BE7
 PBE0:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-cmp bl,7
-adc edx,byte -2
-call readmemorybyte
 test ah,ah
 sets cl
 neg cl
+mov edx,[__areg+ebx*4]
+cmp bl,7
+adc edx,byte -2
 call writememorybyte
 mov [__areg+ebx*4],edx
 sub edi,byte 14
@@ -61410,13 +61256,12 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 5BE8 - 5BEF
 PBE8:
 and ebx,byte 7
-movsx edx,word[esi]
-add esi,byte 2
-add edx,[__areg+ebx*4]
-call readmemorybyte
 test ah,ah
 sets cl
 neg cl
+movsx edx,word[esi]
+add esi,byte 2
+add edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 16
 js near execexit
@@ -61426,12 +61271,11 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 5BF0 - 5BF7
 PBF0:
 and ebx,byte 7
-call decode_ext
-add edx,[__areg+ebx*4]
-call readmemorybyte
 test ah,ah
 sets cl
 neg cl
+call decode_ext
+add edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 18
 js near execexit
@@ -61440,12 +61284,11 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 5BF8
 PBF8:
-movsx edx,word[esi]
-add esi,byte 2
-call readmemorybyte
 test ah,ah
 sets cl
 neg cl
+movsx edx,word[esi]
+add esi,byte 2
 call writememorybyte
 sub edi,byte 16
 js near execexit
@@ -61454,13 +61297,12 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 5BF9
 PBF9:
-mov edx,[esi]
-add esi,byte 4
-rol edx,16
-call readmemorybyte
 test ah,ah
 sets cl
 neg cl
+mov edx,[esi]
+add esi,byte 4
+rol edx,16
 call writememorybyte
 sub edi,byte 20
 js near execexit
@@ -61908,14 +61750,13 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 5CD0 - 5CD7
 PCD0:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemorybyte
 push eax
 neg al
 xor al,ah
 pop eax
 setns cl
 neg cl
+mov edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 12
 js near execexit
@@ -61925,14 +61766,13 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 5CD8 - 5CDF
 PCD8:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemorybyte
 push eax
 neg al
 xor al,ah
 pop eax
 setns cl
 neg cl
+mov edx,[__areg+ebx*4]
 call writememorybyte
 cmp bl,7
 sbb edx,byte -2
@@ -61945,16 +61785,15 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 5CE0 - 5CE7
 PCE0:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-cmp bl,7
-adc edx,byte -2
-call readmemorybyte
 push eax
 neg al
 xor al,ah
 pop eax
 setns cl
 neg cl
+mov edx,[__areg+ebx*4]
+cmp bl,7
+adc edx,byte -2
 call writememorybyte
 mov [__areg+ebx*4],edx
 sub edi,byte 14
@@ -61965,16 +61804,15 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 5CE8 - 5CEF
 PCE8:
 and ebx,byte 7
-movsx edx,word[esi]
-add esi,byte 2
-add edx,[__areg+ebx*4]
-call readmemorybyte
 push eax
 neg al
 xor al,ah
 pop eax
 setns cl
 neg cl
+movsx edx,word[esi]
+add esi,byte 2
+add edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 16
 js near execexit
@@ -61984,15 +61822,14 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 5CF0 - 5CF7
 PCF0:
 and ebx,byte 7
-call decode_ext
-add edx,[__areg+ebx*4]
-call readmemorybyte
 push eax
 neg al
 xor al,ah
 pop eax
 setns cl
 neg cl
+call decode_ext
+add edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 18
 js near execexit
@@ -62001,15 +61838,14 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 5CF8
 PCF8:
-movsx edx,word[esi]
-add esi,byte 2
-call readmemorybyte
 push eax
 neg al
 xor al,ah
 pop eax
 setns cl
 neg cl
+movsx edx,word[esi]
+add esi,byte 2
 call writememorybyte
 sub edi,byte 16
 js near execexit
@@ -62018,16 +61854,15 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 5CF9
 PCF9:
-mov edx,[esi]
-add esi,byte 4
-rol edx,16
-call readmemorybyte
 push eax
 neg al
 xor al,ah
 pop eax
 setns cl
 neg cl
+mov edx,[esi]
+add esi,byte 4
+rol edx,16
 call writememorybyte
 sub edi,byte 20
 js near execexit
@@ -62475,14 +62310,13 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 5DD0 - 5DD7
 PDD0:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemorybyte
 push eax
 neg al
 xor al,ah
 pop eax
 sets cl
 neg cl
+mov edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 12
 js near execexit
@@ -62492,14 +62326,13 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 5DD8 - 5DDF
 PDD8:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemorybyte
 push eax
 neg al
 xor al,ah
 pop eax
 sets cl
 neg cl
+mov edx,[__areg+ebx*4]
 call writememorybyte
 cmp bl,7
 sbb edx,byte -2
@@ -62512,16 +62345,15 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 5DE0 - 5DE7
 PDE0:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-cmp bl,7
-adc edx,byte -2
-call readmemorybyte
 push eax
 neg al
 xor al,ah
 pop eax
 sets cl
 neg cl
+mov edx,[__areg+ebx*4]
+cmp bl,7
+adc edx,byte -2
 call writememorybyte
 mov [__areg+ebx*4],edx
 sub edi,byte 14
@@ -62532,16 +62364,15 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 5DE8 - 5DEF
 PDE8:
 and ebx,byte 7
-movsx edx,word[esi]
-add esi,byte 2
-add edx,[__areg+ebx*4]
-call readmemorybyte
 push eax
 neg al
 xor al,ah
 pop eax
 sets cl
 neg cl
+movsx edx,word[esi]
+add esi,byte 2
+add edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 16
 js near execexit
@@ -62551,15 +62382,14 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 5DF0 - 5DF7
 PDF0:
 and ebx,byte 7
-call decode_ext
-add edx,[__areg+ebx*4]
-call readmemorybyte
 push eax
 neg al
 xor al,ah
 pop eax
 sets cl
 neg cl
+call decode_ext
+add edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 18
 js near execexit
@@ -62568,15 +62398,14 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 5DF8
 PDF8:
-movsx edx,word[esi]
-add esi,byte 2
-call readmemorybyte
 push eax
 neg al
 xor al,ah
 pop eax
 sets cl
 neg cl
+movsx edx,word[esi]
+add esi,byte 2
 call writememorybyte
 sub edi,byte 16
 js near execexit
@@ -62585,16 +62414,15 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 5DF9
 PDF9:
-mov edx,[esi]
-add esi,byte 4
-rol edx,16
-call readmemorybyte
 push eax
 neg al
 xor al,ah
 pop eax
 sets cl
 neg cl
+mov edx,[esi]
+add esi,byte 4
+rol edx,16
 call writememorybyte
 sub edi,byte 20
 js near execexit
@@ -63046,8 +62874,6 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 5ED0 - 5ED7
 PED0:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemorybyte
 push eax
 neg al
 xor al,ah
@@ -63056,6 +62882,7 @@ or al,ah
 pop eax
 setns cl
 neg cl
+mov edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 12
 js near execexit
@@ -63065,8 +62892,6 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 5ED8 - 5EDF
 PED8:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemorybyte
 push eax
 neg al
 xor al,ah
@@ -63075,6 +62900,7 @@ or al,ah
 pop eax
 setns cl
 neg cl
+mov edx,[__areg+ebx*4]
 call writememorybyte
 cmp bl,7
 sbb edx,byte -2
@@ -63087,10 +62913,6 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 5EE0 - 5EE7
 PEE0:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-cmp bl,7
-adc edx,byte -2
-call readmemorybyte
 push eax
 neg al
 xor al,ah
@@ -63099,6 +62921,9 @@ or al,ah
 pop eax
 setns cl
 neg cl
+mov edx,[__areg+ebx*4]
+cmp bl,7
+adc edx,byte -2
 call writememorybyte
 mov [__areg+ebx*4],edx
 sub edi,byte 14
@@ -63109,10 +62934,6 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 5EE8 - 5EEF
 PEE8:
 and ebx,byte 7
-movsx edx,word[esi]
-add esi,byte 2
-add edx,[__areg+ebx*4]
-call readmemorybyte
 push eax
 neg al
 xor al,ah
@@ -63121,6 +62942,9 @@ or al,ah
 pop eax
 setns cl
 neg cl
+movsx edx,word[esi]
+add esi,byte 2
+add edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 16
 js near execexit
@@ -63130,9 +62954,6 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 5EF0 - 5EF7
 PEF0:
 and ebx,byte 7
-call decode_ext
-add edx,[__areg+ebx*4]
-call readmemorybyte
 push eax
 neg al
 xor al,ah
@@ -63141,6 +62962,8 @@ or al,ah
 pop eax
 setns cl
 neg cl
+call decode_ext
+add edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 18
 js near execexit
@@ -63149,9 +62972,6 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 5EF8
 PEF8:
-movsx edx,word[esi]
-add esi,byte 2
-call readmemorybyte
 push eax
 neg al
 xor al,ah
@@ -63160,6 +62980,8 @@ or al,ah
 pop eax
 setns cl
 neg cl
+movsx edx,word[esi]
+add esi,byte 2
 call writememorybyte
 sub edi,byte 16
 js near execexit
@@ -63168,10 +62990,6 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 5EF9
 PEF9:
-mov edx,[esi]
-add esi,byte 4
-rol edx,16
-call readmemorybyte
 push eax
 neg al
 xor al,ah
@@ -63180,6 +62998,9 @@ or al,ah
 pop eax
 setns cl
 neg cl
+mov edx,[esi]
+add esi,byte 4
+rol edx,16
 call writememorybyte
 sub edi,byte 20
 js near execexit
@@ -63631,8 +63452,6 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 5FD0 - 5FD7
 PFD0:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemorybyte
 push eax
 neg al
 xor al,ah
@@ -63641,6 +63460,7 @@ or al,ah
 pop eax
 sets cl
 neg cl
+mov edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 12
 js near execexit
@@ -63650,8 +63470,6 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 5FD8 - 5FDF
 PFD8:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-call readmemorybyte
 push eax
 neg al
 xor al,ah
@@ -63660,6 +63478,7 @@ or al,ah
 pop eax
 sets cl
 neg cl
+mov edx,[__areg+ebx*4]
 call writememorybyte
 cmp bl,7
 sbb edx,byte -2
@@ -63672,10 +63491,6 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 5FE0 - 5FE7
 PFE0:
 and ebx,byte 7
-mov edx,[__areg+ebx*4]
-cmp bl,7
-adc edx,byte -2
-call readmemorybyte
 push eax
 neg al
 xor al,ah
@@ -63684,6 +63499,9 @@ or al,ah
 pop eax
 sets cl
 neg cl
+mov edx,[__areg+ebx*4]
+cmp bl,7
+adc edx,byte -2
 call writememorybyte
 mov [__areg+ebx*4],edx
 sub edi,byte 14
@@ -63694,10 +63512,6 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 5FE8 - 5FEF
 PFE8:
 and ebx,byte 7
-movsx edx,word[esi]
-add esi,byte 2
-add edx,[__areg+ebx*4]
-call readmemorybyte
 push eax
 neg al
 xor al,ah
@@ -63706,6 +63520,9 @@ or al,ah
 pop eax
 sets cl
 neg cl
+movsx edx,word[esi]
+add esi,byte 2
+add edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 16
 js near execexit
@@ -63715,9 +63532,6 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcodes 5FF0 - 5FF7
 PFF0:
 and ebx,byte 7
-call decode_ext
-add edx,[__areg+ebx*4]
-call readmemorybyte
 push eax
 neg al
 xor al,ah
@@ -63726,6 +63540,8 @@ or al,ah
 pop eax
 sets cl
 neg cl
+call decode_ext
+add edx,[__areg+ebx*4]
 call writememorybyte
 sub edi,byte 18
 js near execexit
@@ -63734,9 +63550,6 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 5FF8
 PFF8:
-movsx edx,word[esi]
-add esi,byte 2
-call readmemorybyte
 push eax
 neg al
 xor al,ah
@@ -63745,6 +63558,8 @@ or al,ah
 pop eax
 sets cl
 neg cl
+movsx edx,word[esi]
+add esi,byte 2
 call writememorybyte
 sub edi,byte 16
 js near execexit
@@ -63753,10 +63568,6 @@ add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
 ; Opcode 5FF9
 PFF9:
-mov edx,[esi]
-add esi,byte 4
-rol edx,16
-call readmemorybyte
 push eax
 neg al
 xor al,ah
@@ -63765,6 +63576,9 @@ or al,ah
 pop eax
 sets cl
 neg cl
+mov edx,[esi]
+add esi,byte 4
+rol edx,16
 call writememorybyte
 sub edi,byte 20
 js near execexit
@@ -100644,16 +100458,7 @@ W0C0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -100672,16 +100477,7 @@ and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -100702,16 +100498,7 @@ call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -100732,16 +100519,7 @@ sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -100762,16 +100540,7 @@ add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -100791,16 +100560,7 @@ call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -100819,16 +100579,7 @@ movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -100848,16 +100599,7 @@ add esi,byte 4
 rol edx,16
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -100878,16 +100620,7 @@ sub edx,ebp
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -100908,16 +100641,7 @@ sub edx,ebp
 sub edx,byte 2
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -100935,16 +100659,7 @@ W0FC:
 mov cx,[esi]
 add esi,byte 2
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -101382,19 +101097,7 @@ W1C0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -101413,19 +101116,7 @@ and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -101446,19 +101137,7 @@ call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -101479,19 +101158,7 @@ sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -101512,19 +101179,7 @@ add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -101544,19 +101199,7 @@ call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -101575,19 +101218,7 @@ movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -101607,19 +101238,7 @@ add esi,byte 4
 rol edx,16
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -101640,19 +101259,7 @@ sub edx,ebp
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -101673,19 +101280,7 @@ sub edx,ebp
 sub edx,byte 2
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -101703,19 +101298,7 @@ W1FC:
 mov cx,[esi]
 add esi,byte 2
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -102195,16 +101778,7 @@ W2C0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -102223,16 +101797,7 @@ and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -102253,16 +101818,7 @@ call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -102283,16 +101839,7 @@ sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -102313,16 +101860,7 @@ add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -102342,16 +101880,7 @@ call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -102370,16 +101899,7 @@ movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -102399,16 +101919,7 @@ add esi,byte 4
 rol edx,16
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -102429,16 +101940,7 @@ sub edx,ebp
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -102459,16 +101961,7 @@ sub edx,ebp
 sub edx,byte 2
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -102486,16 +101979,7 @@ W2FC:
 mov cx,[esi]
 add esi,byte 2
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -102933,19 +102417,7 @@ W3C0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -102964,19 +102436,7 @@ and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -102997,19 +102457,7 @@ call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -103030,19 +102478,7 @@ sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -103063,19 +102499,7 @@ add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -103095,19 +102519,7 @@ call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -103126,19 +102538,7 @@ movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -103158,19 +102558,7 @@ add esi,byte 4
 rol edx,16
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -103191,19 +102579,7 @@ sub edx,ebp
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -103224,19 +102600,7 @@ sub edx,ebp
 sub edx,byte 2
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -103254,19 +102618,7 @@ W3FC:
 mov cx,[esi]
 add esi,byte 2
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -103746,16 +103098,7 @@ W4C0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -103774,16 +103117,7 @@ and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -103804,16 +103138,7 @@ call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -103834,16 +103159,7 @@ sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -103864,16 +103180,7 @@ add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -103893,16 +103200,7 @@ call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -103921,16 +103219,7 @@ movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -103950,16 +103239,7 @@ add esi,byte 4
 rol edx,16
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -103980,16 +103260,7 @@ sub edx,ebp
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -104010,16 +103281,7 @@ sub edx,ebp
 sub edx,byte 2
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -104037,16 +103299,7 @@ W4FC:
 mov cx,[esi]
 add esi,byte 2
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -104484,19 +103737,7 @@ W5C0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -104515,19 +103756,7 @@ and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -104548,19 +103777,7 @@ call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -104581,19 +103798,7 @@ sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -104614,19 +103819,7 @@ add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -104646,19 +103839,7 @@ call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -104677,19 +103858,7 @@ movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -104709,19 +103878,7 @@ add esi,byte 4
 rol edx,16
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -104742,19 +103899,7 @@ sub edx,ebp
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -104775,19 +103920,7 @@ sub edx,ebp
 sub edx,byte 2
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -104805,19 +103938,7 @@ W5FC:
 mov cx,[esi]
 add esi,byte 2
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -105297,16 +104418,7 @@ W6C0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -105325,16 +104437,7 @@ and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -105355,16 +104458,7 @@ call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -105385,16 +104479,7 @@ sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -105415,16 +104500,7 @@ add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -105444,16 +104520,7 @@ call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -105472,16 +104539,7 @@ movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -105501,16 +104559,7 @@ add esi,byte 4
 rol edx,16
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -105531,16 +104580,7 @@ sub edx,ebp
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -105561,16 +104601,7 @@ sub edx,ebp
 sub edx,byte 2
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -105588,16 +104619,7 @@ W6FC:
 mov cx,[esi]
 add esi,byte 2
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -106035,19 +105057,7 @@ W7C0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -106066,19 +105076,7 @@ and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -106099,19 +105097,7 @@ call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -106132,19 +105118,7 @@ sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -106165,19 +105139,7 @@ add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -106197,19 +105159,7 @@ call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -106228,19 +105178,7 @@ movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -106260,19 +105198,7 @@ add esi,byte 4
 rol edx,16
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -106293,19 +105219,7 @@ sub edx,ebp
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -106326,19 +105240,7 @@ sub edx,ebp
 sub edx,byte 2
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -106356,19 +105258,7 @@ W7FC:
 mov cx,[esi]
 add esi,byte 2
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -106848,16 +105738,7 @@ W8C0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -106876,16 +105757,7 @@ and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -106906,16 +105778,7 @@ call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -106936,16 +105799,7 @@ sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -106966,16 +105820,7 @@ add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -106995,16 +105840,7 @@ call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -107023,16 +105859,7 @@ movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -107052,16 +105879,7 @@ add esi,byte 4
 rol edx,16
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -107082,16 +105900,7 @@ sub edx,ebp
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -107112,16 +105921,7 @@ sub edx,ebp
 sub edx,byte 2
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -107139,16 +105939,7 @@ W8FC:
 mov cx,[esi]
 add esi,byte 2
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -107586,19 +106377,7 @@ W9C0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -107617,19 +106396,7 @@ and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -107650,19 +106417,7 @@ call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -107683,19 +106438,7 @@ sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -107716,19 +106459,7 @@ add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -107748,19 +106479,7 @@ call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -107779,19 +106498,7 @@ movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -107811,19 +106518,7 @@ add esi,byte 4
 rol edx,16
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -107844,19 +106539,7 @@ sub edx,ebp
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -107877,19 +106560,7 @@ sub edx,ebp
 sub edx,byte 2
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -107907,19 +106578,7 @@ W9FC:
 mov cx,[esi]
 add esi,byte 2
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -108399,16 +107058,7 @@ WAC0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -108427,16 +107077,7 @@ and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -108457,16 +107098,7 @@ call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -108487,16 +107119,7 @@ sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -108517,16 +107140,7 @@ add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -108546,16 +107160,7 @@ call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -108574,16 +107179,7 @@ movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -108603,16 +107199,7 @@ add esi,byte 4
 rol edx,16
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -108633,16 +107220,7 @@ sub edx,ebp
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -108663,16 +107241,7 @@ sub edx,ebp
 sub edx,byte 2
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -108690,16 +107259,7 @@ WAFC:
 mov cx,[esi]
 add esi,byte 2
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -109137,19 +107697,7 @@ WBC0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -109168,19 +107716,7 @@ and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -109201,19 +107737,7 @@ call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -109234,19 +107758,7 @@ sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -109267,19 +107779,7 @@ add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -109299,19 +107799,7 @@ call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -109330,19 +107818,7 @@ movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -109362,19 +107838,7 @@ add esi,byte 4
 rol edx,16
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -109395,19 +107859,7 @@ sub edx,ebp
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -109428,19 +107880,7 @@ sub edx,ebp
 sub edx,byte 2
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -109458,19 +107898,7 @@ WBFC:
 mov cx,[esi]
 add esi,byte 2
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -109950,16 +108378,7 @@ WCC0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -109978,16 +108397,7 @@ and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -110008,16 +108418,7 @@ call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -110038,16 +108439,7 @@ sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -110068,16 +108460,7 @@ add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -110097,16 +108480,7 @@ call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -110125,16 +108499,7 @@ movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -110154,16 +108519,7 @@ add esi,byte 4
 rol edx,16
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -110184,16 +108540,7 @@ sub edx,ebp
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -110214,16 +108561,7 @@ sub edx,ebp
 sub edx,byte 2
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -110241,16 +108579,7 @@ WCFC:
 mov cx,[esi]
 add esi,byte 2
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -110688,19 +109017,7 @@ WDC0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -110719,19 +109036,7 @@ and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -110752,19 +109057,7 @@ call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -110785,19 +109078,7 @@ sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -110818,19 +109099,7 @@ add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -110850,19 +109119,7 @@ call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -110881,19 +109138,7 @@ movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -110913,19 +109158,7 @@ add esi,byte 4
 rol edx,16
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -110946,19 +109179,7 @@ sub edx,ebp
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -110979,19 +109200,7 @@ sub edx,ebp
 sub edx,byte 2
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -111009,19 +109218,7 @@ WDFC:
 mov cx,[esi]
 add esi,byte 2
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -111501,16 +109698,7 @@ WEC0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -111529,16 +109717,7 @@ and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -111559,16 +109738,7 @@ call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -111589,16 +109759,7 @@ sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -111619,16 +109780,7 @@ add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -111648,16 +109800,7 @@ call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -111676,16 +109819,7 @@ movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -111705,16 +109839,7 @@ add esi,byte 4
 rol edx,16
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -111735,16 +109860,7 @@ sub edx,ebp
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -111765,16 +109881,7 @@ sub edx,ebp
 sub edx,byte 2
 call readmemoryword
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -111792,16 +109899,7 @@ WEFC:
 mov cx,[esi]
 add esi,byte 2
 mov eax,ecx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,16
 mul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -112239,19 +110337,7 @@ WFC0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -112270,19 +110356,7 @@ and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -112303,19 +110377,7 @@ call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -112336,19 +110398,7 @@ sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -112369,19 +110419,7 @@ add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -112401,19 +110439,7 @@ call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -112432,19 +110458,7 @@ movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -112464,19 +110478,7 @@ add esi,byte 4
 rol edx,16
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -112497,19 +110499,7 @@ sub edx,ebp
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -112530,19 +110520,7 @@ sub edx,ebp
 sub edx,byte 2
 call readmemoryword
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -112560,19 +110538,7 @@ WFFC:
 mov cx,[esi]
 add esi,byte 2
 mov eax,ecx
-mov edx,ecx
-shl edx,1
-xor ecx,edx
-mov dx,cx
-xor bx,bx
-mov bl,cl
-lea ecx,[__cb_table+ebx]
-movzx ecx,byte[ecx]
-mov bl,dh
-lea edx,[__cb_table+ebx]
-add cl,[edx]
-shl cl,1
-sub edi,ecx
+sub edi,8
 imul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh

@@ -8,6 +8,8 @@
 #include <SDL.h>
 #include "../neocd.h"
 
+#include "../menu/menu.h"
+
 #ifndef INLINE
 #define INLINE static __inline__
 #endif
@@ -98,8 +100,8 @@ void input_init(void) {
     keyup[SDLK_a]     =P2LEFT;
     keyup[SDLK_e]     =P2A;            joyup[1][0]=P2A;
     keyup[SDLK_q]     =P2B;            joyup[1][1]=P2B;
-    keyup[SDLK_x]     =P2C;            joyup[1][2]=P2C;
-    keyup[SDLK_c]     =P2D;            joyup[1][3]=P2D;
+    keyup[SDLK_c]     =P2C;            joyup[1][2]=P2C;
+    keyup[SDLK_x]     =P2D;            joyup[1][3]=P2D;
     keyup[SDLK_z]     =P2START;        joyup[1][8]=P2START;
     keyup[SDLK_1]     =P2SEL;          joyup[1][9]=P2SEL;
     
@@ -109,7 +111,9 @@ void input_init(void) {
     keyup[SDLK_F3]    =SPECIAL;
     keyup[SDLK_F4]    =SPECIAL;
     keyup[SDLK_F12]   =SPECIAL;
+#ifndef DREAMCAST
     keyup[SDLK_ESCAPE]=SPECIAL;
+#endif
     keyup[SDLK_BACKSPACE]=SPECIAL;
 
     /* set key down mask */
@@ -195,21 +199,41 @@ void input_shutdown(void) {
 
 
 INLINE void specialKey (SDLKey key) {
+    int nook=1;
     switch(key) {
 	case SDLK_BACKSPACE:
 		print_frameskip();
+#ifdef SHOW_MENU
 		sound_disable();
 		cdda_pause();
-		if (run_mainMenu()==2)
-			neogeo_hreset();
-		else
-			cdda_resume();
+		menu_raise();
+		while(nook)
+		{
+			if (run_mainMenu()==2)
+			{
+				cdda_resume();
+				SDL_Delay(100);
+				cdda_stop();
+				nook=neogeo_hreset();
+				if (nook)
+					drawNoNeoGeoCD();
+			}
+			else
+			{
+				nook=0;
+				cdda_resume();
+			}
+		}
+		menu_unraise();
 		sound_enable();
+#endif
 		break;
 	case SDLK_F1: video_fullscreen_toggle(); break;
         case SDLK_F4: sound_toggle(); break;
         case SDLK_F12: video_save_snapshot(); break;
+#ifndef DREAMCAST
         case SDLK_ESCAPE: exit(0); break;
+#endif
         default:
             break;
     }
@@ -279,15 +303,6 @@ void processEvents(void) {
         
 /*--------------------------------------------------------------------------*/
 unsigned char read_player1(void) {
-#if defined(DEBUG_MEMORY) || defined (AUTO_FIRE)
-static int cuenta=1;
-if ((cuenta&31)>15)
-keyUp(SDLK_LCTRL);
-else
-keyDown(SDLK_LCTRL);
-cuenta++;
-#endif
-
      return keys&0xff;
 }
 

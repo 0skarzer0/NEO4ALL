@@ -7,17 +7,96 @@
 
 #include "msg.h"
 #include "fade.h"
+#include "sound/sound.h"
 
-SDL_Surface *text_screen, *text_image, *text_background, *text_window_background;
+#ifdef USE_VIDEO_GL
+#include "video/videogl.h"
+#endif
+
+SDL_Surface *text_screen, *text_image, *text_image_inv, *text_background, *text_window_background;
 
 static Uint32 menu_inv_color=0, menu_win0_color=0, menu_win1_color=0;
+static Uint32 menu_barra0_color=0, menu_barra1_color=0;
+static Uint32 menu_win0_color_base=0, menu_win1_color_base=0;
 
 void write_text_pos(int x, int y, char * str);
 void write_num(int x, int y, int v);
 int menu_msg_pos=330;
 Uint32 menu_msg_time;
 
-static inline void text_draw_menu_msg()
+int menu_moving=0;
+
+void menu_raise(void)
+{
+	int i;
+	for(i=64;i>=0;i-=4)
+	{
+		Mix_VolumeMusic(96-(i<<1));
+#ifdef DREAMCAST
+		vid_waitvbl();
+#else
+		SDL_Delay(50);
+#endif
+		text_draw_background();
+		fade16(text_screen,i);
+		text_flip();
+	}
+}
+
+void menu_unraise(void)
+{
+	int i;
+	for(i=0;i<=64;i+=4)
+	{
+		Mix_VolumeMusic(96-(i<<1));
+#ifdef DREAMCAST
+		vid_waitvbl();
+#else
+		SDL_Delay(50);
+#endif
+		text_draw_background();
+		fade16(text_screen,i);
+		text_flip();
+	}
+}
+
+
+static __inline__ void update_window_color(void)
+{
+	static int cambio=0;
+	static int spin=0;
+
+	Uint8 r,g,b;
+	int cambio2=cambio>>3;
+	SDL_GetRGB(menu_win0_color_base,text_screen->format,&r,&g,&b);
+	if (((int)r)-cambio2>0) r-=cambio2;
+	else r=0;
+	if (((int)g)-cambio2>0) g-=cambio2;
+	else g=0;
+	if (((int)b)-cambio2>0) b-=cambio2;
+	else b=0;
+	menu_win0_color=SDL_MapRGB(text_screen->format,r,g,b);
+	SDL_GetRGB(menu_win1_color_base,text_screen->format,&r,&g,&b);
+	if (((int)r)-cambio>0) r-=cambio;
+	else r=0;
+	if (((int)g)-cambio>0) g-=cambio;
+	else g=0;
+	if (((int)b)-cambio>0) b-=cambio;
+	else b=0;
+	menu_win1_color=SDL_MapRGB(text_screen->format,r,g,b);
+	if (spin)
+	{
+		if (cambio<=0) spin=0;
+		else cambio-=4;
+	}
+	else
+	{
+		if (cambio>=32) spin=1;
+		else cambio+=4;
+	}
+}
+
+static __inline__ void text_draw_menu_msg()
 {
 /*
 	Uint32 now=SDL_GetTicks();
@@ -29,17 +108,29 @@ static inline void text_draw_menu_msg()
 		menu_msg_pos=330;
 	}
 	else
-		menu_msg_pos--;
-	write_text_pos(menu_msg_pos,0,menu_msg);
+		menu_msg_pos-=2;
+	write_text_pos_inv(menu_msg_pos,0,menu_msg);
 }
 
-void text_draw_background()
+static __inline__ void text_draw_real_background()
 {
+	static int pos_x=12345678;
+	static int pos_y=12345678;
 	SDL_Rect r;
 	int i,j;
+	int w=text_screen->w+text_background->w-1;
+	int h=text_screen->h+text_background->h-1;
 
-	for(i=0;i<320;i+=text_background->w)
-		for(j=0;j<240;j+=text_background->h)
+	if (menu_moving)
+	{
+		if (pos_x>=0) pos_x=-screen->w;
+		else pos_x++;
+		if (pos_y>=0) pos_y=-screen->h;
+		else pos_y++;
+	}
+
+	for(i=pos_x;i<w;i+=text_background->w)
+		for(j=pos_y;j<h;j+=text_background->h)
 		{
 			r.x=i;
 			r.y=j;
@@ -47,14 +138,81 @@ void text_draw_background()
 			r.h=text_background->h;
 			SDL_BlitSurface(text_background,NULL,text_screen,&r);
 		}
-	text_draw_menu_msg();
+	if (menu_moving)
+		text_draw_menu_msg();
+}
+
+void text_draw_background()
+{
+#if !defined(SHOW_CONSOLE) && defined(MENU_ALPHA)
+	if (!used_blitter)
+	{
+#endif
+		text_draw_real_background();
+#if !defined(SHOW_CONSOLE) && defined(MENU_ALPHA)
+	}
+	else
+	{
+#ifdef USE_VIDEO_GL
+		bzero(text_screen->pixels,text_screen->h*text_screen->pitch);
+#else
+		SDL_FillRect(text_screen,NULL,0);
+#endif
+	}
+#endif
+	if (menu_moving)
+		update_window_color();
 }
 
 void text_flip(void)
 {
+#ifndef DREAMCAST
 	SDL_Delay(10);
+#endif
+#ifdef MENU_ALPHA
+	{
+		unsigned i;
+		for(i=0;i<screen->h;i++)
+			memcpy(
+				screen->pixels + (screen->pitch * i),
+				text_screen->pixels + (text_screen->pitch * i),
+				screen->w * screen->format->BytesPerPixel
+			);
+	}
+#else
 	SDL_BlitSurface(text_screen,NULL,screen,NULL);
+#endif
 	video_flip(screen);
+}
+
+static void obten_colores(void)
+{
+	FILE *f=fopen(DATA_PREFIX "colors.txt", "rt");
+	if (f)
+	{
+		Uint32 r,g,b;
+		fscanf(f,"menu_inv_color=0x%X,0x%X,0x%X\n",&r,&g,&b);
+		menu_inv_color=SDL_MapRGB(text_screen->format,r,g,b);
+		fscanf(f,"menu_win0_color=0x%X,0x%X,0x%X\n",&r,&g,&b);
+		menu_win0_color=SDL_MapRGB(text_screen->format,r,g,b);
+		fscanf(f,"menu_win1_color=0x%X,0x%X,0x%X\n",&r,&g,&b);
+		menu_win1_color=SDL_MapRGB(text_screen->format,r,g,b);
+		fscanf(f,"menu_barra0_color=0x%X,0x%X,0x%X\n",&r,&g,&b);
+		menu_barra0_color=SDL_MapRGB(text_screen->format,r,g,b);
+		fscanf(f,"menu_barra1_color=0x%X,0x%X,0x%X\n",&r,&g,&b);
+		menu_barra1_color=SDL_MapRGB(text_screen->format,r,g,b);
+		fclose(f);
+	}
+	else
+	{
+		menu_inv_color=SDL_MapRGB(text_screen->format, 0x20, 0x20, 0x40);
+		menu_win0_color=SDL_MapRGB(text_screen->format, 0x10, 0x08, 0x08);
+		menu_win1_color=SDL_MapRGB(text_screen->format, 0x20, 0x10, 0x10);
+		menu_barra0_color=SDL_MapRGB(text_screen->format, 0x30, 0x20, 0x20);
+		menu_barra1_color=SDL_MapRGB(text_screen->format, 0x50, 0x40, 0x40);
+	}
+	menu_win0_color_base=menu_win0_color;
+	menu_win1_color_base=menu_win1_color;
 }
 
 void init_text(int splash)
@@ -76,6 +234,20 @@ void init_text(int splash)
 		exit(-2);
 	}
 	SDL_SetColorKey(text_image,(SDL_SRCCOLORKEY | SDL_RLEACCEL),SDL_MapRGB(text_image -> format, 0, 0, 0));
+	tmp=SDL_LoadBMP(MENU_FILE_TEXT_INV);
+	if (text_screen==NULL || tmp==NULL)
+	{
+		puts("No se pudo crear el SDL_Surface text_screen o cargar " MENU_FILE_TEXT_INV);
+		exit(-1);
+	}
+	text_image_inv=SDL_DisplayFormat(tmp);
+	SDL_FreeSurface(tmp);
+	if (text_image_inv==NULL)
+	{
+		puts("Fue imposible convertir text_image_inv");
+		exit(-2);
+	}
+	SDL_SetColorKey(text_image_inv,(SDL_SRCCOLORKEY | SDL_RLEACCEL),SDL_MapRGB(text_image -> format, 0, 0, 0));
 	tmp=SDL_LoadBMP(MENU_FILE_BACKGROUND);
 	if (tmp==NULL)
 	{
@@ -102,6 +274,7 @@ void init_text(int splash)
 		puts("No se pudo convertir text_window_background");
 		exit(-5);
 	}
+	sound_play_menu_music();
 	if (splash)
 	{
 		SDL_Surface *sur;
@@ -121,7 +294,7 @@ void init_text(int splash)
 		r.h=sur->w;
 		r.w=sur->h;
 		SDL_FillRect(text_screen,NULL,0);
-		for (i=128;i>0;i-=4)
+		for (i=128;i>=0;i-=8)
 		{
 #ifdef DREAMCAST
 			vid_waitvbl();
@@ -132,8 +305,8 @@ void init_text(int splash)
 			fade16(text_screen,i);
 			text_flip();
 		}
-		SDL_Delay(3000);
-		for(i=0;i<128;i+=8)
+		SDL_Delay(5000);
+		for(i=0;i<=96;i+=8)
 		{
 #ifdef DREAMCAST
 			vid_waitvbl();
@@ -145,7 +318,7 @@ void init_text(int splash)
 			text_flip();
 		}
 		SDL_FreeSurface(sur);
-		for(i=128;i>0;i-=4)
+		for(i=96;i>=0;i-=8)
 		{
 #ifdef DREAMCAST
 			vid_waitvbl();
@@ -163,9 +336,7 @@ void init_text(int splash)
 		text_draw_background();
 		text_flip();
 	}
-	menu_inv_color=SDL_MapRGB(text_screen->format, 0x20, 0x20, 0x40);
-	menu_win0_color=SDL_MapRGB(text_screen->format, 0x10, 0x08, 0x08);
-	menu_win1_color=SDL_MapRGB(text_screen->format, 0x20, 0x10, 0x10);
+	obten_colores();
 	menu_msg_time=SDL_GetTicks();
 }
 
@@ -178,7 +349,7 @@ void quit_text(void)
 	SDL_FreeSurface(text_screen);
 }
 
-void write_text_pos(int x, int y, char * str)
+static void write_text_pos_common(int x, int y, char * str, SDL_Surface *txt_scr)
 {
   int i, c;
   SDL_Rect src, dest;
@@ -200,9 +371,9 @@ void write_text_pos(int x, int y, char * str)
       else if (str[i] == '.')
 	c = 64;
       else if (str[i] == '_')
-	c = -2;
+	c = 68;
       else if (str[i] == '-')
-	c = -3;
+	c = 68;
       else if (str[i] == '/')
 	c = 65;
       else if (str[i] == ',')
@@ -222,27 +393,23 @@ void write_text_pos(int x, int y, char * str)
 	  dest.w = 8;
 	  dest.h = 8;
 	  
-	  SDL_BlitSurface(text_image, &src,
+	  SDL_BlitSurface(txt_scr, &src,
 			  text_screen, &dest);
-	}
-      else if (c == -2 || c == -3)
-	{
-	  dest.x = x + (i * 8);
-	  
-	  if (c == -2)
-	    dest.y = y  + 7;
-	  else if (c == -3)
-	    dest.y = y  + 3;
-	  
-	  dest.w = 8;
-	  dest.h = 1;
-	  
-	  SDL_FillRect(text_screen, &dest, menu_inv_color);
 	}
     }
 }
 
-void write_text(int x, int y, char * str)
+void write_text_pos(int x, int y, char * str)
+{
+	write_text_pos_common(x,y,str,text_image);
+}
+
+void write_text_pos_inv(int x, int y, char * str)
+{
+	write_text_pos_common(x,y,str,text_image_inv);
+}
+
+static void write_text_common(int x, int y, char * str, SDL_Surface *txt_scr)
 {
   int i, c;
   SDL_Rect src, dest;
@@ -264,9 +431,9 @@ void write_text(int x, int y, char * str)
       else if (str[i] == '.')
 	c = 64;
       else if (str[i] == '_')
-	c = -2;
+	c = 68;
       else if (str[i] == '-')
-	c = -3;
+	c = 68;
       else if (str[i] == '/')
 	c = 65;
       else if (str[i] == ',')
@@ -286,33 +453,27 @@ void write_text(int x, int y, char * str)
 	  dest.w = 8;
 	  dest.h = 8;
 	  
-	  SDL_BlitSurface(text_image, &src,
+	  SDL_BlitSurface(txt_scr, &src,
 			  text_screen, &dest);
-	}
-      else if (c == -2 || c == -3)
-	{
-	  dest.x = (x + i) * 8;
-	  
-	  if (c == -2)
-	    dest.y = y * 8 /*10*/ + 7;
-	  else if (c == -3)
-	    dest.y = y * 8 /*10*/ + 3;
-	  
-	  dest.w = 8;
-	  dest.h = 1;
-	  
-	  SDL_FillRect(text_screen, &dest, menu_inv_color);
 	}
     }
 }
 
+void write_text(int x, int y, char * str)
+{
+	write_text_common(x,y,str,text_image);
+}
 
 /* Write text, inverted: */
 
-void write_text_inv(int x, int y, char * str)
+void write_text_inv(int x, int y, char *str)
+{
+	write_text_common(x, y, str,text_image_inv);
+}
+
+void write_text_sel(int x, int y, char * str)
 {
   SDL_Rect dest;
-  
   
   dest.x = (x * 8) -2 ;
   dest.y = (y * 8) /*10*/ - 2;
@@ -320,8 +481,8 @@ void write_text_inv(int x, int y, char * str)
   dest.h = 12;
 
   SDL_FillRect(text_screen, &dest, menu_inv_color);
-
-  write_text(x, y, str);
+ 
+  write_text_common(x, y, str,text_image_inv);
 }
 
 
@@ -330,6 +491,11 @@ void write_text_inv(int x, int y, char * str)
 void write_centered_text(int y, char * str)
 {
   write_text(20 - (strlen(str) / 2), y/2, str);
+}
+
+void write_centered_text_inv(int y, char * str)
+{
+  write_text_inv(20 - (strlen(str) / 2), y/2, str);
 }
 
 
@@ -345,25 +511,26 @@ void write_num(int x, int y, int v)
 
 void write_num_inv(int x, int y, int v)
 {
-  SDL_Rect dest;
-  int i,l=1;
-
-  for(i=10;i<1000000;i*=10)
-	if (v/i)
-		l++;
-  	else
-		break;
-  	
-  dest.x = (x * 8) -2 ;
-  dest.y = (y * 8) /*10*/ - 2;
-  dest.w = (l * 8) + 4;
-  dest.h = 12;
-
-  SDL_FillRect(text_screen, &dest, menu_inv_color);
-
-  write_num(x, y, v);
+  char str[24];
+  
+  sprintf(str, "%d", v);
+  write_text_inv(x, y, str);
 }
 
+void text_draw_barra(int x, int y, int w, int h, int per, int max)
+{
+        SDL_Rect dest;
+        dest.x=x-1;
+        dest.y=y-1;
+        dest.w=w+2;
+        dest.h=h+2;
+        SDL_FillRect(text_screen, &dest, menu_barra0_color);
+        dest.x=x;
+        dest.y=y;
+        dest.h=h;
+        dest.w=(w*per)/max;
+        SDL_FillRect(text_screen, &dest, menu_barra1_color);
+}
 
 void text_draw_window(int x, int y, int w, int h, char *title)
 {
@@ -403,9 +570,28 @@ void text_draw_window(int x, int y, int w, int h, char *title)
 
 		}
 
-	write_text(r8x, r8y - 1, "o -");
-	write_text(r8x + r8w - 6, r8y - 1, "-- =ox");
-	write_text(r8x + ((r8w-strlen(title)) / 2), r8y - 1, title);
+	write_text_inv(r8x, r8y - 1, "o -");
+	write_text_inv(r8x + r8w - 6, r8y - 1, "-- =ox");
+	write_text_inv(r8x + ((r8w-strlen(title)) / 2), r8y - 1, title);
 
+}
+
+
+void text_draw_loading(int per, int max)
+{
+	text_draw_background();
+	text_draw_window(80,64,172,32,"Loading");
+	text_draw_barra(84, 78, 150, 6, per, max);
+	write_text(14,9,"Please wait");
+	text_flip();
+}
+
+void text_draw_saving(int per, int max)
+{
+	text_draw_background();
+	text_draw_window(80,64,172,32,"Saving");
+	text_draw_barra(84, 78, 150, 6, per, max);
+	write_text(14,9,"Please wait");
+	text_flip();
 }
 

@@ -37,6 +37,7 @@ extern unsigned int	video_hide_fps;
 extern unsigned short	video_color_lut[32768];
 extern char	video_palette_use[0x200];
 extern int	video_palette_dirty;
+extern int	used_blitter;
 
 extern SDL_Surface	*screen;
 extern SDL_Surface	*video_buffer;

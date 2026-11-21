@@ -29,7 +29,12 @@ void fade16(SDL_Surface *screen, unsigned short n)
 			b-=n;
 		else
 			b=0;
-		buff[i]=((r<<rs) | (g<<gs) | (b<<bs));
+		buff[i]=(
+				(r<<rs) | (g<<gs) | (b<<bs)
+#if defined(USE_VIDEO_GL) && defined(MENU_ALPHA)
+				| 0x8000
+#endif
+			);
 	}
 	SDL_UnlockSurface(screen);
 }

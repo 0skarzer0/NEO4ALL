@@ -20,6 +20,7 @@ extern Uint8 subcpu_memspace[0x10000];
 #define _z80nmi cpu_z80_nmi
 #define _z80raise cpu_z80_raise_irq
 #define _z80lower cpu_z80_lower_irq
+#define _z80reset cpu_z80_reset
 
 #else
 

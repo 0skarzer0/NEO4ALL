@@ -9,6 +9,7 @@
 
 #define REFRESHTIME 1000/60
 
+
 //#define NEO4ALL_Z80_UNDER_CYCLES	 66666
 #define NEO4ALL_Z80_UNDER_CYCLES	 33333
 //#define NEO4ALL_Z80_UNDER_CYCLES	 22222
@@ -74,6 +75,9 @@ extern int	neogeo_frameskip;
 
 extern Uint32 neo4all_z80_cycles;
 extern Uint32 neo4all_68k_cycles;
+extern unsigned z80_cycles_inited;
+
+int	neogeo_hreset(void);
 
 void neogeo_adjust_frameskip(int new_frameskip);
 void neogeo_adjust_cycles(int new_68k, int new_z80);

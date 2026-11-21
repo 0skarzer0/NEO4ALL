@@ -37,22 +37,34 @@ static __inline__ void create_font(unsigned int tileno,int color,unsigned short 
 #ifdef DEBUG_GL
     tiles_fail++;
 #endif
-    unsigned short *br=_br;
-//   unsigned short *br=(unsigned short*)neo4all_texture_buffer;
+#ifndef USE_SQ
+    register unsigned short *br=_br;
+#else
+    register unsigned short *br=(unsigned short*)neo4all_texture_buffer;
+#endif
 //printf("DRAW_TILE %i, color=0x%X\n",tileno,color);
-    unsigned short *paldata=(unsigned short *)&video_paletteram_pc[color<<4];
-    unsigned int *gfxdata = (unsigned int *)&neogeo_fix_memory[tileno<<5];
+    register unsigned short *paldata=(unsigned short *)&video_paletteram_pc[color<<4];
+    register unsigned int *gfxdata = (unsigned int *)&neogeo_fix_memory[tileno<<5];
 
     paldata[0]=0; // BLEND !!!
 
     draw_font(br,paldata,gfxdata);
-/*
+
 #ifdef DREAMCAST
-    pvr_txr_load(neo4all_texture_buffer,_br,8*8*2);
+#ifdef USE_DMA
+    dcache_flush_range(neo4all_texture_buffer,8*8*2);
+    while (!pvr_dma_ready());
+    pvr_txr_load_dma(neo4all_texture_buffer,_br,8*8*2,-1,NULL,NULL);
 #else
+#ifdef USE_SQ
+    pvr_txr_load(neo4all_texture_buffer,_br,8*8*2);
+#endif
+#endif
+#else
+#ifdef USE_SQ
     memcpy(_br,neo4all_texture_buffer,8*8*2);
 #endif
-*/
+#endif
 }
 
 #ifdef DREAMCAST
@@ -144,7 +156,7 @@ void video_draw_font_textures(void)
 	unsigned actual=fcache_hash_unused();
 	static unsigned maximo=0;
 	if (n_font_list>maximo)
-		maximo=n_tile_list;
+		maximo=n_font_list;
 	if (actual<minimo)
 		minimo=actual;
 	printf("- %i font_textures (%i max). Cache: %i fonts unused (%i min).\n",n_font_list,maximo,actual,minimo);
@@ -173,7 +185,45 @@ void video_draw_font_textures(void)
 #ifndef DREAMCAST
 	glEnd();
 #endif
-	tile_z+=0.0001;
+	tile_z+=TILE_Z_INC;
+   }
+
+#ifdef CACHE_GL_AUTOCLEAN
+   if ((neo4all_glframes&127)==32)
+   {
+	   fcache_hash_old_cleaner();
+#ifdef DEBUG_GL
+	   unsigned ahora=fcache_hash_unused();
+	   printf("  glframes=%i, FONT ELIMINADAS=%i\n",neo4all_glframes,ahora-actual);
+#endif
+   }
+#endif
+}
+
+void video_draw_font_textures_gl(void)
+{
+   unsigned i,j;
+   extern GLint screen_texture;
+
+   for(i=n_tile_list,j=0;j<n_font_list;i++,j++)
+   {
+	register void *font_buffer=tile_list[i].buffer;
+	register int sx=tile_list[i].sx;
+	register int sy=tile_list[i].sy;
+	register int zx=8;
+	register int zy=8;
+	glBindTexture(GL_TEXTURE_2D, screen_texture); //tile_opengl_tex[i]);
+	loadTextureParams();
+#ifndef DREAMCAST
+	glTexImage2D(GL_TEXTURE_2D, 0, 4, 8, 8, 0, 
+		GL_RGBA, GL_UNSIGNED_SHORT_1_5_5_5_REV, font_buffer);
+#else
+	glKosTex2D(GL_ARGB1555,512,512,font_buffer);
+#endif
+	glBegin(GL_QUADS);
+	GL_VERTICE_FLIP_NONE
+	glEnd();
+	tile_z+=TILE_Z_INC;
    }
 }
 

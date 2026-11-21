@@ -70,7 +70,7 @@ int				frameskip=0;
 SDL_Rect		src,dest;
 
 //-- Function Prototypes -----------------------------------------------------
-int		video_init(void);
+int	video_init(void);
 void	video_shutdown(void);
 void	video_draw_line(int);
 int	video_set_mode(int);
@@ -134,7 +134,6 @@ int	video_init(void)
 	
 	if (video_set_mode(VIDEO_NORMAL)==0)
 		return 0;
-
 
 #ifdef DOUBLE_BUFFER
 	video_buffer = SDL_CreateRGBSurface(SDL_SWSURFACE, 320, 226, 16, 0xF800, 0x07E0, 0x001F, 0x0000);

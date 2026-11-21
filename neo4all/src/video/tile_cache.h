@@ -5,7 +5,8 @@ extern unsigned neo4all_glframes;
 extern char	video_palette_use[0x200];
 
 #define TCACHE_HASH_SIZE 521
-#define TCACHE_SIZE 3072
+//#define TCACHE_SIZE 3072
+#define TCACHE_SIZE 4096
 
 #define TCACHE_BREAKTIME 16
 
@@ -137,6 +138,10 @@ static __inline__ tcache_rec_t tcache_hash_insert(unsigned key)
 	p0=tcache_hash_table[bucket];
 	tcache_hash_table[bucket] = p;
 	p->next = p0;
+#ifdef DEBUG_GL
+	if (p->used>=(neo4all_glframes-2))
+		printf("!!!!! TILE USADO EN N-%i\n",neo4all_glframes-(p->used));
+#endif
 	p->used = neo4all_glframes;
 	p->key = key;
 	return p->rec;

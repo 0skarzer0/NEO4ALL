@@ -1,10 +1,12 @@
+#define MEMCARD_FILENAME_FORMAT "memcard.bin"
+
 #ifdef DREAMCAST
 #include<kos.h>
 #include"save_icon.h"
 #define VMUFILE_PAD 128+512
 #define MEMCARD_FILENAME "neo4all.bin"
 #else
-#define MEMCARD_FILENAME "memcard.bin"
+#define MEMCARD_FILENAME MEMCARD_FILENAME_FORMAT
 #define VMUFILE_PAD 0
 #endif
 
@@ -18,6 +20,7 @@
 
 unsigned char           neogeo_memorycard[NEO4ALL_MEMCARD_SIZE];
 static char* memcard_filestate=MEMCARD_PREFIX MEMCARD_FILENAME;
+static char* memcard_filestate_formated=DATA_PREFIX MEMCARD_FILENAME_FORMAT;
 static unsigned char	*paquete=NULL;
 static int		paquete_size=0;
 
@@ -81,18 +84,29 @@ static int save_savestate(void)
 
 	if (paquete==NULL)
 		return 0;
+        sound_disable();
+	menu_raise();
+	sound_play_saving();
+	text_draw_saving(0,9);
 	unlink(memcard_filestate);
 	f=fopen(memcard_filestate,"w");
 	if (f!=NULL)
 	{
-		int ok;
+		int i;
+		ret=1;
 #ifdef DREAMCAST
 		memcpy(paquete+VMUFILE_PAD,(void *)&neogeo_memorycard,NEO4ALL_MEMCARD_SIZE);
 		rebuild_crc();
+		ret=(fwrite(paquete,1,VMUFILE_PAD,f)==VMUFILE_PAD);
+		fflush(f);
 #endif
-		ok=fwrite(paquete,1,paquete_size,f);
+		for(i=0;i<8 && ret;i++)
+		{
+			text_draw_saving(i+1,9);
+			ret=(fwrite(&neogeo_memorycard[1024*i],1,1024,f)==1024);
+			fflush(f);
+		}
 		fclose(f);
-		ret=(ok==paquete_size);
 		if (!ret)
 		{
 			unlink(memcard_filestate);
@@ -103,6 +117,9 @@ static int save_savestate(void)
 		}
 	}
 #endif
+	menu_unraise();
+        sound_enable();
+        init_autoframeskip();
 	return ret;
 }
 
@@ -115,6 +132,8 @@ static int load_savestate(void)
 	if (paquete==NULL)
 		return 0;
 	f=fopen(memcard_filestate,"r");
+	if (f!=NULL)
+		f=fopen(memcard_filestate_formated,"r");
 	if (f!=NULL)
 	{
 		int ok;

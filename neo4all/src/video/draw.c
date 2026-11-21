@@ -37,7 +37,7 @@ unsigned eficiencia_media=50;
 
 static unsigned int   fc=0;
 
-static int used_blitter=0;
+int used_blitter=0;
 
 
 #ifdef PROFILER
@@ -48,10 +48,12 @@ extern Uint32 profiler_media4;
 
 void blitter(void) {
 	used_blitter=1;
+
 #ifdef PROFILER
 profiler_media3+=(SDL_GetTicks()-prof_actual);
 Uint32 prof_actual=SDL_GetTicks();
 #endif
+
 #ifndef USE_VIDEO_GL
 #ifdef DOUBLE_BUFFER
 	SDL_BlitSurface(video_buffer,&src,screen,NULL); // &dest);
@@ -128,9 +130,9 @@ static __inline__ void video_draw_screen_first(void)
 Uint32 prof_actual=SDL_GetTicks();
 #endif
 
-   int    a;
-
 #ifndef USE_VIDEO_GL
+  int    a;
+
   for (a=0; a<224; a++) 
   	sq_set16(video_line_ptr[a], video_paletteram_pc[4095], 320*2);  
 #else
@@ -141,7 +143,7 @@ Uint32 prof_actual=SDL_GetTicks();
 	memset(video_palette_use,0,0x200);
 	video_palette_dirty=0;
   }
-  tile_z=1.0;
+  tile_z=TILE_Z_INIT;
   n_font_list=0;
   n_tile_list=0;
 #endif
@@ -600,6 +602,7 @@ void video_flip(SDL_Surface *surface)
 #ifndef USE_VIDEO_GL
 	SDL_Flip(surface);
 #else
+#ifdef SHOW_CONSOLE
   if (used_blitter)
   {
 	tcache_hash_init();
@@ -607,6 +610,7 @@ void video_flip(SDL_Surface *surface)
 	if (view_console)
 		console_draw_all_background();
   }
+#endif
 #ifdef DREAMCAST
   glKosBeginFrame();
 #endif
@@ -615,35 +619,63 @@ void video_flip(SDL_Surface *surface)
 
   extern GLint screen_texture;
 
+  tile_z=0.5;
+
+#ifdef MENU_ALPHA
+  video_draw_tile_textures_gl();
+  video_draw_font_textures_gl();
+#endif
+
   glBindTexture(GL_TEXTURE_2D,screen_texture);
   loadTextureParams();
 
+#ifdef MENU_ALPHA
+
+#ifndef DREAMCAST
+  glTexImage2D(GL_TEXTURE_2D, 0, 4, 512, 512, 0, 
+    GL_RGBA, GL_UNSIGNED_SHORT_1_5_5_5_REV, neo4all_texture_surface);
+#else
+  glKosTex2D(GL_ARGB1555,512,512,neo4all_texture_surface);
+#endif
+
+#else
+
 #ifndef DREAMCAST
   glTexImage2D(GL_TEXTURE_2D, 0, 3, 512, 512, 0, 
-    GL_RGB, GL_UNSIGNED_SHORT_5_6_5, neo4all_texture_real_buffer);
+    GL_RGB, GL_UNSIGNED_SHORT_5_6_5, neo4all_texture_surface);
 #else
-  glKosTex2D(GL_RGB565,512,512,neo4all_texture_real_buffer);
+  glKosTex2D(GL_RGB565,512,512,neo4all_texture_surface);
 #endif
+
+#endif
+
+  double t_x1=0.0,t_y1=0.0,t_x2=512.0,t_y2=512.0;
+#ifdef DREAMCAST
+  t_y1+=4.0; t_y2+=4.0;
+#endif
+
   glBegin(GL_QUADS);
   	glTexCoord2f(0.0,0.0);
-	glVertex3f(0.0,0.0,0.5);
+	glVertex3f(t_x1,t_y1,tile_z);
 	
   	glTexCoord2f(1.0,0.0);
-	glVertex3f(512.0,0.0,0.5);
+	glVertex3f(t_x2,t_y1,tile_z);
 
   	glTexCoord2f(1.0,1.0);
-	glVertex3f(512.0,512.0,0.5);
+	glVertex3f(t_x2,t_y2,tile_z);
 
   	glTexCoord2f(0.0,1.0);
-	glVertex3f(0.0,512.0,0.5);
+	glVertex3f(t_x1,t_y2,tile_z);
   glEnd();
 
 #ifndef DREAMCAST
   SDL_GL_SwapBuffers();
 #else
-    glKosFinishFrame();
+  glKosFinishFrame();
 #endif
+#ifdef SHOW_CONSOLE
   used_blitter=0;
+#endif
 #endif
 }
 

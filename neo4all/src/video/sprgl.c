@@ -46,19 +46,32 @@ static __inline__ void create_tile(unsigned int tileno,int color,unsigned short 
 #ifdef DEBUG_GL
     tiles_fail++;
 #endif
-//    unsigned short *br=_br;
-    unsigned short *br=(unsigned short*)neo4all_texture_buffer;
+#ifndef USE_SQ
+    register unsigned short *br=_br;
+#else
+    register unsigned short *br=(unsigned short*)neo4all_texture_buffer;
+#endif
 //printf("DRAW_TILE %i\n",tileno);
-    unsigned short *paldata=(unsigned short *)&video_paletteram_pc[color<<4];
-    unsigned int *gfxdata = (unsigned int *)&neogeo_spr_memory[tileno<<7];
+    register unsigned short *paldata=(unsigned short *)&video_paletteram_pc[color<<4];
+    register unsigned int *gfxdata = (unsigned int *)&neogeo_spr_memory[tileno<<7];
 
     paldata[0]=0; // BLEND !!!
     draw_tile(br,paldata,gfxdata);
 
 #ifdef DREAMCAST
-    pvr_txr_load(neo4all_texture_buffer,_br,16*16*2);
+#ifdef USE_DMA
+    dcache_flush_range(neo4all_texture_buffer,16*16*2);
+    while (!pvr_dma_ready());
+    pvr_txr_load_dma(neo4all_texture_buffer,_br,16*16*2,-1,NULL,NULL);
 #else
+#ifdef USE_SQ
+    pvr_txr_load(neo4all_texture_buffer,_br,16*16*2);
+#endif
+#endif
+#else
+#ifdef USE_SQ
     memcpy(_br,neo4all_texture_buffer,16*16*2);
+#endif
 #endif
 }
 
@@ -172,7 +185,7 @@ video_draw_tile_textures(void)
 #ifndef DREAMCAST
 	glEnd();
 #endif
-	tile_z+=0.0001;
+	tile_z+=TILE_Z_INC;
    }
 
 #ifdef CACHE_GL_AUTOCLEAN
@@ -191,3 +204,45 @@ video_draw_tile_textures(void)
 #endif
 }
 
+
+video_draw_tile_textures_gl(void)
+{
+   unsigned i;
+   extern GLint screen_texture;
+
+   for(i=0;i<n_tile_list;i++)
+   {
+	register void *texture_buffer=tile_list[i].buffer;
+	register int sx=tile_list[i].sx;
+	register int sy=tile_list[i].sy;
+	register int zx=tile_list[i].zx;
+	register int zy=tile_list[i].zy;
+
+	glBindTexture(GL_TEXTURE_2D, screen_texture); //tile_opengl_tex[i]);
+	loadTextureParams();
+
+#ifndef DREAMCAST
+	glTexImage2D(GL_TEXTURE_2D, 0, 4, 16, 16, 0, 
+		GL_RGBA, GL_UNSIGNED_SHORT_1_5_5_5_REV, texture_buffer);
+#else
+	glKosTex2D(GL_ARGB1555,512,512,texture_buffer);
+#endif
+        glBegin(GL_QUADS);
+	switch(tile_list[i].type)
+	{
+		case 0:
+		   	GL_VERTICE_FLIP_X
+			break;
+		case 1:
+			GL_VERTICE_FLIP_NONE
+			break;
+		case 2:
+			GL_VERTICE_FLIP_XY
+			break;
+		default:
+			GL_VERTICE_FLIP_Y
+	}
+	glEnd();
+	tile_z+=TILE_Z_INC;
+   }
+}

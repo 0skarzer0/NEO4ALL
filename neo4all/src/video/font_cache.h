@@ -5,9 +5,9 @@ extern unsigned neo4all_glframes;
 extern char	video_palette_use[0x200];
 
 #define FCACHE_HASH_SIZE 127
-#define FCACHE_SIZE 512
+#define FCACHE_SIZE 1024
 
-#define FCACHE_BREAKTIME 64
+#define FCACHE_BREAKTIME 16
 
 #define fcache_compEq(a,b) (a == b)
 #define fcache_hash(key) (key % FCACHE_HASH_SIZE)
@@ -137,6 +137,10 @@ static __inline__ fcache_rec_t fcache_hash_insert(unsigned key)
 	p0=fcache_hash_table[bucket];
 	fcache_hash_table[bucket] = p;
 	p->next = p0;
+#ifdef DEBUG_GL
+	if (p->used>=(neo4all_glframes-2))
+		printf("!!!!! FONT USADA EN N-%i\n",neo4all_glframes-(p->used));
+#endif
 	p->used = neo4all_glframes;
 	p->key = key;
 	return p->rec;

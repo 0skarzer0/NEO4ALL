@@ -1,138 +1,32 @@
-TARGET = neo4all
+RM	= rm -f
+
+CDROM_OBJ=src/cdrom/dc.o
+FAME_OBJ=src/68k/fame/fame.o
+FAME_SRC=src/68k/fame/fame.s
+
+include config.mk
+
+OBJS+=romdisk.o
+
+TARGET = $(NAME)
 
 KOS_CFLAGS+= -I$(KOS_BASE)/../kos-ports/include/SDL -I$(KOS_BASE)/../kos-ports/zlib-1.2.1 -I$(KOS_BASE)/../kos-ports/libpng-1.2.5
-
-#KOS_CFLAGS+= -fbranch-probabilities  -funroll-loops -frerun-loop-opt -fstrict-aliasing  -fomit-frame-pointer -fstrength-reduce -fschedule-insns2 -freduce-all-givs -ffunction-sections -fdata-sections -mieee
 
 INLINE='static __inline__'
 
 KOS_CFLAGS+= -DDREAMCAST -DSDL -Isrc -Isrc/68k -Isrc/video -DDATA_PREFIX="/rd/" -DROM_PREFIX="/cd/" -DMEMCARD_PREFIX="/vmu/a1/"
 
-KOS_CFLAGS+=-DUSE_MEMCARD
-
-#KOS_CFLAGS+=-DDEBUG_FRAMESKIP
-#KOS_CFLAGS+=-DDEBUG_GL
-#KOS_CFLAGS+=-DDEBUG_CDROM
-
-#MUSASHI_CORE=1
-FAME_CORE=1
-
-Z80_EMULATED=1
-CZ80_CORE=1
-#MAMEZ80_CORE=1
-
-VIDEOGL=1
-
-ifdef Z80_EMULATED
-KOS_CFLAGS+= -DZ80_EMULATED
-ifdef MAMEZ80_CORE
-KOS_CFLAGS+= -DUSE_MAMEZ80
-else
-ifdef CZ80_CORE
-KOS_CFLAGS+= -DUSE_CZ80
-endif
-endif
-endif
-
-
-ifdef FAME_CORE
-KOS_CFLAGS+=-DUSE_FAME_CORE
-else
-ifdef MUSASHI_CORE
-KOS_CFLAGS+=-DCPU68K_USE_MUSASHI
-else
-KOS_CFLAGS+=-DCPU68K_USE_C68K
-endif
-endif
-
-
-#KOS_CFLAGS+= -DDEBUG_MEMORY
-#KOS_CFLAGS+= -DPROFILER
-#KOS_CFLAGS+= -DPROFILER_TIME=100
-#KOS_CFLAGS+= -DAUTO_FIRE
+KOS_CFLAGS+=$(NEO4ALL_CFLAGS)
 
 
 all: $(TARGET).elf
 
 include $(KOS_BASE)/Makefile.rules
 
-OBJS=	\
-	src/menu/fade.o \
-	src/menu/menu.o \
-	src/menu/menu_main.o \
-	src/cdrom/cdrom.o \
-	src/cdrom/dc.o \
-	src/video/video.o \
-	src/video/draw.o \
-	src/video/console.o \
-	src/cdaudio/cdaudio.o \
-	src/input/input.o \
-	src/sound/sound.o \
-	src/neocd.o \
-	src/memcard.o \
-	src/icon.o \
-	src/pd4990a.o \
-	romdisk.o
-
-
 ifdef VIDEOGL
-KOS_CFLAGS+= -DCACHE_GL_AUTOCLEAN
-OBJS+=	src/video/sprgl.o \
-	src/video/videogl.o \
-	src/video/draw_tile.o \
-	src/video/draw_font.o \
-	src/video/draw_fixgl.o 
-
-LIB_SDL= -lSDL_gl_127 -lgl
-KOS_CFLAGS+= -DUSE_VIDEO_GL
-LDFLAGS+= -lGL
+LIB_SDL= -lSDL_mixer -lSDL_gl_127 -lgl 
 else
-OBJS+=	src/video/spr.o \
-	src/video/draw_fix.o 
-LIB_SDL= -lSDL_127
-endif
-
-
-ifdef Z80_EMULATED
-	ifdef MAMEZ80_CORE
-		Z80_OBJS = src/z80/mamez80/z80.o 
-	else
-		ifdef CZ80_CORE
-			Z80_OBJS = src/z80/cz80/cz80.o
-		else
-			Z80_OBJS = src/z80/mz80/z80.o 
-		endif
-	endif
-	Z80_OBJS+= src/z80/z80intrf.o \
-		src/sound/streams.o \
-		src/sound/2610intf.o \
-		src/sound/ay8910.o \
-		src/sound/fm.o \
-		src/sound/ymdeltat.o \
-		src/sound/timer.o 
-endif
-
-
-
-ifdef FAME_CORE
-OBJS_68K = src/68k/fame/fame.o
-MEMORY_OBJ= src/memory/fame/memory.o
-else
-ifdef MUSASHI_CORE
-OBJS_68K=       \
-	src/68k/c68k/m68kops.o \
-	src/68k/c68k/m68kcpu.o \
-	src/68k/c68k/m68kopac.o \
-	src/68k/c68k/m68kopdm.o \
-	src/68k/c68k/m68kopnz.o \
-	src/68k/c68k/m68kdasm.o
-else
-OBJS_68K=       \
-	src/68k/c68k/c68kexec.o \
-	src/68k/c68k/c68k.o
-endif
-OBJS_68K+= src/68k/c68k/cpu68k.o
-MEMORY_OBJ= src/memory/c68k/memory.o
+LIB_SDL= -lSDL_mixer -lSDL_dma_127
 endif
 
 $(TARGET).elf: $(OBJS) $(Z80_OBJS) $(MEMORY_OBJ) $(OBJS_68K)
@@ -151,11 +45,13 @@ romdisk.img:
 
 
 run: $(TARGET).elf example.iso
-	$(KOS_LOADER) $(TARGET).elf
-#	$(KOS_LOADER) $(TARGET).elf -i example.iso
+#	$(KOS_LOADER) $(TARGET).elf
+	$(KOS_LOADER) $(TARGET).elf -i example.iso
 
 clean:
-	rm -f $(OBJS) src/68k/c68k/cpu68k.o src/z80/z80intrf.o $(MEMORY_OBJ) $(TARGET).elf $(TARGET).bin  romdisk.o romdisk.img data/memcard.bin
+	$(RM) $(OBJS) src/68k/c68k/cpu68k.o src/z80/z80intrf.o $(MEMORY_OBJ) $(TARGET).elf $(TARGET).bin  romdisk.o romdisk.img
+
+
 
 clean-cores:
 	$(RM) $(Z80_OBJS) $(OBJS_68K)

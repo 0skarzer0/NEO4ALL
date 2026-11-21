@@ -1,58 +1,41 @@
-NAME   = neo4all
 O      = o
 RM     = rm -f
 CC     = gcc
+CXX    = g++
 STRIP  = strip
+
+CDROM_OBJ=src/cdrom/win32.o
+FAME_OBJ=src/68k/fame/fame_win.o
+FAME_SRC=src/68k/fame/fame_win.asm
+ASM_TYPE=gnuwin32
+
+include config.mk
 
 PROG   = $(NAME).exe
 
-DEFAULT_CFLAGS = `sdl-config --cflags` -D_REENTRANT -DINLINE="static inline" -DLOWERCASEFILES -DDATA_PREFIX=\"data/\"
+all: $(PROG)
+
+DEFAULT_CFLAGS = -I/usr/local/include `sdl-config --cflags` -D_REENTRANT -DINLINE="static inline" -DLOWERCASEFILES -DDATA_PREFIX=\"data/\" -DROM_PREFIX=\"data/\" -DMEMCARD_PREFIX=\"/tmp/\"
 LDFLAGS        = `sdl-config --libs` -lmingw32 -lmingwex -lSDL_mixer -mwindows
 
-#LDFLAGS+= -lstdc++
 
-MORE_CFLAGS = -O3 -DDATA_PREFIX=\"data/\" -DFILE_SEPARATOR=\"/\" -DAUDIO -DNONET
+MORE_CFLAGS = -O3 -fomit-frame-pointer -fstrict-aliasing -Isrc -Isrc/68k -Isrc/video
 
-MORE_CFLAGS = -O3 -fomit-frame-pointer -fstrict-aliasing -Isrc -Isrc/fame -Isrc/video
-
-CFLAGS  = $(DEFAULT_CFLAGS) $(MORE_CFLAGS)
-
-OBJS =	\
-	src/memory/memory.o \
-	src/cdrom/cdrom.o \
-	src/cdrom/win32.o \
-	src/video/video.o \
-	src/video/draw_fix.o \
-	src/video/console.o \
-	src/cdaudio/cdaudio.o \
-	src/input/input.o \
-	src/sound/sound.o \
-	src/sound/streams.o \
-	src/sound/2610intf.o \
-	src/sound/ay8910.o \
-	src/sound/fm.o \
-	src/sound/ymdeltat.o \
-	src/sound/timer.o \
-	src/neocd.o \
-	src/pd4990a.o 
+CFLAGS  = $(DEFAULT_CFLAGS) $(NEO4ALL_CFLAGS) $(MORE_CFLAGS)
 
 
-ifdef Z80_EMULATED
-Z80_OBJS = \
-	src/z80/z80.o \
-	src/z80/z80intrf.o 
-endif
+$(PROG): $(OBJS) $(Z80_OBJS) $(MEMORY_OBJ) $(OBJS_68K)
+	$(CC) -L/usr/local/lib -L/usr/lib/w32api/ -L/usr/X11R6/lib -lglu32  -lopengl32 -o $(PROG) -lmingw32 $(OBJS) $(OBJS_68K) $(MEMORY_OBJ) $(Z80_OBJS) -lglu32  -lopengl32 -lSDL_static -lGL -lpthread -mwindows -mno-cygwin -luser32 -lgdi32 -lwinmm
 
-FAME=	src/fame/fame-win.o
-
-
-$(PROG): $(OBJS) $(Z80_OBJS)
-	$(CC) -L/usr/local/lib -o $(PROG) -lmingw32 $(OBJS) $(Z80_OBJS) $(FAME) -lSDL_static -lpthread -mwindows -mno-cygwin -luser32 -lgdi32 -lwinmm
 	$(STRIP) $(PROG)
 
 
 run: $(PROG)
-	$(PROG) -window
+	./$(PROG)
 
 clean:
-	$(RM) $(PROG) $(OBJS)
+	$(RM) $(PROG) $(OBJS) src/68k/c68k/cpu68k.o src/z80/z80intrf.o $(MEMORY_OBJ)  stdout.txt stderr.txt
+
+
+clean-cores:
+	$(RM) $(Z80_OBJS) $(OBJS_68K)

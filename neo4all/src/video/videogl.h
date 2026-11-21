@@ -31,13 +31,14 @@ typedef struct TILE_LIST{
 	void *buffer;
 }TILE_LIST;
 
+#define TILE_Z_INIT 1.0
+#define TILE_Z_INC 0.69
+
 extern TILE_LIST tile_list[TCACHE_SIZE+FCACHE_SIZE];
 extern unsigned n_tile_list;
 extern unsigned n_font_list;
 
-#ifndef DREAMCAST
 extern GLint tile_opengl_tex[TCACHE_SIZE+FCACHE_SIZE];
-#endif
 
 
 extern float tile_z;
@@ -64,6 +65,7 @@ extern void *neo4all_texture_real_buffer;
 extern void *neo4all_texture_l2_buffer;
 extern void *neo4all_texture_l2_buffer1;
 extern void *neo4all_texture_l2_buffer2;
+extern void *neo4all_texture_surface;
 extern unsigned tile_l2_ptr;
 extern unsigned neo4all_glframes;
 

@@ -46,7 +46,7 @@ int 			cdda_get_disk_info(void);
 //----------------------------------------------------------------------------
 int	cdda_init(void)
 {
-	
+#ifdef ENABLE_CDDA
 	cdda_min_track = cdda_max_track = 0;
 	cdda_current_track = 0;
 	cdda_playing = 0;
@@ -66,12 +66,16 @@ int	cdda_init(void)
 	}
 
 	cdda_get_disk_info();
-	return	1;
+#else
+	cdda_disabled=1;
+#endif
+	return 0;
 }
 
 //----------------------------------------------------------------------------
 int cdda_get_disk_info(void)
 {
+#ifdef ENABLE_CDDA
     if(cdda_disabled) return 1;
 
     if( CD_INDRIVE(SDL_CDStatus(cdrom)) ) {
@@ -86,22 +90,28 @@ int cdda_get_disk_info(void)
         cdda_disabled=1;
         return 1;
     }
+#endif
+    return 0;
 }
 
 
 //----------------------------------------------------------------------------
 int cdda_play(int track)
 {
+#ifdef ENABLE_CDDA
+//printf("...... cdda_play %i\n",track);
     if(cdda_disabled) return 1;
     
     if(cdda_playing && cdda_current_track==track) return 1;
 
     if( CD_INDRIVE(SDL_CDStatus(cdrom)) ) {
+//printf("-.-.-.-.- SDL_CDPlayTracks %i\n",track-1);
     	SDL_CDPlayTracks(cdrom, track-1, 0, 1, 0);
     	cdda_current_track = track;
     	cdda_loop_counter=0;
     	cdda_track_end=(cdrom->track[track-1].length*60)/CD_FPS;//Length in 1/60s of second
     	cdda_playing = 1;
+        init_autoframeskip();
     	return 1;
     } 
     else
@@ -109,43 +119,54 @@ int cdda_play(int track)
         cdda_disabled = 1;
         return 1;
     }
+#endif
+    return 0;
 }
 
 //----------------------------------------------------------------------------
 void	cdda_pause(void)
 {
+#ifdef ENABLE_CDDA
 	if(cdda_disabled) return;
 	SDL_CDPause(cdrom);
 	cdda_playing = 0;
+#endif
 }
 
 
 void	cdda_stop(void)
 {
+#ifdef ENABLE_CDDA
 	if(cdda_disabled) return;
 	SDL_CDStop(cdrom);
 	cdda_playing = 0;
+#endif
 }
 
 //----------------------------------------------------------------------------
 void	cdda_resume(void)
 {
+#ifdef ENABLE_CDDA
 	if(cdda_disabled || cdda_playing) return;
 	SDL_CDResume(cdrom);	
 	cdda_playing = 1;
+#endif
 }
 
 //----------------------------------------------------------------------------
 void	cdda_shutdown(void)
 {
+#ifdef ENABLE_CDDA
 	if(cdda_disabled) return;
 	SDL_CDStop(cdrom);
 	SDL_CDClose(cdrom);
+#endif
 }
 
 //----------------------------------------------------------------------------
 void	cdda_loop_check(void)
 {
+#ifdef ENABLE_CDDA
 	if(cdda_disabled) return;
 	if (cdda_playing==1) {
 		cdda_loop_counter++;
@@ -156,5 +177,6 @@ void	cdda_loop_check(void)
 				cdda_stop();
 		}
 	}
+#endif
 }
 

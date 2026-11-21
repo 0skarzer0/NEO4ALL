@@ -82,6 +82,16 @@ extern "C" {
 #define C68K_DISABLE    0x10
 #define C68K_FAULTED    0x40
 
+#ifdef WIN32
+typedef unsigned u32;
+typedef unsigned short u16;
+typedef unsigned char u8;
+typedef int s32;
+typedef short s16;
+typedef char s8;
+#define FASTCALL 
+#endif
+
 typedef u32 FASTCALL C68K_READ(const u32 adr);
 typedef void FASTCALL C68K_WRITE(const u32 adr, u32 data);
 

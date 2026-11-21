@@ -46,126 +46,144 @@ int mainMenu_case=-1;
 extern int	neogeo_frameskip;
 extern char	neogeo_region;
 extern int	neogeo_sound_enable;
+extern int	menu_moving;
 
 enum { MAIN_MENU_CASE_REBOOT, MAIN_MENU_CASE_LOAD, MAIN_MENU_CASE_RUN, MAIN_MENU_CASE_RESET, MAIN_MENU_CASE_CANCEL };
+
+#include<dirent.h>
+static int list_files(void)
+{
+	int found=0;
+	DIR *d=opendir("/cd");
+	unsigned i;
+	while(d!=NULL && !found)
+	{
+		struct dirent *actual=readdir(d);
+		if (actual==NULL)
+			break;
+		found++;
+	}
+	closedir(d);
+	return found;
+}
 
 static inline void draw_mainMenu(int c)
 {
 	static int b=0;
-	int bb=(b%6)/3;
+	int bb=(b%9)/3;
 
 	text_draw_background();
 	text_draw_window(40,24,260,200,text_str_title);
 	write_text(6,3,text_str_separator);
 	write_text(6,4,text_str_region);
 	if ((neogeo_region==0)&&((c!=0)||(bb)))
-		write_text_inv(16,4,text_str_jap);
+		write_text_sel(16,4,text_str_jap);
 	else
 		write_text(16,4,text_str_jap);
 	if ((neogeo_region==1)&&((c!=0)||(bb)))
-		write_text_inv(20,4,text_str_usa);
+		write_text_sel(20,4,text_str_usa);
 	else
 		write_text(20,4,text_str_usa);
 	if ((neogeo_region==2)&&((c!=0)||(bb)))
-		write_text_inv(24,4,text_str_eur);
+		write_text_sel(24,4,text_str_eur);
 	else
 		write_text(24,4,text_str_eur);
 	
 	write_text(6,6,text_str_frameskip);
 	if ((neogeo_frameskip==0)&&((c!=1)||(bb)))
-		write_text_inv(16,6,text_str_0);
+		write_text_sel(16,6,text_str_0);
 	else
 		write_text(16,6,text_str_0);
 	if ((neogeo_frameskip==1)&&((c!=1)||(bb)))
-		write_text_inv(18,6,text_str_1);
+		write_text_sel(18,6,text_str_1);
 	else
 		write_text(18,6,text_str_1);
 	if ((neogeo_frameskip==2)&&((c!=1)||(bb)))
-		write_text_inv(20,6,text_str_2);
+		write_text_sel(20,6,text_str_2);
 	else
 		write_text(20,6,text_str_2);
 	if ((neogeo_frameskip==3)&&((c!=1)||(bb)))
-		write_text_inv(22,6,text_str_3);
+		write_text_sel(22,6,text_str_3);
 	else
 		write_text(22,6,text_str_3);
 	if ((neogeo_frameskip==4)&&((c!=1)||(bb)))
-		write_text_inv(24,6,text_str_4);
+		write_text_sel(24,6,text_str_4);
 	else
 		write_text(24,6,text_str_4);
 	if ((neogeo_frameskip==5)&&((c!=1)||(bb)))
-		write_text_inv(26,6,text_str_5);
+		write_text_sel(26,6,text_str_5);
 	else
 		write_text(26,6,text_str_5);
 	if ((neogeo_frameskip==-1)&&((c!=1)||(bb)))
-		write_text_inv(28,6,text_str_auto);
+		write_text_sel(28,6,text_str_auto);
 	else
 		write_text(28,6,text_str_auto);
 
 	write_text(6,8,text_str_sound);
 	if ((neogeo_sound_enable==0)&&((c!=2)||(bb)))
-		write_text_inv(16,8,text_str_off);
+		write_text_sel(16,8,text_str_off);
 	else
 		write_text(16,8,text_str_off);
 	if ((neogeo_sound_enable!=0)&&((c!=2)||(bb)))
-		write_text_inv(22,8,text_str_on);
+		write_text_sel(22,8,text_str_on);
 	else
 		write_text(22,8,text_str_on);
 
 	write_text(6,10,text_str_68k);
 	if ((mainMenu_68k==0)&&((c!=3)||(bb)))
-		write_text_inv(16,10,text_str_under);
+		write_text_sel(16,10,text_str_under);
 	else
 		write_text(16,10,text_str_under);
 	if ((mainMenu_68k==1)&&((c!=3)||(bb)))
-		write_text_inv(22,10,text_str_normal);
+		write_text_sel(22,10,text_str_normal);
 	else
 		write_text(22,10,text_str_normal);
 	if ((mainMenu_68k==2)&&((c!=3)||(bb)))
-		write_text_inv(29,10,text_str_over);
+		write_text_sel(29,10,text_str_over);
 	else
 		write_text(29,10,text_str_over);
 	
 	write_text(6,12,text_str_z80);
 	if ((mainMenu_z80==0)&&((c!=4)||(bb)))
-		write_text_inv(16,12,text_str_under);
+		write_text_sel(16,12,text_str_under);
 	else
 		write_text(16,12,text_str_under);
 	if ((mainMenu_z80==1)&&((c!=4)||(bb)))
-		write_text_inv(22,12,text_str_normal);
+		write_text_sel(22,12,text_str_normal);
 	else
 		write_text(22,12,text_str_normal);
 	if ((mainMenu_z80==2)&&((c!=4)||(bb)))
-		write_text_inv(29,12,text_str_over);
+		write_text_sel(29,12,text_str_over);
 	else
 		write_text(29,12,text_str_over);
 
 	write_text(6,14,text_str_filter);
 	if ((mainMenu_filter==0)&&((c!=5)||(bb)))
-		write_text_inv(16,14,text_str_filter_none);
+		write_text_sel(16,14,text_str_filter_none);
 	else
 		write_text(16,14,text_str_filter_none);
 	if ((mainMenu_filter!=0)&&((c!=5)||(bb)))
-		write_text_inv(22,14,text_str_filter_bilinear);
+		write_text_sel(22,14,text_str_filter_bilinear);
 	else
 		write_text(22,14,text_str_filter_bilinear);
 
 	write_text(6,16,text_str_separator);
 	if ((c==6)&&(bb))
-		write_text_inv(6,17,text_str_reset);
+		write_text_sel(6,17,text_str_reset);
 	else
 		write_text(6,17,text_str_reset);
 	write_text(6,18,text_str_separator);
 
 	write_text(6,20,text_str_separator);
 	if ((c==7)&&(bb))
-		write_text_inv(6,21,text_str_run);
+		write_text_sel(6,21,text_str_run);
 	else
 		write_text(6,21,text_str_run);
 	write_text(6,22,text_str_separator);
 
 	write_text(6,24,text_str_separator);
 	if ((c==8)&&(bb))
-		write_text_inv(6,25,text_str_exit);
+		write_text_sel(6,25,text_str_exit);
 	else
 		write_text(6,25,text_str_exit);
 	write_text(6,26,text_str_separator);
@@ -191,18 +209,22 @@ static inline int key_mainMenu(int *cp)
 		else
 		if (event.type == SDL_KEYDOWN)
 		{
+			sound_play_beep();
 			switch(event.key.keysym.sym)
 			{
 				case SDLK_RIGHT: right=1; break;
 				case SDLK_LEFT: left=1; break;
 				case SDLK_UP: up=1; break;
 				case SDLK_DOWN: down=1; break;
+				case SDLK_RETURN:
 				case SDLK_LCTRL: hit0=1; break;
+				case SDLK_TAB:
+				case SDLK_BACKSPACE:
 				case SDLK_LALT: hit1=1; break;
 			}
 			if (hit1)
 			{
-				mainMenu_case=MAIN_MENU_CASE_CANCEL;
+				mainMenu_case=MAIN_MENU_CASE_RUN;
 				end=1;
 			}
 			else if (up)
@@ -352,15 +374,41 @@ static inline void unraise_mainMenu()
 	text_flip();
 }
 
-static inline void drawNoRun(void)
+void drawNoCD(void)
 {
 	int i;
-	
-	for(i=0;i<20;i++)
+	sound_play_error();
+	for(i=0;i<200;i++)
 	{
 		text_draw_background();
-		text_draw_window(64,120,160,32,"--- ERROR ---");
-		write_text(9,16,"Game not running");
+		text_draw_window(64,60,160,32,"--- ERROR ---");
+		write_text(9,8,"No disk in drive");
+		text_flip();
+	}
+}
+
+void drawNoNeoGeoCD(void)
+{
+	int i;
+	sound_play_error();
+	for(i=0;i<200;i++)
+	{
+		text_draw_background();
+		text_draw_window(64,60,160,32,"--- ERROR ---");
+		write_text(9,8,"No NeoGeo/CD disk");
+		text_flip();
+	}
+}
+
+void drawNoBIOS(void)
+{
+	int i;
+	sound_play_error();
+	for(i=0;i<400;i++)
+	{
+		text_draw_background();
+		text_draw_window(48,60,224,32,"--- FATAL ERROR ---");
+		write_text(8,8,"Could not load NEOCD.BIN");
 		text_flip();
 	}
 }
@@ -396,20 +444,24 @@ void drawNoRom(void)
 
 int run_mainMenu()
 {
-	int end,c=0;
+	static int c=7;
+	int end;
 	mainMenu_case=-1;
 #ifdef DREAMCAST
 	__sdl_dc_wait_vblank=0;
 #endif
+	sound_play_menu();
 	while(mainMenu_case<0)
 	{
 		raise_mainMenu();
+		menu_moving=1;
 		end=0;
 		while(!end)
 		{
 			draw_mainMenu(c);
 			end=key_mainMenu(&c);
 		}
+		menu_moving=0;
 		unraise_mainMenu();
 		switch(mainMenu_case)
 		{
@@ -418,26 +470,48 @@ int run_mainMenu()
 				mainMenu_case=-1;
 				break;
 			case MAIN_MENU_CASE_RUN:
+#ifdef DREAMCAST
+				if (!list_files())
+				{
+					SDL_Delay(1500);
+					if (!list_files())
+					{
+						mainMenu_case=-1;
+						drawNoCD();
+						break;
+					}
+				}
+#endif
 				mainMenu_case=1;
 				neogeo_adjust_frameskip(neogeo_frameskip);
 				neogeo_adjust_cycles(mainMenu_68k, mainMenu_z80);
 				break;
 			case MAIN_MENU_CASE_RESET:
+#ifdef DREAMCAST
+				if (!list_files())
+				{
+					SDL_Delay(1500);
+					if (!list_files())
+					{
+						mainMenu_case=-1;
+						drawNoCD();
+						break;
+					}
+				}
+#endif
+				neogeo_adjust_frameskip(neogeo_frameskip);
+				neogeo_adjust_cycles(mainMenu_68k, mainMenu_z80);
 				if (neogeo_emulating)
-				{
-					neogeo_adjust_frameskip(neogeo_frameskip);
-					neogeo_adjust_cycles(mainMenu_68k, mainMenu_z80);
 					mainMenu_case=2;
-				}
 				else
-				{
-					drawNoRun();
-					mainMenu_case=-1;
-				}
+					mainMenu_case=1;
 				break;
 			case MAIN_MENU_CASE_REBOOT:
+				sound_play_bye();
+				menu_unraise();
+				SDL_Delay(333);
 				SDL_Quit();
-#ifdef DREAMCAST
+#if defined(DREAMCAST) && defined(REBOOT_DREAMCAST)
 				arch_reboot();
 #else
 				exit(0);
@@ -448,9 +522,11 @@ int run_mainMenu()
 		}
 	}
 
+/*
 	text_draw_window(96,64,140,32,"-------");
 	write_text(14,9,"Please wait");
 	text_flip();
+*/
 
 #ifdef DREAMCAST
 //	__sdl_dc_wait_vblank=mainMenu_vsync;

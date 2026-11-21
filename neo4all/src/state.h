@@ -52,6 +52,7 @@ typedef struct M68K_STATE {
     Uint8  ram[0x10000];
 }M68K_STATE;
 
+#ifdef Z80_EMULATED
 typedef struct Z80_STATE {
     Uint16 PC,SP,AF,BC,DE,HL,IX,IY;
     Uint16 AF2,BC2,DE2,HL2;
@@ -60,6 +61,7 @@ typedef struct Z80_STATE {
     Uint16 bank[4];
     Uint8  ram[0x800];
 }Z80_STATE;
+#endif
 
 typedef struct YM2610_STATE {
 }YM2610_STATE;
