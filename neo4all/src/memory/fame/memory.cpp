@@ -16,7 +16,7 @@
 
 #include "fame/fame.h"
 
-#ifdef DREAMCAST
+#if defined(DREAMCAST) || defined(USE_FAME_C_CORE)
 #define M68KCONTEXT m68kcontext
 #else
 #define M68KCONTEXT _m68kcontext
@@ -508,8 +508,8 @@ void initialize_memmap(void) {
 	memset(&neogeo_context,0,sizeof(struct M68K_CONTEXT));
 #ifndef AES
 	memset(&neogeo_fpa,0,sizeof(unsigned)*256);
-	neogeo_fpa[0x10]=(unsigned)&neogeo_chk_handler_10;
-	neogeo_fpa[0x2c]=(unsigned)&neogeo_chk_handler_10;
+	neogeo_fpa[0x10 / 4]=(unsigned)&neogeo_chk_handler_10;
+	neogeo_fpa[0x2c / 4]=(unsigned)&neogeo_chk_handler_10;
 	neogeo_context.icust_handler = (unsigned int *)&neogeo_fpa;
 #endif
 	init_context();
@@ -595,7 +595,8 @@ unsigned int m68k_read_memory_8(unsigned int offset) {
         case    0x32:    ret=cpu_coin_read(offset); break;
         case    0x34:    ret=read_player2(); break;
         case    0x38:    ret=read_pl12_startsel(); break;
-        case    0x80:    if(offset&0x01) ret=neogeo_memorycard[(offset&0x3fff)>>1];
+        case    0x80:
+			 if(offset&0x01) ret=neogeo_memorycard[(offset&0x3fff)>>1];
                          else ret=(unsigned char)-1; break;
 
         /* BIOS ROM */
@@ -652,7 +653,8 @@ unsigned int  m68k_read_memory_16(unsigned int offset) {
     {
         case    0x3c:    ret=cpu_vidreg_read_16(offset); break;
         case    0x40:    ret=video_paletteram_ng[offset&0x1fff]; break;
-        case    0x80:    ret=0xff00|neogeo_memorycard[(offset&0x3fff)>>1]; break;
+        case    0x80:
+			 ret=0xff00|neogeo_memorycard[(offset&0x3fff)>>1]; break;
 
         /* BIOS ROM */
         case    0xc0:
@@ -1249,9 +1251,9 @@ void neogeo_sound_irq(int irq)
    if (neogeo_sound_enable)
    {
     if (irq) 
-        _z80raise(0);
-     else 
-	_z80lower();
+    {   _z80raise(0); }
+    else 
+    {   _z80lower(); }
    }
 #endif
 }

@@ -15,7 +15,11 @@ void show_icon(void)
 	SDL_Surface *icon;
 
 	//set window title
+#ifdef AES
+	SDL_WM_SetCaption("AES4ALL","AES4ALL");
+#else
 	SDL_WM_SetCaption("NEO4ALL","NEO4ALL");
+#endif
 
 	//Hide Mouse Pointer
 	SDL_ShowCursor(SDL_DISABLE);

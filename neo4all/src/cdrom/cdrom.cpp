@@ -35,6 +35,7 @@
 #define PRG     "prg"
 #define FIX     "fix"
 #define SPR      "spr"
+#define OBJ	"obj"
 #define Z80      "z80"
 #define PAT      "pat"
 #define PCM      "pcm"
@@ -48,6 +49,7 @@
 #define PRG     "PRG"
 #define FIX     "FIX"
 #define SPR      "SPR"
+#define OBJ	"OBJ"
 #define Z80      "Z80"
 #define PAT      "PAT"
 #define PCM      "PCM"
@@ -573,7 +575,7 @@ int    recon_filetype(char *ext)
     if (strcmp(ext, FIX)==0)
         return FIX_TYPE;
     
-    if (strcmp(ext, SPR)==0)
+    if ((strcmp(ext, SPR)==0)||(strcmp(ext, OBJ)==0))
         return SPR_TYPE;
         
     if (strcmp(ext, Z80)==0)
@@ -951,7 +953,11 @@ puts("neogeo_upload: SPR");fflush(stdout);
         
         do {
             memset(neogeo_cdrom_buffer, 0, BUFFER_SIZE);
+#ifdef WIN32
+            swab((const char *)Source, (char *)neogeo_cdrom_buffer, min(BUFFER_SIZE, Taille));
+#else
             swab(Source, neogeo_cdrom_buffer, min(BUFFER_SIZE, Taille));
+#endif
             spr_conv((unsigned char *)neogeo_cdrom_buffer, (unsigned char *)Dest, min(BUFFER_SIZE, Taille), 
                 (unsigned char *)(video_spr_usage+(Offset>>7)));
             Source += min(BUFFER_SIZE, Taille);
@@ -990,7 +996,11 @@ puts("neogeo_upload: FIX");fflush(stdout);
 
         do {
             memset(neogeo_cdrom_buffer, 0, BUFFER_SIZE);
+#ifdef WIN32
+            swab((const char *)Source, (char *)neogeo_cdrom_buffer, min(BUFFER_SIZE, Taille));
+#else
             swab(Source, neogeo_cdrom_buffer, min(BUFFER_SIZE, Taille));
+#endif
             fix_conv((unsigned char *)neogeo_cdrom_buffer, Dest, min(BUFFER_SIZE, Taille), 
                 (unsigned char *)(video_fix_usage + (Offset>>5)));
             Source += min(BUFFER_SIZE, Taille);
@@ -1017,8 +1027,12 @@ puts("neogeo_upload: Z80");fflush(stdout);
         Source = (unsigned char *)(neogeo_prg_memory + m68k_read_memory_32(0x10FEF8));
         Dest = subcpu_memspace + (m68k_read_memory_32(0x10FEF4)>>1);
         Taille = m68k_read_memory_32(0x10FEFC);
-        
+       
+#ifdef WIN32	
+        swab( (const char *)Source, (char *)Dest, Taille);
+#else
         swab( Source, Dest, Taille);
+#endif
 	memcpy(mame_z80mem+(Dest-subcpu_memspace), Dest, Taille);
 
         m68k_write_memory_32( 0x10FEF4, m68k_read_memory_32(0x10FEF4) + (Taille<<1) );
@@ -1044,8 +1058,12 @@ puts("neogeo_upload: PCM");fflush(stdout);
         Offset = (m68k_read_memory_32(0x10FEF4)>>1) + (Banque<<19);
         Dest = (unsigned char *)(neogeo_pcm_memory + Offset);
         Taille = m68k_read_memory_32(0x10FEFC);
-        
+       
+#ifdef WIN32	
+        swab( (const char *)Source, (char *)Dest, Taille);        
+#else
         swab( Source, Dest, Taille);        
+#endif
         
         // Mise à jour des valeurs
         Offset = m68k_read_memory_32( 0x10FEF4 );

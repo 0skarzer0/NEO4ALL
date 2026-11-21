@@ -1,13 +1,15 @@
 #ifdef DREAMCAST
 #include <kos.h>
-#ifndef AES
+#if !defined(AES) && defined(SHOW_MENU)
 extern uint8 romdisk[];
 #endif
 KOS_INIT_FLAGS(INIT_DEFAULT);
-#ifndef AES
+#if !defined(AES) && defined(SHOW_MENU)
 KOS_INIT_ROMDISK(romdisk);
 #else
+#ifdef AES
 #include "mmu_file/mmu_file.h"
+#endif
 #endif
 #endif
 
@@ -40,17 +42,23 @@ static double neo4all_framerate=0.0;
 
 #ifdef AES
 #include "aes/aes.h"
+#else
+#include "cdpatch.h"
 #endif
 
-#ifndef BEGINTRACE
-#define BEGINTRACE 0
-#endif
-#ifndef TOTRACE
-#define TOTRACE 0 
-#endif
-// #define KTOTRACE 0
-#define CPU_BLOQUE 20000
+#ifdef AUTO_EVENTS
+#if AUTO_EVENTS == 0
+int trazando=1;
+#else
 int trazando=0;
+#endif
+#else
+#if defined(DEBUG_Z80) || defined(DEBUG_FAME)
+int trazando=1; // 0;
+#endif
+#endif
+
+
 int neogeo_emulating=0;
 int neogeo_yet_running=0;
 #if defined(AUTO_EVENTS) || defined(AES_PREFETCHING)
@@ -59,11 +67,14 @@ int	neogeo_frameskip=0;
 int	neogeo_frameskip=-1;
 #endif
 
+/*
 #ifdef AUTO_EVENTS
 int	neogeo_sound_enable=0;
 #else
 int	neogeo_sound_enable=1;
 #endif
+*/
+int	neogeo_sound_enable=1;
 
 
 
@@ -228,7 +239,6 @@ void init_autoframeskip(void)
 #endif
 }
 
-static unsigned char startup_bin[3328];
 
 static void ram_startup(void)
 {
@@ -244,19 +254,13 @@ static void ram_startup(void)
 	if (!passed)
 	{
 		passed++;
-		// Load startup RAM
-		FILE *fp = fopen(DATA_PREFIX "startup.bin", "rb");
-		if (fp==NULL) {
-			console_println();
-			console_printf("Fatal Error: Could not load STARTUP.BIN\n");
-			console_wait();
-			exit(0);
-		}
-		fread((void *)&startup_bin,1,3328,fp);
-		fclose(fp);
-		swab(startup_bin, startup_bin, 3328);
+#ifdef WIN32
+		swab((const char*)startup_data, (char*)startup_data, STARTUP_DATA_LEN);
+#else
+		swab(startup_data, startup_data, STARTUP_DATA_LEN);
+#endif
 	}
-	memcpy(neogeo_prg_memory + 0x10F300, (void *)&startup_bin, 3328);
+	memcpy(neogeo_prg_memory + 0x10F300, (void *)&startup_data, STARTUP_DATA_LEN);
 #endif
 #if defined(Z80_EMULATED) && !defined(AES)
 	bzero(mame_z80mem, 0x10000);
@@ -371,7 +375,7 @@ int neo4all_load_bios(void)
 #else
 // NEOGEO CD
 	// Load BIOS
-	FILE *fp = fopen(ROM_PREFIX "neocd.bin", "rb");
+	FILE *fp = fopen(ROM_PREFIX "/neocd.bin", "rb");
 	if (fp==NULL) {
 #ifdef SHOW_CONSOLE
 		console_println();
@@ -454,7 +458,6 @@ static void profiler_init(void)
 //----------------------------------------------------------------------------
 int	main(int argc, char* argv[])
 {
-
 #ifdef AES
 #ifdef DREAMCAST
 	mmu_file_init();
@@ -462,7 +465,7 @@ int	main(int argc, char* argv[])
 	aes4all_prealloc=malloc(AES4ALL_TOTAL_MEMORY+0x20000);
 #endif
 #ifndef AES_PREFETCHING
-	aes4all_prefetch_bufffer=(unsigned *)malloc(4*65537);
+	aes4all_prefetch_bufffer=(unsigned *)malloc(4*32768);
 #endif
 #endif
 
@@ -491,10 +494,6 @@ int	main(int argc, char* argv[])
 #ifndef AES
 	if (!neo4all_init_memory())
 		return -3;
-
-	if (!neo4all_load_bios())
-		return -4;
-
 #endif
 
 	input_init();
@@ -507,6 +506,11 @@ int	main(int argc, char* argv[])
 #endif
 
 	init_text(1);
+
+#ifndef AES
+	if (!neo4all_load_bios())
+		return -4;
+#endif
 
 #ifdef SHOW_MENU
 	do{
@@ -531,7 +535,6 @@ int	main(int argc, char* argv[])
 	_z80_init();
 #endif
 #endif
-
 
 	console_pag();
 	console_println();
@@ -563,6 +566,10 @@ int	neogeo_hreset(void)
 {
 	static int num_resets=0;
 
+#if defined(DEBUG_Z80) || defined(DEBUG_FAME)
+	if (num_resets) trazando=1;
+#endif
+
 	neogeo_emulating=0;
 	console_pag();
 	console_println();
@@ -573,7 +580,9 @@ int	neogeo_hreset(void)
 	video_reset();
 	input_reset();
 #ifdef Z80_EMULATED
+	_z80_init();
 	_z80reset();
+	streams_sh_stop();
 	YM2610_sh_reset();
 	AY8910_reset();
 #ifndef AES
@@ -632,15 +641,7 @@ int	neogeo_hreset(void)
 	{
 		strcpy((char *)config_game_name, "SAMURAI SPIRITS RPG");
 		
-		fp = fopen(DATA_PREFIX "patch.prg", "rb");
-		if (fp == NULL) {
-			console_printf("Fatal Error: Couldnt open patch.prg.\n");
-			SDL_Delay(1000);
-			exit(1);
-		}
-		
-		fread(neogeo_prg_memory + 0x132000, 1, 112, fp);
-		fclose(fp);
+		memcpy(neogeo_prg_memory + 0x132000, patch_data, PATCH_DATA_LEN);
 		swab(neogeo_prg_memory + 0x132000, neogeo_prg_memory + 0x132000, 112);
 	
 	}
@@ -689,7 +690,9 @@ int	neogeo_hreset(void)
 #endif
 	memcpy(neogeo_game_vector,neogeo_prg_memory,0x80);
 #ifdef Z80_EMULATED
+	_z80_init();
 	_z80reset();
+//	streams_sh_start();
 #ifndef AES
 	_z80exec(100000);
 #endif
@@ -699,8 +702,10 @@ int	neogeo_hreset(void)
 //	neogeo_irq2start=0; neogeo_irq2repeat=1000; neogeo_irq2taken=0, neogeo_irq2control=0;
 	neogeo_frame_counter=0; neogeo_frame_counter_speed=4; neogeo_frame_counter_fc=0;
 	neogeo_current_line=0;
+#ifdef SHOW_MENU
 	if (!num_resets)
         	menu_unraise();
+#endif
 	sound_unmute();
 	init_autoframeskip();
         z80_cycles_inited=0;
@@ -823,6 +828,7 @@ void neogeo_adjust_frameskip(int new_frameskip)
 	init_autoframeskip();
 }
 
+#ifdef SHOW_MENU
 void neogeo_adjust_cycles(int new_68k, int new_z80)
 {
 	switch(new_68k)
@@ -849,6 +855,33 @@ void neogeo_adjust_cycles(int new_68k, int new_z80)
 	}
 	adjust_timer(neo4all_z80_cycles);
 }
+
+#else
+
+static char *_autodir_="CHANGE IT:" ROM_PREFIX  "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0";
+
+char *autodir=(char *)&_autodir_[10];
+
+void neogeo_adjust_fine_cycles(int new_68k, int new_z80)
+{
+	if (new_68k<(NEO4ALL_68K_UNDER_CYCLES/2))
+		new_68k=(NEO4ALL_68K_UNDER_CYCLES/2);
+	else
+	if (new_68k>(NEO4ALL_68K_OVER_CYCLES*2))
+		new_68k=(NEO4ALL_68K_OVER_CYCLES*2);
+
+	if (new_z80<(NEO4ALL_Z80_UNDER_CYCLES/2))
+		new_z80=(NEO4ALL_Z80_UNDER_CYCLES/2);
+	else
+	if (new_z80>(NEO4ALL_Z80_OVER_CYCLES*2))
+		new_z80=(NEO4ALL_Z80_OVER_CYCLES*2);
+
+	neo4all_68k_cycles=new_68k;
+	neo4all_z80_cycles=new_z80;
+
+	adjust_timer(neo4all_z80_cycles);
+}
+#endif
 
 
 //----------------------------------------------------------------------------
@@ -1048,7 +1081,7 @@ void	neogeo_run(void)
 				if ((ahora-(REFRESHTIME/4))>neo4all_time)
 				{
 					cuantos++;
-					if (cuantos>5)
+					if (cuantos>2) //5)
 					{
 						neo4all_time=ahora+2;
 						neo4all_skip_next_frame=0;
@@ -1255,7 +1288,11 @@ void neogeo_read_gamename(void)
 	int				temp;
 
 	Ptr = (unsigned char *)(neogeo_prg_memory + m68k_read_memory_32(0x11A));
+#ifdef WIN32
+	swab((const char *)Ptr, (char *)config_game_name, 80);
+#else
 	swab(Ptr, config_game_name, 80);
+#endif
 
 	for(temp=0;temp<80;temp++) {
 		if (!isprint(config_game_name[temp])) {

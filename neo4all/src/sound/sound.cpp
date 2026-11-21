@@ -29,20 +29,9 @@ static unsigned char sound_muted=0x3;
 
 #include "sound.h"
 
-#define MIXER_MAX_CHANNELS 16
 #define MUSIC_VOLUME 96
-#define BUFFER_LEN 16384
-extern Uint16 play_buffer[BUFFER_LEN];
 
-#ifdef WIN32
-#define NB_SAMPLES 2048 /* secure resolution */
-#else
-#ifdef DREAMCAST
-#define NB_SAMPLES 512  /* better resolution */
-#else
 #define NB_SAMPLES 1024 /* normal resolution */
-#endif
-#endif
 
 #ifdef AES
 #define MUSIC_MOD "aes.mod"
@@ -85,6 +74,7 @@ unsigned sound_emulating=0;
 
 void update_sdl_stream(void *userdata, Uint8 * stream, int len)
 {
+    extern Uint16 play_buffer[];
 #ifdef Z80_EMULATED
     if ((!sound_muted)&&(neogeo_sound_enable)&&(neogeo_emulating))
     {

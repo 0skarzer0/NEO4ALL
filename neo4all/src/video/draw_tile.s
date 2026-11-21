@@ -59,8 +59,8 @@ mloop:
 	shld r7,r0
 	and #0x0F,r0
 	shll r0
-	mov.w @(r0,r5),r2
 	add #4,r7
+	mov.w @(r0,r5),r2
 	mov r3,r0
 	shld r7,r0
 	and #0x0F,r0

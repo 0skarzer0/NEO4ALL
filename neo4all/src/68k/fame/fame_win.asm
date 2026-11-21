@@ -1,8 +1,8 @@
 ; --------------------------------------------------
 ; Fast and Accurate Motorola 68000 Emulation Library
-; FAME x86 version 1.21 (19/02/2005)
+; FAME x86 version 2.0 (11-01-2006)
 ; Oscar Orallo Pelaez
-; Assembly file generated on Mar 19 2005 00:34:11
+; Assembly file generated on Mar  2 2006 01:16:52
 ; --------------------------------------------------
 ; Opciones de generacion empleadas:
 ; - Formato de generacion ELF (Linux)
@@ -10,15 +10,20 @@
 ; - Optimizacion de velocidad (codigo en linea)
 ; - Bus de direcciones de 24 bits
 ; - Emulacion de lecturas tontas (OFF)
-; - Emulacion de comportamiento no documentado (ON)
-; - Espacio de memoria multiple (usuario y supervisor)
-; - Emulacion de excepciones del grupo 0 (ON)
+; - Emulacion de comportamiento no documentado (OFF)
+; - Espacio de memoria unico (supervisor)
+; - Emulacion de excepciones del grupo 0 (OFF)
 ; - Prefijo del nombre de las funciones: _m68k
-; - Realizar calculo preciso de ciclos de reloj (OFF)
+; - Realizar calculo preciso de ciclos de reloj (ON)
+; - Cachear descriptores de mapas de memoria (ON)
+; - Realizar cuenta interna de ciclos de reloj (OFF)
+; - Emular bit 0 de execinfo (ON)
+; - Emular excepcion de traza (OFF)
+; - Contar ciclos de generacion de las IRQs (OFF)
 ; --------------------------------------------------
-
 section .data
 global __m68kcontext
+global __io_cycle_counter
 times ($$-$)&7 db 0
 __m68kcontext:
 contextbegin:
@@ -54,23 +59,18 @@ contextend:
 __cycles_needed        dd 0
 __fetch_bank           dw 0
 __xflag                db 0
-__g0_spec_info     db 0
+__filler           db 0
 __io_cycle_counter     dd -1
 __io_fetchbase         dd 0
 __io_fetchbased_pc     dd 0
 __access_address       dd 0
 __tmp_int_level        dd 0
-__pending_int_level    db 0
-__filler2              db 0,0,0
 __fetch_vector         dd __sfmhtbl, __srwmhtbl, __ufmhtbl, __urwmhtbl
 __fetch_idx            dd 0
 __readbyte_idx         dd 0
 __readword_idx         dd 0
 __writebyte_idx        dd 0
 __writeword_idx        dd 0
-__excep_ptr        dd 0
-__inst_reg         dw 0
-__filler3          dw 0
 __cb_table       db 0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,1,2,2,3,2,3,3,4,2,3,3,4,3,4,4,5,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,2,3,3,4,3,4,4,5,3,4,4,5,4,5,5,6,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,3,4,4,5,4,5,5,6,4,5,5,6,5,6,6,7,4,5,5,6,5,6,6,7,5,6,6,7,6,7,7,8
 section .text
 bits 32
@@ -102,11 +102,6 @@ xor eax,eax
 ret
 global _m68k_emulate
 _m68k_emulate:
-test byte[__execinfo],4
-jz short .cpuok
-or eax,-1
-ret
-.cpuok:
 mov eax,[esp+4]
 test byte[__execinfo],80h
 jz short .notstopped
@@ -118,7 +113,6 @@ push ebp
 push ebx
 push esi
 push edi
-mov [__excep_ptr],esp
 mov [__cycles_needed],eax
 lea edi,[eax-1]
 xor ebx,ebx
@@ -132,29 +126,17 @@ adc ah,ah
 or byte[__execinfo],1
 call basefunction
 add esi,ebp
-test byte[__execinfo],18
+test byte[__execinfo],2
+jnz near exec_bounderror
 jnz short execloop
-test byte[__sr+1],80h
-jz short int_check
-trace_excep:
-or byte[__execinfo],16
-mov edx,24h
-call group_1_exception
-and esi,16777215
-mov ecx,esi
-shr ecx,12
-cmp cx,word[__fetch_bank]
-je short ln0
-call basefunction
-ln0:
-add esi,ebp
-sub edi,byte 34
-js short execexit
-jmp short execloop
 int_check:
+movsx cx,byte [__interrupts]
+or cl,1
+bsr cx,cx
+mov ch,cl
 mov cl,[__sr+1]
 and cl,7
-cmp byte[__pending_int_level],cl
+cmp ch,cl
 ja flush_int
 execloop:
 mov bx,[esi]
@@ -164,9 +146,11 @@ flush_int:
 call flush_interrupts
 call basefunction
 add esi,ebp
-sub edi,byte 44
-jns short execloop
+jmp short execloop
+xor ecx,ecx
 execexit:
+xor ecx,ecx
+cont_execexit:
 sub esi,ebp
 btr ax,8
 adc al,al
@@ -179,15 +163,18 @@ mov [__pc],esi
 inc edi
 mov edx,[__cycles_needed]
 sub edx,edi
-xor eax,eax
+mov eax,ecx
 add [__cycles_counter],edx
 and byte[__execinfo],0FEh
-mov dword[__cycles_needed],eax
+mov dword[__cycles_needed],0
 pop edi
 pop esi
 pop ebx
 pop ebp
 ret
+exec_bounderror:
+or ecx,-1
+jmp execexit
 global _m68k_reset
 _m68k_reset:
 xor eax,eax
@@ -274,10 +261,6 @@ and byte[__execinfo],7Fh
 or byte[__execinfo],cl
 .notstopped:
 pop edx
-movsx cx,byte [__interrupts]
-or cl,1
-bsr cx,cx
-mov byte[__pending_int_level],cl
 xor eax,eax
 ret
 .badinput:
@@ -302,10 +285,6 @@ test [__interrupts],ah
 jz short .failstat
 not ah
 and [__interrupts],ah
-movsx cx,byte [__interrupts]
-or cl,1
-bsr cx,cx
-mov byte[__pending_int_level],cl
 xor eax,eax
 ret
 .failstat:
@@ -606,10 +585,6 @@ jmp short .begincmm9
 .endcmm9:
 pop edi
 pop esi
-movsx cx,byte [__interrupts]
-or cl,1
-bsr cx,cx
-mov byte[__pending_int_level],cl
 xor eax,eax
 ret
 global _m68k_get_register
@@ -777,49 +752,22 @@ mov ax,[__execinfo]
 ret
 times ($$-$)&15 db 0
 basefunction:
-test si,1
-jz short .access_ok
-mov esp,[__excep_ptr]
-xor ebx,ebx
-mov word[__inst_reg],bx
-test byte[__sr+1],20h
-setz bl
-inc bl
-shl bl,2
-or bl,10h
-add bl,2
-and bl,0F7h
-mov byte[__g0_spec_info],bl
-mov ebx,esi
-or byte[__execinfo],40h
-mov edx,0Ch
-jmp group_0_exception
-.access_ok:
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 mov ebp,[__fetch_idx]
 mov [__fetch_bank],cx
 mov ecx,[ebp+ecx*4]
-jecxz .outofrange
+test ecx,ecx
+jz short .outofrange
 mov ebp,[ecx+8]
 ret
 .outofrange:
-mov esp,[__excep_ptr]
-xor ebx,ebx
-mov word[__inst_reg],bx
-test byte[__sr+1],20h
-setz bl
-inc bl
-shl bl,2
-or bl,10h
-add bl,2
-and bl,0F7h
-mov byte[__g0_spec_info],bl
-mov ebx,esi
-or byte[__execinfo],20h
-mov edx,8h
-jmp group_0_exception
+xor ebp,ebp
+sub edi,[__cycles_needed]
+mov dword[__cycles_needed],0
+or byte[__execinfo],2
+ret
 times ($$-$)&15 db 0
 decode_ext:
 push eax
@@ -844,7 +792,8 @@ mov ecx,[__readbyte_idx]
 mov ecx,[ecx+edx*4]
 mov edx,[__access_address]
 and edx,16777215
-jecxz readb_outofrange
+test ecx,ecx
+jz readb_outofrange
 test dword[ecx+8],0FFFFFFFFh
 jnz short readb_callio
 add edx,[ecx+12]
@@ -870,43 +819,11 @@ mov esi,[__io_fetchbased_pc]
 mov edx,[__access_address]
 ret
 readb_outofrange:
-mov esp,[__excep_ptr]
-mov ecx,[esi-2]
-mov [__inst_reg],ecx
-xor ebx,ebx
-test byte[__sr+1],20h
-setz bl
-inc bl
-shl bl,2
-or bl,10h
-inc bl
-and bl,0F7h
-mov byte[__g0_spec_info],bl
-mov ebx,edx
-or byte[__execinfo],20h
-mov edx,8h
-jmp group_0_exception
+or ecx,byte -1
+mov edx,[__access_address]
+ret
 times ($$-$)&15 db 0
 readmemoryword:
-test dl,1
-jz short .access_ok
-mov esp,[__excep_ptr]
-mov ecx,[esi-2]
-mov [__inst_reg],ecx
-xor ebx,ebx
-test byte[__sr+1],20h
-setz bl
-inc bl
-shl bl,2
-or bl,10h
-inc bl
-and bl,0F7h
-mov byte[__g0_spec_info],bl
-mov ebx,edx
-or byte[__execinfo],40h
-mov edx,0Ch
-jmp group_0_exception
-.access_ok:
 mov [__access_address],edx
 and edx,16777215
 shr edx,12
@@ -914,7 +831,8 @@ mov ecx,[__readword_idx]
 mov ecx,[ecx+edx*4]
 mov edx,[__access_address]
 and edx,16777215
-jecxz readw_outofrange
+test ecx,ecx
+jz readw_outofrange
 test dword[ecx+8],0FFFFFFFFh
 jnz short readw_callio
 add edx,[ecx+12]
@@ -939,43 +857,11 @@ mov esi,[__io_fetchbased_pc]
 mov edx,[__access_address]
 ret
 readw_outofrange:
-mov esp,[__excep_ptr]
-mov ecx,[esi-2]
-mov [__inst_reg],ecx
-xor ebx,ebx
-test byte[__sr+1],20h
-setz bl
-inc bl
-shl bl,2
-or bl,10h
-inc bl
-and bl,0F7h
-mov byte[__g0_spec_info],bl
-mov ebx,edx
-or byte[__execinfo],20h
-mov edx,8h
-jmp group_0_exception
+or ecx,byte -1
+mov edx,[__access_address]
+ret
 times ($$-$)&15 db 0
 readmemorydword:
-test dl,1
-jz short .access_ok
-mov esp,[__excep_ptr]
-mov ecx,[esi-2]
-mov [__inst_reg],ecx
-xor ebx,ebx
-test byte[__sr+1],20h
-setz bl
-inc bl
-shl bl,2
-or bl,10h
-inc bl
-and bl,0F7h
-mov byte[__g0_spec_info],bl
-mov ebx,edx
-or byte[__execinfo],40h
-mov edx,0Ch
-jmp group_0_exception
-.access_ok:
 mov [__access_address],edx
 and edx,16777215
 shr edx,12
@@ -984,23 +870,7 @@ mov ecx,[ecx+edx*4]
 mov edx,[__access_address]
 and edx,16777215
 test ecx,ecx
-jnz short readl_call
-mov esp,[__excep_ptr]
-mov ecx,[esi-2]
-mov [__inst_reg],ecx
-xor ebx,ebx
-test byte[__sr+1],20h
-setz bl
-inc bl
-shl bl,2
-or bl,10h
-inc bl
-and bl,0F7h
-mov byte[__g0_spec_info],bl
-mov ebx,edx
-or byte[__execinfo],20h
-mov edx,8h
-jmp group_0_exception
+jz readw_outofrange
 readl_call:
 test dword[ecx+8],0FFFFFFFFh
 jnz short readl_callio
@@ -1012,10 +882,37 @@ mov ecx,[edx-2]
 rol ecx,16
 mov edx,[__access_address]
 ret
+readl_split:
+add edx,[ecx+12]
+mov cx,[edx-2]
+shl ecx,16
+push ecx
+mov edx,[__access_address]
+add edx,byte 2
+and edx,16777215
+push edx
+shr edx,12
+mov ecx,[__readword_idx]
+mov ecx,[ecx+edx*4]
+test ecx,ecx
+jz readw_outofrange
+test dword[ecx+8],0FFFFFFFFh
+jnz short readlower_callio
+pop edx
+add edx,[ecx+12]
+xor ecx,ecx
+mov cx,[edx]
+pop edx
+or ecx,edx
+mov edx,[__access_address]
+ret
+readlower_callio:
+mov edx,[__access_address]
+ret
 readl_callio:
 add edx,byte 2
 cmp edx,[ecx+4]
-ja near readl_iosplit
+ja short readl_iosplit
 sub edx,byte 2
 mov [__io_cycle_counter],edi
 mov [__io_fetchbase],ebp
@@ -1043,18 +940,6 @@ mov ebp,[__io_fetchbase]
 mov esi,[__io_fetchbased_pc]
 mov edx,[__access_address]
 ret
-readl_split:
-add edx,[ecx+12]
-mov cx,[edx-2]
-readl_lower:
-shl ecx,16
-push ecx
-call readmemoryword
-and ecx,0FFFFh
-or ecx,[esp]
-add esp,byte 4
-mov edx,[__access_address]
-ret
 readl_iosplit:
 sub edx,byte 2
 mov [__io_cycle_counter],edi
@@ -1071,10 +956,10 @@ pop ebx
 mov edi,[__io_cycle_counter]
 mov ebp,[__io_fetchbase]
 mov esi,[__io_fetchbased_pc]
-jmp short readl_lower
+mov edx,[__access_address]
+ret
 times ($$-$)&15 db 0
 writememorybyte:
-writeb_top:
 mov [__access_address],edx
 push ecx
 and edx,16777215
@@ -1083,7 +968,8 @@ mov ecx,[__writebyte_idx]
 mov ecx,[ecx+edx*4]
 mov edx,[__access_address]
 and edx,16777215
-jecxz writeb_outofrange
+test ecx,ecx
+jz writeb_outofrange
 test dword[ecx+8],0FFFFFFFFh
 jnz short writeb_callio
 add edx,[ecx+12]
@@ -1092,23 +978,6 @@ pop ecx
 mov [edx],cl
 mov edx,[__access_address]
 ret
-writeb_outofrange:
-mov esp,[__excep_ptr]
-mov ecx,[esi-2]
-mov [__inst_reg],ecx
-xor ebx,ebx
-test byte[__sr+1],20h
-setz bl
-inc bl
-shl bl,2
-or bl,10h
-inc bl
-and bl,0F7h
-mov byte[__g0_spec_info],bl
-mov ebx,edx
-or byte[__execinfo],20h
-mov edx,8h
-jmp group_0_exception
 writeb_callio:
 mov [__io_cycle_counter],edi
 mov [__io_fetchbase],ebp
@@ -1127,32 +996,15 @@ pop ebx
 mov edi,[__io_cycle_counter]
 mov ebp,[__io_fetchbase]
 mov esi,[__io_fetchbased_pc]
-writeb_end:
 mov edx,[__access_address]
 pop ecx
 ret
+writeb_outofrange:
+mov edx,[__access_address]
+or ecx,byte -1
+ret
 times ($$-$)&15 db 0
 writememoryword:
-test dl,1
-jz short .access_ok
-mov esp,[__excep_ptr]
-mov ecx,[esi-2]
-mov [__inst_reg],ecx
-xor ebx,ebx
-test byte[__sr+1],20h
-setz bl
-inc bl
-shl bl,2
-or bl,10h
-inc bl
-and bl,0F7h
-mov byte[__g0_spec_info],bl
-mov ebx,edx
-or byte[__execinfo],40h
-mov edx,0Ch
-jmp group_0_exception
-.access_ok:
-writew_top:
 mov [__access_address],edx
 push ecx
 and edx,16777215
@@ -1161,7 +1013,8 @@ mov ecx,[__writeword_idx]
 mov ecx,[ecx+edx*4]
 mov edx,[__access_address]
 and edx,16777215
-jecxz writew_outofrange
+test ecx,ecx
+jz writew_outofrange
 test dword[ecx+8],0FFFFFFFFh
 jnz short writew_callio
 add edx,[ecx+12]
@@ -1169,23 +1022,6 @@ pop ecx
 mov [edx],cx
 mov edx,[__access_address]
 ret
-writew_outofrange:
-mov esp,[__excep_ptr]
-mov ecx,[esi-2]
-mov [__inst_reg],ecx
-xor ebx,ebx
-test byte[__sr+1],20h
-setz bl
-inc bl
-shl bl,2
-or bl,10h
-inc bl
-and bl,0F7h
-mov byte[__g0_spec_info],bl
-mov ebx,edx
-or byte[__execinfo],20h
-mov edx,8h
-jmp group_0_exception
 writew_callio:
 mov [__io_cycle_counter],edi
 mov [__io_fetchbase],ebp
@@ -1204,30 +1040,15 @@ pop ebx
 mov edi,[__io_cycle_counter]
 mov ebp,[__io_fetchbase]
 mov esi,[__io_fetchbased_pc]
-writew_end:
 mov edx,[__access_address]
 pop ecx
 ret
+writew_outofrange:
+mov edx,[__access_address]
+or ecx,byte -1
+ret
 times ($$-$)&15 db 0
 writememorydword:
-test dl,1
-jz short .access_ok
-mov esp,[__excep_ptr]
-mov ecx,[esi-2]
-mov [__inst_reg],ecx
-xor ebx,ebx
-test byte[__sr+1],20h
-setz bl
-inc bl
-shl bl,2
-inc bl
-and bl,0F7h
-mov byte[__g0_spec_info],bl
-mov ebx,edx
-or byte[__execinfo],40h
-mov edx,0Ch
-jmp group_0_exception
-.access_ok:
 mov [__access_address],edx
 push ecx
 and edx,16777215
@@ -1237,28 +1058,13 @@ mov ecx,[ecx+edx*4]
 mov edx,[__access_address]
 and edx,16777215
 test ecx,ecx
-jnz short writel_call
-mov esp,[__excep_ptr]
-mov ecx,[esi-2]
-mov [__inst_reg],ecx
-xor ebx,ebx
-test byte[__sr+1],20h
-setz bl
-inc bl
-shl bl,2
-inc bl
-and bl,0F7h
-mov byte[__g0_spec_info],bl
-mov ebx,edx
-or byte[__execinfo],20h
-mov edx,8h
-jmp group_0_exception
+jz writew_outofrange
 writel_call:
 test dword[ecx+8],0FFFFFFFFh
 jnz short writel_callio
 add edx,byte 2
 cmp edx,[ecx+4]
-ja short writel_split
+ja near writel_split
 add edx,[ecx+12]
 pop ecx
 rol ecx,16
@@ -1299,17 +1105,9 @@ pop ebx
 mov edi,[__io_cycle_counter]
 mov ebp,[__io_fetchbase]
 mov esi,[__io_fetchbased_pc]
-writel_end:
 mov edx,[__access_address]
 pop ecx
 ret
-writel_split:
-add edx,[ecx+12]
-mov cx,[esp+2]
-mov [edx-2],cx
-mov edx,[esp+4]
-add edx,byte 2
-jmp writew_top
 writel_iosplit:
 mov [__io_cycle_counter],edi
 mov [__io_fetchbase],ebp
@@ -1330,80 +1128,33 @@ mov ebp,[__io_fetchbase]
 mov esi,[__io_fetchbased_pc]
 mov edx,[esp+4]
 add edx,byte 2
-jmp writew_top
-times ($$-$)&15 db 0
-group_0_exception:
-test byte[__execinfo],2
-jz short .excflow
-or byte[__execinfo],4
-sub edi,50
-jmp execexit
-.excflow:
-or byte[__execinfo],2
-and byte[__execinfo],7Fh
-sub edi,50
-call readmemorydword
-push ecx
-mov cx,ax
-btr cx,8
-adc cl,cl
-or ch,[__xflag]
-rol ch,4
-and ch,1Ch
-or cl,ch
-mov ch,[__sr+1]
-push ecx
-test byte[__sr+1],20h
-jnz short ln1
-mov ecx,[__a7]
-xchg ecx,[__asp]
-mov [__a7],ecx
-mov [__fetch_idx],dword __sfmhtbl
-mov [__readbyte_idx],dword __srbmhtbl
-mov [__readword_idx],dword __srwmhtbl
-mov [__writebyte_idx],dword __swbmhtbl
-mov [__writeword_idx],dword __swwmhtbl
-or byte[__sr+1],20h
-ln1:
-and byte[__sr+1],27h
-test byte[__execinfo],20h
-jz short .bus_error
-mov ecx,esi
-sub ecx,ebp
-.bus_error:
-mov ecx,[__io_fetchbased_pc]
-sub ecx,[__io_fetchbase]
-mov edx,[__a7]
-sub edx,byte 4
-call writememorydword
+mov edx,[__access_address]
+ret
+writel_split:
+add edx,[ecx+12]
+mov cx,[esp+2]
+mov [edx-2],cx
+mov edx,[__access_address]
+add edx,byte 2
+and edx,16777215
+push edx
+shr edx,12
+mov ecx,[__writeword_idx]
+mov ecx,[ecx+edx*4]
+test ecx,ecx
+jz writew_outofrange
+test dword[ecx+8],0FFFFFFFFh
+jnz writelower_callio
+pop edx
+add edx,[ecx+12]
+mov cx,[esp]
+mov [edx],cx
+mov edx,[__access_address]
 pop ecx
-sub edx,byte 2
-call writememoryword
-mov cx,word [__inst_reg]
-sub edx,byte 2
-call writememoryword
-mov ecx,ebx
-sub edx,byte 4
-call writememorydword
-xor ch,ch
-mov cl,byte[__g0_spec_info]
-sub edx,byte 2
-call writememoryword
-mov [__a7],edx
-pop esi
-and esi,16777215
-mov ecx,esi
-shr ecx,12
-cmp cx,word[__fetch_bank]
-je short ln2
-call basefunction
-ln2:
-add esi,ebp
-test edi,edi
-js near execexit
-mov bx,[esi]
-add esi,byte 2
-jmp dword[__jmptbl+ebx*4]
+ret
+writelower_callio:
+mov edx,[__access_address]
+ret
 times ($$-$)&15 db 0
 group_1_exception:
 group_2_exception:
@@ -1411,7 +1162,7 @@ and byte[__execinfo],7Fh
 mov ecx,[__icusthandler]
 test ecx,ecx
 jz short .vect_except
-test dword[ecx+edx*4],0FFFFFFFFh
+test dword[ecx+edx],0FFFFFFFFh
 jz short .vect_except
 mov [__io_cycle_counter],edi
 mov [__io_fetchbase],ebp
@@ -1419,7 +1170,7 @@ mov [__io_fetchbased_pc],esi
 push ebx
 push eax
 push edx
-call dword[ecx+edx*4]
+call dword[ecx+edx]
 add esp,byte 4
 pop eax
 pop ebx
@@ -1441,17 +1192,12 @@ or cl,ch
 mov ch,[__sr+1]
 push ecx
 test byte[__sr+1],20h
-jnz short ln3
+jnz short ln0
 mov ecx,[__a7]
 xchg ecx,[__asp]
 mov [__a7],ecx
-mov [__fetch_idx],dword __sfmhtbl
-mov [__readbyte_idx],dword __srbmhtbl
-mov [__readword_idx],dword __srwmhtbl
-mov [__writebyte_idx],dword __swbmhtbl
-mov [__writeword_idx],dword __swwmhtbl
 or byte[__sr+1],20h
-ln3:
+ln0:
 and byte[__sr+1],27h
 mov ecx,esi
 sub ecx,ebp
@@ -1473,9 +1219,9 @@ and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln4
+je short ln1
 call basefunction
-ln4:
+ln1:
 add esi,ebp
 sub edi,byte 34
 js near execexit
@@ -1494,11 +1240,8 @@ and ch,7
 test [__interrupts],cl
 jz short .noint
 mov [__tmp_int_level], dl
-test [__interrupts],byte 1
-jnz short .noadint
 not cl
 and [__interrupts],cl
-.noadint:
 mov dl,[__interrupts+edx]
 shl edx,2
 call group_1_exception
@@ -1528,11 +1271,6 @@ shr cl,1
 cmp dl,ch
 jg .loop
 .intdone:
-and [__interrupts], byte 7Fh
-movsx cx,byte [__interrupts]
-or cl,1
-bsr cx,cx
-mov byte[__pending_int_level],cl
 ret
 ; Opcodes 0000 - 0007
 K000:
@@ -1870,25 +1608,11 @@ push ecx
 mov cl,[__sr+1]
 and cx,2020h
 xor ch,cl
-jz short ln5
+jz short ln2
 mov ecx,[__a7]
 xchg ecx,[__asp]
 mov [__a7],ecx
-test byte[esp+1],20h
-jz short ln6
-mov [__fetch_idx],dword __sfmhtbl
-mov [__readbyte_idx],dword __srbmhtbl
-mov [__readword_idx],dword __srwmhtbl
-mov [__writebyte_idx],dword __swbmhtbl
-mov [__writeword_idx],dword __swwmhtbl
-jmp short ln5
-ln6:
-mov [__fetch_idx],dword __ufmhtbl
-mov [__readbyte_idx],dword __urbmhtbl
-mov [__readword_idx],dword __urwmhtbl
-mov [__writebyte_idx],dword __uwbmhtbl
-mov [__writeword_idx],dword __uwwmhtbl
-ln5:
+ln2:
 pop ecx
 mov [__sr+1],ch
 and byte[__sr+1],0A7h
@@ -1901,8 +1625,6 @@ adc ah,ah
 sub edi,byte 20
 test edi,edi
 js near execexit
-test byte[__sr+1],80h
-jnz near trace_excep
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
@@ -2069,12 +1791,12 @@ and ecx,byte 31
 mov edx,1
 shl edx,cl
 test [__dreg+ebx*4],edx
-jz short ln7
+jz short ln4
 and ah,0BFh
-jmp short ln8
-ln7:
+jmp short ln5
+ln4:
 or ah,40h
-ln8:
+ln5:
 sub edi,byte 6
 js near execexit
 mov bx,[esi]
@@ -2109,12 +1831,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln9
+jnc short ln6
 and ah,0BFh
-jmp short ln10
-ln9:
+jmp short ln7
+ln6:
 or ah,40h
-ln10:
+ln7:
 sub edi,byte 8
 js near execexit
 mov bx,[esi]
@@ -2135,12 +1857,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln11
+jnc short ln8
 and ah,0BFh
-jmp short ln12
-ln11:
+jmp short ln9
+ln8:
 or ah,40h
-ln12:
+ln9:
 sub edi,byte 8
 js near execexit
 mov bx,[esi]
@@ -2161,12 +1883,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln13
+jnc short ln10
 and ah,0BFh
-jmp short ln14
-ln13:
+jmp short ln11
+ln10:
 or ah,40h
-ln14:
+ln11:
 sub edi,byte 10
 js near execexit
 mov bx,[esi]
@@ -2186,12 +1908,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln15
+jnc short ln12
 and ah,0BFh
-jmp short ln16
-ln15:
+jmp short ln13
+ln12:
 or ah,40h
-ln16:
+ln13:
 sub edi,byte 12
 js near execexit
 mov bx,[esi]
@@ -2210,12 +1932,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln17
+jnc short ln14
 and ah,0BFh
-jmp short ln18
-ln17:
+jmp short ln15
+ln14:
 or ah,40h
-ln18:
+ln15:
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
@@ -2233,12 +1955,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln19
+jnc short ln16
 and ah,0BFh
-jmp short ln20
-ln19:
+jmp short ln17
+ln16:
 or ah,40h
-ln20:
+ln17:
 sub edi,byte 12
 js near execexit
 mov bx,[esi]
@@ -2257,12 +1979,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln21
+jnc short ln18
 and ah,0BFh
-jmp short ln22
-ln21:
+jmp short ln19
+ln18:
 or ah,40h
-ln22:
+ln19:
 sub edi,byte 16
 js near execexit
 mov bx,[esi]
@@ -2282,12 +2004,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln23
+jnc short ln20
 and ah,0BFh
-jmp short ln24
-ln23:
+jmp short ln21
+ln20:
 or ah,40h
-ln24:
+ln21:
 sub edi,byte 12
 js near execexit
 mov bx,[esi]
@@ -2307,12 +2029,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln25
+jnc short ln22
 and ah,0BFh
-jmp short ln26
-ln25:
+jmp short ln23
+ln22:
 or ah,40h
-ln26:
+ln23:
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
@@ -2329,12 +2051,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln27
+jnc short ln24
 and ah,0BFh
-jmp short ln28
-ln27:
+jmp short ln25
+ln24:
 or ah,40h
-ln28:
+ln25:
 sub edi,byte 8
 js near execexit
 mov bx,[esi]
@@ -2349,12 +2071,12 @@ mov edx,1
 shl edx,cl
 mov ecx,[__dreg+ebx*4]
 test ecx,edx
-jz short ln29
+jz short ln26
 and ah,0BFh
-jmp short ln30
-ln29:
+jmp short ln27
+ln26:
 or ah,40h
-ln30:
+ln27:
 xor ecx,edx
 mov [__dreg+ebx*4],ecx
 sub edi,byte 8
@@ -2399,12 +2121,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln31
+jz short ln28
 and ah,0BFh
-jmp short ln32
-ln31:
+jmp short ln29
+ln28:
 or ah,40h
-ln32:
+ln29:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -2425,12 +2147,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln33
+jz short ln30
 and ah,0BFh
-jmp short ln34
-ln33:
+jmp short ln31
+ln30:
 or ah,40h
-ln34:
+ln31:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -2456,12 +2178,12 @@ adc edx,byte -2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln35
+jz short ln32
 and ah,0BFh
-jmp short ln36
-ln35:
+jmp short ln33
+ln32:
 or ah,40h
-ln36:
+ln33:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -2485,12 +2207,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln37
+jz short ln34
 and ah,0BFh
-jmp short ln38
-ln37:
+jmp short ln35
+ln34:
 or ah,40h
-ln38:
+ln35:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -2512,12 +2234,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln39
+jz short ln36
 and ah,0BFh
-jmp short ln40
-ln39:
+jmp short ln37
+ln36:
 or ah,40h
-ln40:
+ln37:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -2538,12 +2260,12 @@ add esi,byte 2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln41
+jz short ln38
 and ah,0BFh
-jmp short ln42
-ln41:
+jmp short ln39
+ln38:
 or ah,40h
-ln42:
+ln39:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -2565,12 +2287,12 @@ rol edx,16
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln43
+jz short ln40
 and ah,0BFh
-jmp short ln44
-ln43:
+jmp short ln41
+ln40:
 or ah,40h
-ln44:
+ln41:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -2588,12 +2310,12 @@ mov edx,1
 shl edx,cl
 mov ecx,[__dreg+ebx*4]
 test ecx,edx
-jz short ln45
+jz short ln42
 and ah,0BFh
-jmp short ln46
-ln45:
+jmp short ln43
+ln42:
 or ah,40h
-ln46:
+ln43:
 not edx
 and ecx,edx
 mov [__dreg+ebx*4],ecx
@@ -2631,12 +2353,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln47
+jz short ln44
 and ah,0BFh
-jmp short ln48
-ln47:
+jmp short ln45
+ln44:
 or ah,40h
-ln48:
+ln45:
 not dl
 and cl,dl
 pop edx
@@ -2658,12 +2380,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln49
+jz short ln46
 and ah,0BFh
-jmp short ln50
-ln49:
+jmp short ln47
+ln46:
 or ah,40h
-ln50:
+ln47:
 not dl
 and cl,dl
 pop edx
@@ -2690,12 +2412,12 @@ adc edx,byte -2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln51
+jz short ln48
 and ah,0BFh
-jmp short ln52
-ln51:
+jmp short ln49
+ln48:
 or ah,40h
-ln52:
+ln49:
 not dl
 and cl,dl
 pop edx
@@ -2720,12 +2442,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln53
+jz short ln50
 and ah,0BFh
-jmp short ln54
-ln53:
+jmp short ln51
+ln50:
 or ah,40h
-ln54:
+ln51:
 not dl
 and cl,dl
 pop edx
@@ -2748,12 +2470,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln55
+jz short ln52
 and ah,0BFh
-jmp short ln56
-ln55:
+jmp short ln53
+ln52:
 or ah,40h
-ln56:
+ln53:
 not dl
 and cl,dl
 pop edx
@@ -2775,12 +2497,12 @@ add esi,byte 2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln57
+jz short ln54
 and ah,0BFh
-jmp short ln58
-ln57:
+jmp short ln55
+ln54:
 or ah,40h
-ln58:
+ln55:
 not dl
 and cl,dl
 pop edx
@@ -2803,12 +2525,12 @@ rol edx,16
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln59
+jz short ln56
 and ah,0BFh
-jmp short ln60
-ln59:
+jmp short ln57
+ln56:
 or ah,40h
-ln60:
+ln57:
 not dl
 and cl,dl
 pop edx
@@ -2827,12 +2549,12 @@ mov edx,1
 shl edx,cl
 mov ecx,[__dreg+ebx*4]
 test ecx,edx
-jz short ln61
+jz short ln58
 and ah,0BFh
-jmp short ln62
-ln61:
+jmp short ln59
+ln58:
 or ah,40h
-ln62:
+ln59:
 or ecx,edx
 mov [__dreg+ebx*4],ecx
 sub edi,byte 8
@@ -2877,12 +2599,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln63
+jz short ln60
 and ah,0BFh
-jmp short ln64
-ln63:
+jmp short ln61
+ln60:
 or ah,40h
-ln64:
+ln61:
 or cl,dl
 pop edx
 call writememorybyte
@@ -2903,12 +2625,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln65
+jz short ln62
 and ah,0BFh
-jmp short ln66
-ln65:
+jmp short ln63
+ln62:
 or ah,40h
-ln66:
+ln63:
 or cl,dl
 pop edx
 call writememorybyte
@@ -2934,12 +2656,12 @@ adc edx,byte -2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln67
+jz short ln64
 and ah,0BFh
-jmp short ln68
-ln67:
+jmp short ln65
+ln64:
 or ah,40h
-ln68:
+ln65:
 or cl,dl
 pop edx
 call writememorybyte
@@ -2963,12 +2685,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln69
+jz short ln66
 and ah,0BFh
-jmp short ln70
-ln69:
+jmp short ln67
+ln66:
 or ah,40h
-ln70:
+ln67:
 or cl,dl
 pop edx
 call writememorybyte
@@ -2990,12 +2712,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln71
+jz short ln68
 and ah,0BFh
-jmp short ln72
-ln71:
+jmp short ln69
+ln68:
 or ah,40h
-ln72:
+ln69:
 or cl,dl
 pop edx
 call writememorybyte
@@ -3016,12 +2738,12 @@ add esi,byte 2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln73
+jz short ln70
 and ah,0BFh
-jmp short ln74
-ln73:
+jmp short ln71
+ln70:
 or ah,40h
-ln74:
+ln71:
 or cl,dl
 pop edx
 call writememorybyte
@@ -3043,12 +2765,12 @@ rol edx,16
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln75
+jz short ln72
 and ah,0BFh
-jmp short ln76
-ln75:
+jmp short ln73
+ln72:
 or ah,40h
-ln76:
+ln73:
 or cl,dl
 pop edx
 call writememorybyte
@@ -3393,25 +3115,11 @@ push ecx
 mov cl,[__sr+1]
 and cx,2020h
 xor ch,cl
-jz short ln77
+jz short ln74
 mov ecx,[__a7]
 xchg ecx,[__asp]
 mov [__a7],ecx
-test byte[esp+1],20h
-jz short ln78
-mov [__fetch_idx],dword __sfmhtbl
-mov [__readbyte_idx],dword __srbmhtbl
-mov [__readword_idx],dword __srwmhtbl
-mov [__writebyte_idx],dword __swbmhtbl
-mov [__writeword_idx],dword __swwmhtbl
-jmp short ln77
-ln78:
-mov [__fetch_idx],dword __ufmhtbl
-mov [__readbyte_idx],dword __urbmhtbl
-mov [__readword_idx],dword __urwmhtbl
-mov [__writebyte_idx],dword __uwbmhtbl
-mov [__writeword_idx],dword __uwwmhtbl
-ln77:
+ln74:
 pop ecx
 mov [__sr+1],ch
 and byte[__sr+1],0A7h
@@ -3424,8 +3132,6 @@ adc ah,ah
 sub edi,byte 20
 test edi,edi
 js near execexit
-test byte[__sr+1],80h
-jnz near trace_excep
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
@@ -3592,12 +3298,12 @@ and ecx,byte 31
 mov edx,1
 shl edx,cl
 test [__dreg+ebx*4],edx
-jz short ln79
+jz short ln76
 and ah,0BFh
-jmp short ln80
-ln79:
+jmp short ln77
+ln76:
 or ah,40h
-ln80:
+ln77:
 sub edi,byte 6
 js near execexit
 mov bx,[esi]
@@ -3632,12 +3338,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln81
+jnc short ln78
 and ah,0BFh
-jmp short ln82
-ln81:
+jmp short ln79
+ln78:
 or ah,40h
-ln82:
+ln79:
 sub edi,byte 8
 js near execexit
 mov bx,[esi]
@@ -3658,12 +3364,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln83
+jnc short ln80
 and ah,0BFh
-jmp short ln84
-ln83:
+jmp short ln81
+ln80:
 or ah,40h
-ln84:
+ln81:
 sub edi,byte 8
 js near execexit
 mov bx,[esi]
@@ -3684,12 +3390,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln85
+jnc short ln82
 and ah,0BFh
-jmp short ln86
-ln85:
+jmp short ln83
+ln82:
 or ah,40h
-ln86:
+ln83:
 sub edi,byte 10
 js near execexit
 mov bx,[esi]
@@ -3709,12 +3415,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln87
+jnc short ln84
 and ah,0BFh
-jmp short ln88
-ln87:
+jmp short ln85
+ln84:
 or ah,40h
-ln88:
+ln85:
 sub edi,byte 12
 js near execexit
 mov bx,[esi]
@@ -3733,12 +3439,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln89
+jnc short ln86
 and ah,0BFh
-jmp short ln90
-ln89:
+jmp short ln87
+ln86:
 or ah,40h
-ln90:
+ln87:
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
@@ -3756,12 +3462,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln91
+jnc short ln88
 and ah,0BFh
-jmp short ln92
-ln91:
+jmp short ln89
+ln88:
 or ah,40h
-ln92:
+ln89:
 sub edi,byte 12
 js near execexit
 mov bx,[esi]
@@ -3780,12 +3486,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln93
+jnc short ln90
 and ah,0BFh
-jmp short ln94
-ln93:
+jmp short ln91
+ln90:
 or ah,40h
-ln94:
+ln91:
 sub edi,byte 16
 js near execexit
 mov bx,[esi]
@@ -3805,12 +3511,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln95
+jnc short ln92
 and ah,0BFh
-jmp short ln96
-ln95:
+jmp short ln93
+ln92:
 or ah,40h
-ln96:
+ln93:
 sub edi,byte 12
 js near execexit
 mov bx,[esi]
@@ -3830,12 +3536,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln97
+jnc short ln94
 and ah,0BFh
-jmp short ln98
-ln97:
+jmp short ln95
+ln94:
 or ah,40h
-ln98:
+ln95:
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
@@ -3852,12 +3558,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln99
+jnc short ln96
 and ah,0BFh
-jmp short ln100
-ln99:
+jmp short ln97
+ln96:
 or ah,40h
-ln100:
+ln97:
 sub edi,byte 8
 js near execexit
 mov bx,[esi]
@@ -3872,12 +3578,12 @@ mov edx,1
 shl edx,cl
 mov ecx,[__dreg+ebx*4]
 test ecx,edx
-jz short ln101
+jz short ln98
 and ah,0BFh
-jmp short ln102
-ln101:
+jmp short ln99
+ln98:
 or ah,40h
-ln102:
+ln99:
 xor ecx,edx
 mov [__dreg+ebx*4],ecx
 sub edi,byte 8
@@ -3922,12 +3628,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln103
+jz short ln100
 and ah,0BFh
-jmp short ln104
-ln103:
+jmp short ln101
+ln100:
 or ah,40h
-ln104:
+ln101:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -3948,12 +3654,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln105
+jz short ln102
 and ah,0BFh
-jmp short ln106
-ln105:
+jmp short ln103
+ln102:
 or ah,40h
-ln106:
+ln103:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -3979,12 +3685,12 @@ adc edx,byte -2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln107
+jz short ln104
 and ah,0BFh
-jmp short ln108
-ln107:
+jmp short ln105
+ln104:
 or ah,40h
-ln108:
+ln105:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -4008,12 +3714,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln109
+jz short ln106
 and ah,0BFh
-jmp short ln110
-ln109:
+jmp short ln107
+ln106:
 or ah,40h
-ln110:
+ln107:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -4035,12 +3741,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln111
+jz short ln108
 and ah,0BFh
-jmp short ln112
-ln111:
+jmp short ln109
+ln108:
 or ah,40h
-ln112:
+ln109:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -4061,12 +3767,12 @@ add esi,byte 2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln113
+jz short ln110
 and ah,0BFh
-jmp short ln114
-ln113:
+jmp short ln111
+ln110:
 or ah,40h
-ln114:
+ln111:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -4088,12 +3794,12 @@ rol edx,16
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln115
+jz short ln112
 and ah,0BFh
-jmp short ln116
-ln115:
+jmp short ln113
+ln112:
 or ah,40h
-ln116:
+ln113:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -4111,12 +3817,12 @@ mov edx,1
 shl edx,cl
 mov ecx,[__dreg+ebx*4]
 test ecx,edx
-jz short ln117
+jz short ln114
 and ah,0BFh
-jmp short ln118
-ln117:
+jmp short ln115
+ln114:
 or ah,40h
-ln118:
+ln115:
 not edx
 and ecx,edx
 mov [__dreg+ebx*4],ecx
@@ -4154,12 +3860,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln119
+jz short ln116
 and ah,0BFh
-jmp short ln120
-ln119:
+jmp short ln117
+ln116:
 or ah,40h
-ln120:
+ln117:
 not dl
 and cl,dl
 pop edx
@@ -4181,12 +3887,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln121
+jz short ln118
 and ah,0BFh
-jmp short ln122
-ln121:
+jmp short ln119
+ln118:
 or ah,40h
-ln122:
+ln119:
 not dl
 and cl,dl
 pop edx
@@ -4213,12 +3919,12 @@ adc edx,byte -2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln123
+jz short ln120
 and ah,0BFh
-jmp short ln124
-ln123:
+jmp short ln121
+ln120:
 or ah,40h
-ln124:
+ln121:
 not dl
 and cl,dl
 pop edx
@@ -4243,12 +3949,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln125
+jz short ln122
 and ah,0BFh
-jmp short ln126
-ln125:
+jmp short ln123
+ln122:
 or ah,40h
-ln126:
+ln123:
 not dl
 and cl,dl
 pop edx
@@ -4271,12 +3977,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln127
+jz short ln124
 and ah,0BFh
-jmp short ln128
-ln127:
+jmp short ln125
+ln124:
 or ah,40h
-ln128:
+ln125:
 not dl
 and cl,dl
 pop edx
@@ -4298,12 +4004,12 @@ add esi,byte 2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln129
+jz short ln126
 and ah,0BFh
-jmp short ln130
-ln129:
+jmp short ln127
+ln126:
 or ah,40h
-ln130:
+ln127:
 not dl
 and cl,dl
 pop edx
@@ -4326,12 +4032,12 @@ rol edx,16
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln131
+jz short ln128
 and ah,0BFh
-jmp short ln132
-ln131:
+jmp short ln129
+ln128:
 or ah,40h
-ln132:
+ln129:
 not dl
 and cl,dl
 pop edx
@@ -4350,12 +4056,12 @@ mov edx,1
 shl edx,cl
 mov ecx,[__dreg+ebx*4]
 test ecx,edx
-jz short ln133
+jz short ln130
 and ah,0BFh
-jmp short ln134
-ln133:
+jmp short ln131
+ln130:
 or ah,40h
-ln134:
+ln131:
 or ecx,edx
 mov [__dreg+ebx*4],ecx
 sub edi,byte 8
@@ -4400,12 +4106,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln135
+jz short ln132
 and ah,0BFh
-jmp short ln136
-ln135:
+jmp short ln133
+ln132:
 or ah,40h
-ln136:
+ln133:
 or cl,dl
 pop edx
 call writememorybyte
@@ -4426,12 +4132,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln137
+jz short ln134
 and ah,0BFh
-jmp short ln138
-ln137:
+jmp short ln135
+ln134:
 or ah,40h
-ln138:
+ln135:
 or cl,dl
 pop edx
 call writememorybyte
@@ -4457,12 +4163,12 @@ adc edx,byte -2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln139
+jz short ln136
 and ah,0BFh
-jmp short ln140
-ln139:
+jmp short ln137
+ln136:
 or ah,40h
-ln140:
+ln137:
 or cl,dl
 pop edx
 call writememorybyte
@@ -4486,12 +4192,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln141
+jz short ln138
 and ah,0BFh
-jmp short ln142
-ln141:
+jmp short ln139
+ln138:
 or ah,40h
-ln142:
+ln139:
 or cl,dl
 pop edx
 call writememorybyte
@@ -4513,12 +4219,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln143
+jz short ln140
 and ah,0BFh
-jmp short ln144
-ln143:
+jmp short ln141
+ln140:
 or ah,40h
-ln144:
+ln141:
 or cl,dl
 pop edx
 call writememorybyte
@@ -4539,12 +4245,12 @@ add esi,byte 2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln145
+jz short ln142
 and ah,0BFh
-jmp short ln146
-ln145:
+jmp short ln143
+ln142:
 or ah,40h
-ln146:
+ln143:
 or cl,dl
 pop edx
 call writememorybyte
@@ -4566,12 +4272,12 @@ rol edx,16
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln147
+jz short ln144
 and ah,0BFh
-jmp short ln148
-ln147:
+jmp short ln145
+ln144:
 or ah,40h
-ln148:
+ln145:
 or cl,dl
 pop edx
 call writememorybyte
@@ -5063,12 +4769,12 @@ and ecx,byte 31
 mov edx,1
 shl edx,cl
 test [__dreg+ebx*4],edx
-jz short ln149
+jz short ln146
 and ah,0BFh
-jmp short ln150
-ln149:
+jmp short ln147
+ln146:
 or ah,40h
-ln150:
+ln147:
 sub edi,byte 6
 js near execexit
 mov bx,[esi]
@@ -5103,12 +4809,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln151
+jnc short ln148
 and ah,0BFh
-jmp short ln152
-ln151:
+jmp short ln149
+ln148:
 or ah,40h
-ln152:
+ln149:
 sub edi,byte 8
 js near execexit
 mov bx,[esi]
@@ -5129,12 +4835,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln153
+jnc short ln150
 and ah,0BFh
-jmp short ln154
-ln153:
+jmp short ln151
+ln150:
 or ah,40h
-ln154:
+ln151:
 sub edi,byte 8
 js near execexit
 mov bx,[esi]
@@ -5155,12 +4861,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln155
+jnc short ln152
 and ah,0BFh
-jmp short ln156
-ln155:
+jmp short ln153
+ln152:
 or ah,40h
-ln156:
+ln153:
 sub edi,byte 10
 js near execexit
 mov bx,[esi]
@@ -5180,12 +4886,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln157
+jnc short ln154
 and ah,0BFh
-jmp short ln158
-ln157:
+jmp short ln155
+ln154:
 or ah,40h
-ln158:
+ln155:
 sub edi,byte 12
 js near execexit
 mov bx,[esi]
@@ -5204,12 +4910,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln159
+jnc short ln156
 and ah,0BFh
-jmp short ln160
-ln159:
+jmp short ln157
+ln156:
 or ah,40h
-ln160:
+ln157:
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
@@ -5227,12 +4933,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln161
+jnc short ln158
 and ah,0BFh
-jmp short ln162
-ln161:
+jmp short ln159
+ln158:
 or ah,40h
-ln162:
+ln159:
 sub edi,byte 12
 js near execexit
 mov bx,[esi]
@@ -5251,12 +4957,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln163
+jnc short ln160
 and ah,0BFh
-jmp short ln164
-ln163:
+jmp short ln161
+ln160:
 or ah,40h
-ln164:
+ln161:
 sub edi,byte 16
 js near execexit
 mov bx,[esi]
@@ -5276,12 +4982,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln165
+jnc short ln162
 and ah,0BFh
-jmp short ln166
-ln165:
+jmp short ln163
+ln162:
 or ah,40h
-ln166:
+ln163:
 sub edi,byte 12
 js near execexit
 mov bx,[esi]
@@ -5301,12 +5007,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln167
+jnc short ln164
 and ah,0BFh
-jmp short ln168
-ln167:
+jmp short ln165
+ln164:
 or ah,40h
-ln168:
+ln165:
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
@@ -5323,12 +5029,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln169
+jnc short ln166
 and ah,0BFh
-jmp short ln170
-ln169:
+jmp short ln167
+ln166:
 or ah,40h
-ln170:
+ln167:
 sub edi,byte 8
 js near execexit
 mov bx,[esi]
@@ -5343,12 +5049,12 @@ mov edx,1
 shl edx,cl
 mov ecx,[__dreg+ebx*4]
 test ecx,edx
-jz short ln171
+jz short ln168
 and ah,0BFh
-jmp short ln172
-ln171:
+jmp short ln169
+ln168:
 or ah,40h
-ln172:
+ln169:
 xor ecx,edx
 mov [__dreg+ebx*4],ecx
 sub edi,byte 8
@@ -5393,12 +5099,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln173
+jz short ln170
 and ah,0BFh
-jmp short ln174
-ln173:
+jmp short ln171
+ln170:
 or ah,40h
-ln174:
+ln171:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -5419,12 +5125,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln175
+jz short ln172
 and ah,0BFh
-jmp short ln176
-ln175:
+jmp short ln173
+ln172:
 or ah,40h
-ln176:
+ln173:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -5450,12 +5156,12 @@ adc edx,byte -2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln177
+jz short ln174
 and ah,0BFh
-jmp short ln178
-ln177:
+jmp short ln175
+ln174:
 or ah,40h
-ln178:
+ln175:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -5479,12 +5185,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln179
+jz short ln176
 and ah,0BFh
-jmp short ln180
-ln179:
+jmp short ln177
+ln176:
 or ah,40h
-ln180:
+ln177:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -5506,12 +5212,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln181
+jz short ln178
 and ah,0BFh
-jmp short ln182
-ln181:
+jmp short ln179
+ln178:
 or ah,40h
-ln182:
+ln179:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -5532,12 +5238,12 @@ add esi,byte 2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln183
+jz short ln180
 and ah,0BFh
-jmp short ln184
-ln183:
+jmp short ln181
+ln180:
 or ah,40h
-ln184:
+ln181:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -5559,12 +5265,12 @@ rol edx,16
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln185
+jz short ln182
 and ah,0BFh
-jmp short ln186
-ln185:
+jmp short ln183
+ln182:
 or ah,40h
-ln186:
+ln183:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -5582,12 +5288,12 @@ mov edx,1
 shl edx,cl
 mov ecx,[__dreg+ebx*4]
 test ecx,edx
-jz short ln187
+jz short ln184
 and ah,0BFh
-jmp short ln188
-ln187:
+jmp short ln185
+ln184:
 or ah,40h
-ln188:
+ln185:
 not edx
 and ecx,edx
 mov [__dreg+ebx*4],ecx
@@ -5625,12 +5331,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln189
+jz short ln186
 and ah,0BFh
-jmp short ln190
-ln189:
+jmp short ln187
+ln186:
 or ah,40h
-ln190:
+ln187:
 not dl
 and cl,dl
 pop edx
@@ -5652,12 +5358,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln191
+jz short ln188
 and ah,0BFh
-jmp short ln192
-ln191:
+jmp short ln189
+ln188:
 or ah,40h
-ln192:
+ln189:
 not dl
 and cl,dl
 pop edx
@@ -5684,12 +5390,12 @@ adc edx,byte -2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln193
+jz short ln190
 and ah,0BFh
-jmp short ln194
-ln193:
+jmp short ln191
+ln190:
 or ah,40h
-ln194:
+ln191:
 not dl
 and cl,dl
 pop edx
@@ -5714,12 +5420,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln195
+jz short ln192
 and ah,0BFh
-jmp short ln196
-ln195:
+jmp short ln193
+ln192:
 or ah,40h
-ln196:
+ln193:
 not dl
 and cl,dl
 pop edx
@@ -5742,12 +5448,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln197
+jz short ln194
 and ah,0BFh
-jmp short ln198
-ln197:
+jmp short ln195
+ln194:
 or ah,40h
-ln198:
+ln195:
 not dl
 and cl,dl
 pop edx
@@ -5769,12 +5475,12 @@ add esi,byte 2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln199
+jz short ln196
 and ah,0BFh
-jmp short ln200
-ln199:
+jmp short ln197
+ln196:
 or ah,40h
-ln200:
+ln197:
 not dl
 and cl,dl
 pop edx
@@ -5797,12 +5503,12 @@ rol edx,16
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln201
+jz short ln198
 and ah,0BFh
-jmp short ln202
-ln201:
+jmp short ln199
+ln198:
 or ah,40h
-ln202:
+ln199:
 not dl
 and cl,dl
 pop edx
@@ -5821,12 +5527,12 @@ mov edx,1
 shl edx,cl
 mov ecx,[__dreg+ebx*4]
 test ecx,edx
-jz short ln203
+jz short ln200
 and ah,0BFh
-jmp short ln204
-ln203:
+jmp short ln201
+ln200:
 or ah,40h
-ln204:
+ln201:
 or ecx,edx
 mov [__dreg+ebx*4],ecx
 sub edi,byte 8
@@ -5871,12 +5577,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln205
+jz short ln202
 and ah,0BFh
-jmp short ln206
-ln205:
+jmp short ln203
+ln202:
 or ah,40h
-ln206:
+ln203:
 or cl,dl
 pop edx
 call writememorybyte
@@ -5897,12 +5603,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln207
+jz short ln204
 and ah,0BFh
-jmp short ln208
-ln207:
+jmp short ln205
+ln204:
 or ah,40h
-ln208:
+ln205:
 or cl,dl
 pop edx
 call writememorybyte
@@ -5928,12 +5634,12 @@ adc edx,byte -2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln209
+jz short ln206
 and ah,0BFh
-jmp short ln210
-ln209:
+jmp short ln207
+ln206:
 or ah,40h
-ln210:
+ln207:
 or cl,dl
 pop edx
 call writememorybyte
@@ -5957,12 +5663,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln211
+jz short ln208
 and ah,0BFh
-jmp short ln212
-ln211:
+jmp short ln209
+ln208:
 or ah,40h
-ln212:
+ln209:
 or cl,dl
 pop edx
 call writememorybyte
@@ -5984,12 +5690,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln213
+jz short ln210
 and ah,0BFh
-jmp short ln214
-ln213:
+jmp short ln211
+ln210:
 or ah,40h
-ln214:
+ln211:
 or cl,dl
 pop edx
 call writememorybyte
@@ -6010,12 +5716,12 @@ add esi,byte 2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln215
+jz short ln212
 and ah,0BFh
-jmp short ln216
-ln215:
+jmp short ln213
+ln212:
 or ah,40h
-ln216:
+ln213:
 or cl,dl
 pop edx
 call writememorybyte
@@ -6037,12 +5743,12 @@ rol edx,16
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln217
+jz short ln214
 and ah,0BFh
-jmp short ln218
-ln217:
+jmp short ln215
+ln214:
 or ah,40h
-ln218:
+ln215:
 or cl,dl
 pop edx
 call writememorybyte
@@ -6534,12 +6240,12 @@ and ecx,byte 31
 mov edx,1
 shl edx,cl
 test [__dreg+ebx*4],edx
-jz short ln219
+jz short ln216
 and ah,0BFh
-jmp short ln220
-ln219:
+jmp short ln217
+ln216:
 or ah,40h
-ln220:
+ln217:
 sub edi,byte 6
 js near execexit
 mov bx,[esi]
@@ -6574,12 +6280,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln221
+jnc short ln218
 and ah,0BFh
-jmp short ln222
-ln221:
+jmp short ln219
+ln218:
 or ah,40h
-ln222:
+ln219:
 sub edi,byte 8
 js near execexit
 mov bx,[esi]
@@ -6600,12 +6306,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln223
+jnc short ln220
 and ah,0BFh
-jmp short ln224
-ln223:
+jmp short ln221
+ln220:
 or ah,40h
-ln224:
+ln221:
 sub edi,byte 8
 js near execexit
 mov bx,[esi]
@@ -6626,12 +6332,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln225
+jnc short ln222
 and ah,0BFh
-jmp short ln226
-ln225:
+jmp short ln223
+ln222:
 or ah,40h
-ln226:
+ln223:
 sub edi,byte 10
 js near execexit
 mov bx,[esi]
@@ -6651,12 +6357,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln227
+jnc short ln224
 and ah,0BFh
-jmp short ln228
-ln227:
+jmp short ln225
+ln224:
 or ah,40h
-ln228:
+ln225:
 sub edi,byte 12
 js near execexit
 mov bx,[esi]
@@ -6675,12 +6381,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln229
+jnc short ln226
 and ah,0BFh
-jmp short ln230
-ln229:
+jmp short ln227
+ln226:
 or ah,40h
-ln230:
+ln227:
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
@@ -6698,12 +6404,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln231
+jnc short ln228
 and ah,0BFh
-jmp short ln232
-ln231:
+jmp short ln229
+ln228:
 or ah,40h
-ln232:
+ln229:
 sub edi,byte 12
 js near execexit
 mov bx,[esi]
@@ -6722,12 +6428,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln233
+jnc short ln230
 and ah,0BFh
-jmp short ln234
-ln233:
+jmp short ln231
+ln230:
 or ah,40h
-ln234:
+ln231:
 sub edi,byte 16
 js near execexit
 mov bx,[esi]
@@ -6747,12 +6453,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln235
+jnc short ln232
 and ah,0BFh
-jmp short ln236
-ln235:
+jmp short ln233
+ln232:
 or ah,40h
-ln236:
+ln233:
 sub edi,byte 12
 js near execexit
 mov bx,[esi]
@@ -6772,12 +6478,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln237
+jnc short ln234
 and ah,0BFh
-jmp short ln238
-ln237:
+jmp short ln235
+ln234:
 or ah,40h
-ln238:
+ln235:
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
@@ -6794,12 +6500,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln239
+jnc short ln236
 and ah,0BFh
-jmp short ln240
-ln239:
+jmp short ln237
+ln236:
 or ah,40h
-ln240:
+ln237:
 sub edi,byte 8
 js near execexit
 mov bx,[esi]
@@ -6814,12 +6520,12 @@ mov edx,1
 shl edx,cl
 mov ecx,[__dreg+ebx*4]
 test ecx,edx
-jz short ln241
+jz short ln238
 and ah,0BFh
-jmp short ln242
-ln241:
+jmp short ln239
+ln238:
 or ah,40h
-ln242:
+ln239:
 xor ecx,edx
 mov [__dreg+ebx*4],ecx
 sub edi,byte 8
@@ -6864,12 +6570,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln243
+jz short ln240
 and ah,0BFh
-jmp short ln244
-ln243:
+jmp short ln241
+ln240:
 or ah,40h
-ln244:
+ln241:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -6890,12 +6596,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln245
+jz short ln242
 and ah,0BFh
-jmp short ln246
-ln245:
+jmp short ln243
+ln242:
 or ah,40h
-ln246:
+ln243:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -6921,12 +6627,12 @@ adc edx,byte -2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln247
+jz short ln244
 and ah,0BFh
-jmp short ln248
-ln247:
+jmp short ln245
+ln244:
 or ah,40h
-ln248:
+ln245:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -6950,12 +6656,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln249
+jz short ln246
 and ah,0BFh
-jmp short ln250
-ln249:
+jmp short ln247
+ln246:
 or ah,40h
-ln250:
+ln247:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -6977,12 +6683,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln251
+jz short ln248
 and ah,0BFh
-jmp short ln252
-ln251:
+jmp short ln249
+ln248:
 or ah,40h
-ln252:
+ln249:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -7003,12 +6709,12 @@ add esi,byte 2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln253
+jz short ln250
 and ah,0BFh
-jmp short ln254
-ln253:
+jmp short ln251
+ln250:
 or ah,40h
-ln254:
+ln251:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -7030,12 +6736,12 @@ rol edx,16
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln255
+jz short ln252
 and ah,0BFh
-jmp short ln256
-ln255:
+jmp short ln253
+ln252:
 or ah,40h
-ln256:
+ln253:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -7053,12 +6759,12 @@ mov edx,1
 shl edx,cl
 mov ecx,[__dreg+ebx*4]
 test ecx,edx
-jz short ln257
+jz short ln254
 and ah,0BFh
-jmp short ln258
-ln257:
+jmp short ln255
+ln254:
 or ah,40h
-ln258:
+ln255:
 not edx
 and ecx,edx
 mov [__dreg+ebx*4],ecx
@@ -7096,12 +6802,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln259
+jz short ln256
 and ah,0BFh
-jmp short ln260
-ln259:
+jmp short ln257
+ln256:
 or ah,40h
-ln260:
+ln257:
 not dl
 and cl,dl
 pop edx
@@ -7123,12 +6829,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln261
+jz short ln258
 and ah,0BFh
-jmp short ln262
-ln261:
+jmp short ln259
+ln258:
 or ah,40h
-ln262:
+ln259:
 not dl
 and cl,dl
 pop edx
@@ -7155,12 +6861,12 @@ adc edx,byte -2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln263
+jz short ln260
 and ah,0BFh
-jmp short ln264
-ln263:
+jmp short ln261
+ln260:
 or ah,40h
-ln264:
+ln261:
 not dl
 and cl,dl
 pop edx
@@ -7185,12 +6891,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln265
+jz short ln262
 and ah,0BFh
-jmp short ln266
-ln265:
+jmp short ln263
+ln262:
 or ah,40h
-ln266:
+ln263:
 not dl
 and cl,dl
 pop edx
@@ -7213,12 +6919,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln267
+jz short ln264
 and ah,0BFh
-jmp short ln268
-ln267:
+jmp short ln265
+ln264:
 or ah,40h
-ln268:
+ln265:
 not dl
 and cl,dl
 pop edx
@@ -7240,12 +6946,12 @@ add esi,byte 2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln269
+jz short ln266
 and ah,0BFh
-jmp short ln270
-ln269:
+jmp short ln267
+ln266:
 or ah,40h
-ln270:
+ln267:
 not dl
 and cl,dl
 pop edx
@@ -7268,12 +6974,12 @@ rol edx,16
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln271
+jz short ln268
 and ah,0BFh
-jmp short ln272
-ln271:
+jmp short ln269
+ln268:
 or ah,40h
-ln272:
+ln269:
 not dl
 and cl,dl
 pop edx
@@ -7292,12 +6998,12 @@ mov edx,1
 shl edx,cl
 mov ecx,[__dreg+ebx*4]
 test ecx,edx
-jz short ln273
+jz short ln270
 and ah,0BFh
-jmp short ln274
-ln273:
+jmp short ln271
+ln270:
 or ah,40h
-ln274:
+ln271:
 or ecx,edx
 mov [__dreg+ebx*4],ecx
 sub edi,byte 8
@@ -7342,12 +7048,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln275
+jz short ln272
 and ah,0BFh
-jmp short ln276
-ln275:
+jmp short ln273
+ln272:
 or ah,40h
-ln276:
+ln273:
 or cl,dl
 pop edx
 call writememorybyte
@@ -7368,12 +7074,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln277
+jz short ln274
 and ah,0BFh
-jmp short ln278
-ln277:
+jmp short ln275
+ln274:
 or ah,40h
-ln278:
+ln275:
 or cl,dl
 pop edx
 call writememorybyte
@@ -7399,12 +7105,12 @@ adc edx,byte -2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln279
+jz short ln276
 and ah,0BFh
-jmp short ln280
-ln279:
+jmp short ln277
+ln276:
 or ah,40h
-ln280:
+ln277:
 or cl,dl
 pop edx
 call writememorybyte
@@ -7428,12 +7134,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln281
+jz short ln278
 and ah,0BFh
-jmp short ln282
-ln281:
+jmp short ln279
+ln278:
 or ah,40h
-ln282:
+ln279:
 or cl,dl
 pop edx
 call writememorybyte
@@ -7455,12 +7161,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln283
+jz short ln280
 and ah,0BFh
-jmp short ln284
-ln283:
+jmp short ln281
+ln280:
 or ah,40h
-ln284:
+ln281:
 or cl,dl
 pop edx
 call writememorybyte
@@ -7481,12 +7187,12 @@ add esi,byte 2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln285
+jz short ln282
 and ah,0BFh
-jmp short ln286
-ln285:
+jmp short ln283
+ln282:
 or ah,40h
-ln286:
+ln283:
 or cl,dl
 pop edx
 call writememorybyte
@@ -7508,12 +7214,12 @@ rol edx,16
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln287
+jz short ln284
 and ah,0BFh
-jmp short ln288
-ln287:
+jmp short ln285
+ln284:
 or ah,40h
-ln288:
+ln285:
 or cl,dl
 pop edx
 call writememorybyte
@@ -7531,12 +7237,12 @@ and ecx,byte 31
 mov edx,1
 shl edx,cl
 test [__dreg+ebx*4],edx
-jz short ln289
+jz short ln286
 and ah,0BFh
-jmp short ln290
-ln289:
+jmp short ln287
+ln286:
 or ah,40h
-ln290:
+ln287:
 sub edi,byte 10
 js near execexit
 mov bx,[esi]
@@ -7555,12 +7261,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln291
+jnc short ln288
 and ah,0BFh
-jmp short ln292
-ln291:
+jmp short ln289
+ln288:
 or ah,40h
-ln292:
+ln289:
 sub edi,byte 12
 js near execexit
 mov bx,[esi]
@@ -7582,12 +7288,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln293
+jnc short ln290
 and ah,0BFh
-jmp short ln294
-ln293:
+jmp short ln291
+ln290:
 or ah,40h
-ln294:
+ln291:
 sub edi,byte 12
 js near execexit
 mov bx,[esi]
@@ -7609,12 +7315,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln295
+jnc short ln292
 and ah,0BFh
-jmp short ln296
-ln295:
+jmp short ln293
+ln292:
 or ah,40h
-ln296:
+ln293:
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
@@ -7635,12 +7341,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln297
+jnc short ln294
 and ah,0BFh
-jmp short ln298
-ln297:
+jmp short ln295
+ln294:
 or ah,40h
-ln298:
+ln295:
 sub edi,byte 16
 js near execexit
 mov bx,[esi]
@@ -7660,12 +7366,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln299
+jnc short ln296
 and ah,0BFh
-jmp short ln300
-ln299:
+jmp short ln297
+ln296:
 or ah,40h
-ln300:
+ln297:
 sub edi,byte 18
 js near execexit
 mov bx,[esi]
@@ -7684,12 +7390,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln301
+jnc short ln298
 and ah,0BFh
-jmp short ln302
-ln301:
+jmp short ln299
+ln298:
 or ah,40h
-ln302:
+ln299:
 sub edi,byte 16
 js near execexit
 mov bx,[esi]
@@ -7709,12 +7415,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln303
+jnc short ln300
 and ah,0BFh
-jmp short ln304
-ln303:
+jmp short ln301
+ln300:
 or ah,40h
-ln304:
+ln301:
 sub edi,byte 20
 js near execexit
 mov bx,[esi]
@@ -7735,12 +7441,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln305
+jnc short ln302
 and ah,0BFh
-jmp short ln306
-ln305:
+jmp short ln303
+ln302:
 or ah,40h
-ln306:
+ln303:
 sub edi,byte 16
 js near execexit
 mov bx,[esi]
@@ -7761,12 +7467,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln307
+jnc short ln304
 and ah,0BFh
-jmp short ln308
-ln307:
+jmp short ln305
+ln304:
 or ah,40h
-ln308:
+ln305:
 sub edi,byte 18
 js near execexit
 mov bx,[esi]
@@ -7784,12 +7490,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln309
+jnc short ln306
 and ah,0BFh
-jmp short ln310
-ln309:
+jmp short ln307
+ln306:
 or ah,40h
-ln310:
+ln307:
 sub edi,byte 12
 js near execexit
 mov bx,[esi]
@@ -7805,12 +7511,12 @@ mov edx,1
 shl edx,cl
 mov ecx,[__dreg+ebx*4]
 test ecx,edx
-jz short ln311
+jz short ln308
 and ah,0BFh
-jmp short ln312
-ln311:
+jmp short ln309
+ln308:
 or ah,40h
-ln312:
+ln309:
 xor ecx,edx
 mov [__dreg+ebx*4],ecx
 sub edi,byte 12
@@ -7831,12 +7537,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln313
+jz short ln310
 and ah,0BFh
-jmp short ln314
-ln313:
+jmp short ln311
+ln310:
 or ah,40h
-ln314:
+ln311:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -7858,12 +7564,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln315
+jz short ln312
 and ah,0BFh
-jmp short ln316
-ln315:
+jmp short ln313
+ln312:
 or ah,40h
-ln316:
+ln313:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -7890,12 +7596,12 @@ adc edx,byte -2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln317
+jz short ln314
 and ah,0BFh
-jmp short ln318
-ln317:
+jmp short ln315
+ln314:
 or ah,40h
-ln318:
+ln315:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -7920,12 +7626,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln319
+jz short ln316
 and ah,0BFh
-jmp short ln320
-ln319:
+jmp short ln317
+ln316:
 or ah,40h
-ln320:
+ln317:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -7948,12 +7654,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln321
+jz short ln318
 and ah,0BFh
-jmp short ln322
-ln321:
+jmp short ln319
+ln318:
 or ah,40h
-ln322:
+ln319:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -7975,12 +7681,12 @@ add esi,byte 2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln323
+jz short ln320
 and ah,0BFh
-jmp short ln324
-ln323:
+jmp short ln321
+ln320:
 or ah,40h
-ln324:
+ln321:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -8003,12 +7709,12 @@ rol edx,16
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln325
+jz short ln322
 and ah,0BFh
-jmp short ln326
-ln325:
+jmp short ln323
+ln322:
 or ah,40h
-ln326:
+ln323:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -8027,12 +7733,12 @@ mov edx,1
 shl edx,cl
 mov ecx,[__dreg+ebx*4]
 test ecx,edx
-jz short ln327
+jz short ln324
 and ah,0BFh
-jmp short ln328
-ln327:
+jmp short ln325
+ln324:
 or ah,40h
-ln328:
+ln325:
 not edx
 and ecx,edx
 mov [__dreg+ebx*4],ecx
@@ -8054,12 +7760,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln329
+jz short ln326
 and ah,0BFh
-jmp short ln330
-ln329:
+jmp short ln327
+ln326:
 or ah,40h
-ln330:
+ln327:
 not dl
 and cl,dl
 pop edx
@@ -8082,12 +7788,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln331
+jz short ln328
 and ah,0BFh
-jmp short ln332
-ln331:
+jmp short ln329
+ln328:
 or ah,40h
-ln332:
+ln329:
 not dl
 and cl,dl
 pop edx
@@ -8115,12 +7821,12 @@ adc edx,byte -2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln333
+jz short ln330
 and ah,0BFh
-jmp short ln334
-ln333:
+jmp short ln331
+ln330:
 or ah,40h
-ln334:
+ln331:
 not dl
 and cl,dl
 pop edx
@@ -8146,12 +7852,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln335
+jz short ln332
 and ah,0BFh
-jmp short ln336
-ln335:
+jmp short ln333
+ln332:
 or ah,40h
-ln336:
+ln333:
 not dl
 and cl,dl
 pop edx
@@ -8175,12 +7881,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln337
+jz short ln334
 and ah,0BFh
-jmp short ln338
-ln337:
+jmp short ln335
+ln334:
 or ah,40h
-ln338:
+ln335:
 not dl
 and cl,dl
 pop edx
@@ -8203,12 +7909,12 @@ add esi,byte 2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln339
+jz short ln336
 and ah,0BFh
-jmp short ln340
-ln339:
+jmp short ln337
+ln336:
 or ah,40h
-ln340:
+ln337:
 not dl
 and cl,dl
 pop edx
@@ -8232,12 +7938,12 @@ rol edx,16
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln341
+jz short ln338
 and ah,0BFh
-jmp short ln342
-ln341:
+jmp short ln339
+ln338:
 or ah,40h
-ln342:
+ln339:
 not dl
 and cl,dl
 pop edx
@@ -8257,12 +7963,12 @@ mov edx,1
 shl edx,cl
 mov ecx,[__dreg+ebx*4]
 test ecx,edx
-jz short ln343
+jz short ln340
 and ah,0BFh
-jmp short ln344
-ln343:
+jmp short ln341
+ln340:
 or ah,40h
-ln344:
+ln341:
 or ecx,edx
 mov [__dreg+ebx*4],ecx
 sub edi,byte 12
@@ -8283,12 +7989,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln345
+jz short ln342
 and ah,0BFh
-jmp short ln346
-ln345:
+jmp short ln343
+ln342:
 or ah,40h
-ln346:
+ln343:
 or cl,dl
 pop edx
 call writememorybyte
@@ -8310,12 +8016,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln347
+jz short ln344
 and ah,0BFh
-jmp short ln348
-ln347:
+jmp short ln345
+ln344:
 or ah,40h
-ln348:
+ln345:
 or cl,dl
 pop edx
 call writememorybyte
@@ -8342,12 +8048,12 @@ adc edx,byte -2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln349
+jz short ln346
 and ah,0BFh
-jmp short ln350
-ln349:
+jmp short ln347
+ln346:
 or ah,40h
-ln350:
+ln347:
 or cl,dl
 pop edx
 call writememorybyte
@@ -8372,12 +8078,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln351
+jz short ln348
 and ah,0BFh
-jmp short ln352
-ln351:
+jmp short ln349
+ln348:
 or ah,40h
-ln352:
+ln349:
 or cl,dl
 pop edx
 call writememorybyte
@@ -8400,12 +8106,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln353
+jz short ln350
 and ah,0BFh
-jmp short ln354
-ln353:
+jmp short ln351
+ln350:
 or ah,40h
-ln354:
+ln351:
 or cl,dl
 pop edx
 call writememorybyte
@@ -8427,12 +8133,12 @@ add esi,byte 2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln355
+jz short ln352
 and ah,0BFh
-jmp short ln356
-ln355:
+jmp short ln353
+ln352:
 or ah,40h
-ln356:
+ln353:
 or cl,dl
 pop edx
 call writememorybyte
@@ -8455,12 +8161,12 @@ rol edx,16
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln357
+jz short ln354
 and ah,0BFh
-jmp short ln358
-ln357:
+jmp short ln355
+ln354:
 or ah,40h
-ln358:
+ln355:
 or cl,dl
 pop edx
 call writememorybyte
@@ -8477,12 +8183,12 @@ and ecx,byte 31
 mov edx,1
 shl edx,cl
 test [__dreg+ebx*4],edx
-jz short ln359
+jz short ln356
 and ah,0BFh
-jmp short ln360
-ln359:
+jmp short ln357
+ln356:
 or ah,40h
-ln360:
+ln357:
 sub edi,byte 6
 js near execexit
 mov bx,[esi]
@@ -8517,12 +8223,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln361
+jnc short ln358
 and ah,0BFh
-jmp short ln362
-ln361:
+jmp short ln359
+ln358:
 or ah,40h
-ln362:
+ln359:
 sub edi,byte 8
 js near execexit
 mov bx,[esi]
@@ -8543,12 +8249,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln363
+jnc short ln360
 and ah,0BFh
-jmp short ln364
-ln363:
+jmp short ln361
+ln360:
 or ah,40h
-ln364:
+ln361:
 sub edi,byte 8
 js near execexit
 mov bx,[esi]
@@ -8569,12 +8275,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln365
+jnc short ln362
 and ah,0BFh
-jmp short ln366
-ln365:
+jmp short ln363
+ln362:
 or ah,40h
-ln366:
+ln363:
 sub edi,byte 10
 js near execexit
 mov bx,[esi]
@@ -8594,12 +8300,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln367
+jnc short ln364
 and ah,0BFh
-jmp short ln368
-ln367:
+jmp short ln365
+ln364:
 or ah,40h
-ln368:
+ln365:
 sub edi,byte 12
 js near execexit
 mov bx,[esi]
@@ -8618,12 +8324,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln369
+jnc short ln366
 and ah,0BFh
-jmp short ln370
-ln369:
+jmp short ln367
+ln366:
 or ah,40h
-ln370:
+ln367:
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
@@ -8641,12 +8347,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln371
+jnc short ln368
 and ah,0BFh
-jmp short ln372
-ln371:
+jmp short ln369
+ln368:
 or ah,40h
-ln372:
+ln369:
 sub edi,byte 12
 js near execexit
 mov bx,[esi]
@@ -8665,12 +8371,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln373
+jnc short ln370
 and ah,0BFh
-jmp short ln374
-ln373:
+jmp short ln371
+ln370:
 or ah,40h
-ln374:
+ln371:
 sub edi,byte 16
 js near execexit
 mov bx,[esi]
@@ -8690,12 +8396,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln375
+jnc short ln372
 and ah,0BFh
-jmp short ln376
-ln375:
+jmp short ln373
+ln372:
 or ah,40h
-ln376:
+ln373:
 sub edi,byte 12
 js near execexit
 mov bx,[esi]
@@ -8715,12 +8421,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln377
+jnc short ln374
 and ah,0BFh
-jmp short ln378
-ln377:
+jmp short ln375
+ln374:
 or ah,40h
-ln378:
+ln375:
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
@@ -8737,12 +8443,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln379
+jnc short ln376
 and ah,0BFh
-jmp short ln380
-ln379:
+jmp short ln377
+ln376:
 or ah,40h
-ln380:
+ln377:
 sub edi,byte 8
 js near execexit
 mov bx,[esi]
@@ -8757,12 +8463,12 @@ mov edx,1
 shl edx,cl
 mov ecx,[__dreg+ebx*4]
 test ecx,edx
-jz short ln381
+jz short ln378
 and ah,0BFh
-jmp short ln382
-ln381:
+jmp short ln379
+ln378:
 or ah,40h
-ln382:
+ln379:
 xor ecx,edx
 mov [__dreg+ebx*4],ecx
 sub edi,byte 8
@@ -8807,12 +8513,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln383
+jz short ln380
 and ah,0BFh
-jmp short ln384
-ln383:
+jmp short ln381
+ln380:
 or ah,40h
-ln384:
+ln381:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -8833,12 +8539,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln385
+jz short ln382
 and ah,0BFh
-jmp short ln386
-ln385:
+jmp short ln383
+ln382:
 or ah,40h
-ln386:
+ln383:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -8864,12 +8570,12 @@ adc edx,byte -2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln387
+jz short ln384
 and ah,0BFh
-jmp short ln388
-ln387:
+jmp short ln385
+ln384:
 or ah,40h
-ln388:
+ln385:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -8893,12 +8599,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln389
+jz short ln386
 and ah,0BFh
-jmp short ln390
-ln389:
+jmp short ln387
+ln386:
 or ah,40h
-ln390:
+ln387:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -8920,12 +8626,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln391
+jz short ln388
 and ah,0BFh
-jmp short ln392
-ln391:
+jmp short ln389
+ln388:
 or ah,40h
-ln392:
+ln389:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -8946,12 +8652,12 @@ add esi,byte 2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln393
+jz short ln390
 and ah,0BFh
-jmp short ln394
-ln393:
+jmp short ln391
+ln390:
 or ah,40h
-ln394:
+ln391:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -8973,12 +8679,12 @@ rol edx,16
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln395
+jz short ln392
 and ah,0BFh
-jmp short ln396
-ln395:
+jmp short ln393
+ln392:
 or ah,40h
-ln396:
+ln393:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -8996,12 +8702,12 @@ mov edx,1
 shl edx,cl
 mov ecx,[__dreg+ebx*4]
 test ecx,edx
-jz short ln397
+jz short ln394
 and ah,0BFh
-jmp short ln398
-ln397:
+jmp short ln395
+ln394:
 or ah,40h
-ln398:
+ln395:
 not edx
 and ecx,edx
 mov [__dreg+ebx*4],ecx
@@ -9039,12 +8745,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln399
+jz short ln396
 and ah,0BFh
-jmp short ln400
-ln399:
+jmp short ln397
+ln396:
 or ah,40h
-ln400:
+ln397:
 not dl
 and cl,dl
 pop edx
@@ -9066,12 +8772,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln401
+jz short ln398
 and ah,0BFh
-jmp short ln402
-ln401:
+jmp short ln399
+ln398:
 or ah,40h
-ln402:
+ln399:
 not dl
 and cl,dl
 pop edx
@@ -9098,12 +8804,12 @@ adc edx,byte -2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln403
+jz short ln400
 and ah,0BFh
-jmp short ln404
-ln403:
+jmp short ln401
+ln400:
 or ah,40h
-ln404:
+ln401:
 not dl
 and cl,dl
 pop edx
@@ -9128,12 +8834,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln405
+jz short ln402
 and ah,0BFh
-jmp short ln406
-ln405:
+jmp short ln403
+ln402:
 or ah,40h
-ln406:
+ln403:
 not dl
 and cl,dl
 pop edx
@@ -9156,12 +8862,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln407
+jz short ln404
 and ah,0BFh
-jmp short ln408
-ln407:
+jmp short ln405
+ln404:
 or ah,40h
-ln408:
+ln405:
 not dl
 and cl,dl
 pop edx
@@ -9183,12 +8889,12 @@ add esi,byte 2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln409
+jz short ln406
 and ah,0BFh
-jmp short ln410
-ln409:
+jmp short ln407
+ln406:
 or ah,40h
-ln410:
+ln407:
 not dl
 and cl,dl
 pop edx
@@ -9211,12 +8917,12 @@ rol edx,16
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln411
+jz short ln408
 and ah,0BFh
-jmp short ln412
-ln411:
+jmp short ln409
+ln408:
 or ah,40h
-ln412:
+ln409:
 not dl
 and cl,dl
 pop edx
@@ -9235,12 +8941,12 @@ mov edx,1
 shl edx,cl
 mov ecx,[__dreg+ebx*4]
 test ecx,edx
-jz short ln413
+jz short ln410
 and ah,0BFh
-jmp short ln414
-ln413:
+jmp short ln411
+ln410:
 or ah,40h
-ln414:
+ln411:
 or ecx,edx
 mov [__dreg+ebx*4],ecx
 sub edi,byte 8
@@ -9285,12 +8991,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln415
+jz short ln412
 and ah,0BFh
-jmp short ln416
-ln415:
+jmp short ln413
+ln412:
 or ah,40h
-ln416:
+ln413:
 or cl,dl
 pop edx
 call writememorybyte
@@ -9311,12 +9017,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln417
+jz short ln414
 and ah,0BFh
-jmp short ln418
-ln417:
+jmp short ln415
+ln414:
 or ah,40h
-ln418:
+ln415:
 or cl,dl
 pop edx
 call writememorybyte
@@ -9342,12 +9048,12 @@ adc edx,byte -2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln419
+jz short ln416
 and ah,0BFh
-jmp short ln420
-ln419:
+jmp short ln417
+ln416:
 or ah,40h
-ln420:
+ln417:
 or cl,dl
 pop edx
 call writememorybyte
@@ -9371,12 +9077,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln421
+jz short ln418
 and ah,0BFh
-jmp short ln422
-ln421:
+jmp short ln419
+ln418:
 or ah,40h
-ln422:
+ln419:
 or cl,dl
 pop edx
 call writememorybyte
@@ -9398,12 +9104,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln423
+jz short ln420
 and ah,0BFh
-jmp short ln424
-ln423:
+jmp short ln421
+ln420:
 or ah,40h
-ln424:
+ln421:
 or cl,dl
 pop edx
 call writememorybyte
@@ -9424,12 +9130,12 @@ add esi,byte 2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln425
+jz short ln422
 and ah,0BFh
-jmp short ln426
-ln425:
+jmp short ln423
+ln422:
 or ah,40h
-ln426:
+ln423:
 or cl,dl
 pop edx
 call writememorybyte
@@ -9451,12 +9157,12 @@ rol edx,16
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln427
+jz short ln424
 and ah,0BFh
-jmp short ln428
-ln427:
+jmp short ln425
+ln424:
 or ah,40h
-ln428:
+ln425:
 or cl,dl
 pop edx
 call writememorybyte
@@ -9801,25 +9507,11 @@ push ecx
 mov cl,[__sr+1]
 and cx,2020h
 xor ch,cl
-jz short ln429
+jz short ln426
 mov ecx,[__a7]
 xchg ecx,[__asp]
 mov [__a7],ecx
-test byte[esp+1],20h
-jz short ln430
-mov [__fetch_idx],dword __sfmhtbl
-mov [__readbyte_idx],dword __srbmhtbl
-mov [__readword_idx],dword __srwmhtbl
-mov [__writebyte_idx],dword __swbmhtbl
-mov [__writeword_idx],dword __swwmhtbl
-jmp short ln429
-ln430:
-mov [__fetch_idx],dword __ufmhtbl
-mov [__readbyte_idx],dword __urbmhtbl
-mov [__readword_idx],dword __urwmhtbl
-mov [__writebyte_idx],dword __uwbmhtbl
-mov [__writeword_idx],dword __uwwmhtbl
-ln429:
+ln426:
 pop ecx
 mov [__sr+1],ch
 and byte[__sr+1],0A7h
@@ -9832,8 +9524,6 @@ adc ah,ah
 sub edi,byte 20
 test edi,edi
 js near execexit
-test byte[__sr+1],80h
-jnz near trace_excep
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
@@ -10000,12 +9690,12 @@ and ecx,byte 31
 mov edx,1
 shl edx,cl
 test [__dreg+ebx*4],edx
-jz short ln431
+jz short ln428
 and ah,0BFh
-jmp short ln432
-ln431:
+jmp short ln429
+ln428:
 or ah,40h
-ln432:
+ln429:
 sub edi,byte 6
 js near execexit
 mov bx,[esi]
@@ -10040,12 +9730,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln433
+jnc short ln430
 and ah,0BFh
-jmp short ln434
-ln433:
+jmp short ln431
+ln430:
 or ah,40h
-ln434:
+ln431:
 sub edi,byte 8
 js near execexit
 mov bx,[esi]
@@ -10066,12 +9756,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln435
+jnc short ln432
 and ah,0BFh
-jmp short ln436
-ln435:
+jmp short ln433
+ln432:
 or ah,40h
-ln436:
+ln433:
 sub edi,byte 8
 js near execexit
 mov bx,[esi]
@@ -10092,12 +9782,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln437
+jnc short ln434
 and ah,0BFh
-jmp short ln438
-ln437:
+jmp short ln435
+ln434:
 or ah,40h
-ln438:
+ln435:
 sub edi,byte 10
 js near execexit
 mov bx,[esi]
@@ -10117,12 +9807,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln439
+jnc short ln436
 and ah,0BFh
-jmp short ln440
-ln439:
+jmp short ln437
+ln436:
 or ah,40h
-ln440:
+ln437:
 sub edi,byte 12
 js near execexit
 mov bx,[esi]
@@ -10141,12 +9831,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln441
+jnc short ln438
 and ah,0BFh
-jmp short ln442
-ln441:
+jmp short ln439
+ln438:
 or ah,40h
-ln442:
+ln439:
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
@@ -10164,12 +9854,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln443
+jnc short ln440
 and ah,0BFh
-jmp short ln444
-ln443:
+jmp short ln441
+ln440:
 or ah,40h
-ln444:
+ln441:
 sub edi,byte 12
 js near execexit
 mov bx,[esi]
@@ -10188,12 +9878,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln445
+jnc short ln442
 and ah,0BFh
-jmp short ln446
-ln445:
+jmp short ln443
+ln442:
 or ah,40h
-ln446:
+ln443:
 sub edi,byte 16
 js near execexit
 mov bx,[esi]
@@ -10213,12 +9903,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln447
+jnc short ln444
 and ah,0BFh
-jmp short ln448
-ln447:
+jmp short ln445
+ln444:
 or ah,40h
-ln448:
+ln445:
 sub edi,byte 12
 js near execexit
 mov bx,[esi]
@@ -10238,12 +9928,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln449
+jnc short ln446
 and ah,0BFh
-jmp short ln450
-ln449:
+jmp short ln447
+ln446:
 or ah,40h
-ln450:
+ln447:
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
@@ -10260,12 +9950,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln451
+jnc short ln448
 and ah,0BFh
-jmp short ln452
-ln451:
+jmp short ln449
+ln448:
 or ah,40h
-ln452:
+ln449:
 sub edi,byte 8
 js near execexit
 mov bx,[esi]
@@ -10280,12 +9970,12 @@ mov edx,1
 shl edx,cl
 mov ecx,[__dreg+ebx*4]
 test ecx,edx
-jz short ln453
+jz short ln450
 and ah,0BFh
-jmp short ln454
-ln453:
+jmp short ln451
+ln450:
 or ah,40h
-ln454:
+ln451:
 xor ecx,edx
 mov [__dreg+ebx*4],ecx
 sub edi,byte 8
@@ -10330,12 +10020,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln455
+jz short ln452
 and ah,0BFh
-jmp short ln456
-ln455:
+jmp short ln453
+ln452:
 or ah,40h
-ln456:
+ln453:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -10356,12 +10046,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln457
+jz short ln454
 and ah,0BFh
-jmp short ln458
-ln457:
+jmp short ln455
+ln454:
 or ah,40h
-ln458:
+ln455:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -10387,12 +10077,12 @@ adc edx,byte -2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln459
+jz short ln456
 and ah,0BFh
-jmp short ln460
-ln459:
+jmp short ln457
+ln456:
 or ah,40h
-ln460:
+ln457:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -10416,12 +10106,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln461
+jz short ln458
 and ah,0BFh
-jmp short ln462
-ln461:
+jmp short ln459
+ln458:
 or ah,40h
-ln462:
+ln459:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -10443,12 +10133,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln463
+jz short ln460
 and ah,0BFh
-jmp short ln464
-ln463:
+jmp short ln461
+ln460:
 or ah,40h
-ln464:
+ln461:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -10469,12 +10159,12 @@ add esi,byte 2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln465
+jz short ln462
 and ah,0BFh
-jmp short ln466
-ln465:
+jmp short ln463
+ln462:
 or ah,40h
-ln466:
+ln463:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -10496,12 +10186,12 @@ rol edx,16
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln467
+jz short ln464
 and ah,0BFh
-jmp short ln468
-ln467:
+jmp short ln465
+ln464:
 or ah,40h
-ln468:
+ln465:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -10519,12 +10209,12 @@ mov edx,1
 shl edx,cl
 mov ecx,[__dreg+ebx*4]
 test ecx,edx
-jz short ln469
+jz short ln466
 and ah,0BFh
-jmp short ln470
-ln469:
+jmp short ln467
+ln466:
 or ah,40h
-ln470:
+ln467:
 not edx
 and ecx,edx
 mov [__dreg+ebx*4],ecx
@@ -10562,12 +10252,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln471
+jz short ln468
 and ah,0BFh
-jmp short ln472
-ln471:
+jmp short ln469
+ln468:
 or ah,40h
-ln472:
+ln469:
 not dl
 and cl,dl
 pop edx
@@ -10589,12 +10279,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln473
+jz short ln470
 and ah,0BFh
-jmp short ln474
-ln473:
+jmp short ln471
+ln470:
 or ah,40h
-ln474:
+ln471:
 not dl
 and cl,dl
 pop edx
@@ -10621,12 +10311,12 @@ adc edx,byte -2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln475
+jz short ln472
 and ah,0BFh
-jmp short ln476
-ln475:
+jmp short ln473
+ln472:
 or ah,40h
-ln476:
+ln473:
 not dl
 and cl,dl
 pop edx
@@ -10651,12 +10341,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln477
+jz short ln474
 and ah,0BFh
-jmp short ln478
-ln477:
+jmp short ln475
+ln474:
 or ah,40h
-ln478:
+ln475:
 not dl
 and cl,dl
 pop edx
@@ -10679,12 +10369,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln479
+jz short ln476
 and ah,0BFh
-jmp short ln480
-ln479:
+jmp short ln477
+ln476:
 or ah,40h
-ln480:
+ln477:
 not dl
 and cl,dl
 pop edx
@@ -10706,12 +10396,12 @@ add esi,byte 2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln481
+jz short ln478
 and ah,0BFh
-jmp short ln482
-ln481:
+jmp short ln479
+ln478:
 or ah,40h
-ln482:
+ln479:
 not dl
 and cl,dl
 pop edx
@@ -10734,12 +10424,12 @@ rol edx,16
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln483
+jz short ln480
 and ah,0BFh
-jmp short ln484
-ln483:
+jmp short ln481
+ln480:
 or ah,40h
-ln484:
+ln481:
 not dl
 and cl,dl
 pop edx
@@ -10758,12 +10448,12 @@ mov edx,1
 shl edx,cl
 mov ecx,[__dreg+ebx*4]
 test ecx,edx
-jz short ln485
+jz short ln482
 and ah,0BFh
-jmp short ln486
-ln485:
+jmp short ln483
+ln482:
 or ah,40h
-ln486:
+ln483:
 or ecx,edx
 mov [__dreg+ebx*4],ecx
 sub edi,byte 8
@@ -10808,12 +10498,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln487
+jz short ln484
 and ah,0BFh
-jmp short ln488
-ln487:
+jmp short ln485
+ln484:
 or ah,40h
-ln488:
+ln485:
 or cl,dl
 pop edx
 call writememorybyte
@@ -10834,12 +10524,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln489
+jz short ln486
 and ah,0BFh
-jmp short ln490
-ln489:
+jmp short ln487
+ln486:
 or ah,40h
-ln490:
+ln487:
 or cl,dl
 pop edx
 call writememorybyte
@@ -10865,12 +10555,12 @@ adc edx,byte -2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln491
+jz short ln488
 and ah,0BFh
-jmp short ln492
-ln491:
+jmp short ln489
+ln488:
 or ah,40h
-ln492:
+ln489:
 or cl,dl
 pop edx
 call writememorybyte
@@ -10894,12 +10584,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln493
+jz short ln490
 and ah,0BFh
-jmp short ln494
-ln493:
+jmp short ln491
+ln490:
 or ah,40h
-ln494:
+ln491:
 or cl,dl
 pop edx
 call writememorybyte
@@ -10921,12 +10611,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln495
+jz short ln492
 and ah,0BFh
-jmp short ln496
-ln495:
+jmp short ln493
+ln492:
 or ah,40h
-ln496:
+ln493:
 or cl,dl
 pop edx
 call writememorybyte
@@ -10947,12 +10637,12 @@ add esi,byte 2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln497
+jz short ln494
 and ah,0BFh
-jmp short ln498
-ln497:
+jmp short ln495
+ln494:
 or ah,40h
-ln498:
+ln495:
 or cl,dl
 pop edx
 call writememorybyte
@@ -10974,12 +10664,12 @@ rol edx,16
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln499
+jz short ln496
 and ah,0BFh
-jmp short ln500
-ln499:
+jmp short ln497
+ln496:
 or ah,40h
-ln500:
+ln497:
 or cl,dl
 pop edx
 call writememorybyte
@@ -11426,12 +11116,12 @@ and ecx,byte 31
 mov edx,1
 shl edx,cl
 test [__dreg+ebx*4],edx
-jz short ln501
+jz short ln498
 and ah,0BFh
-jmp short ln502
-ln501:
+jmp short ln499
+ln498:
 or ah,40h
-ln502:
+ln499:
 sub edi,byte 6
 js near execexit
 mov bx,[esi]
@@ -11466,12 +11156,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln503
+jnc short ln500
 and ah,0BFh
-jmp short ln504
-ln503:
+jmp short ln501
+ln500:
 or ah,40h
-ln504:
+ln501:
 sub edi,byte 8
 js near execexit
 mov bx,[esi]
@@ -11492,12 +11182,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln505
+jnc short ln502
 and ah,0BFh
-jmp short ln506
-ln505:
+jmp short ln503
+ln502:
 or ah,40h
-ln506:
+ln503:
 sub edi,byte 8
 js near execexit
 mov bx,[esi]
@@ -11518,12 +11208,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln507
+jnc short ln504
 and ah,0BFh
-jmp short ln508
-ln507:
+jmp short ln505
+ln504:
 or ah,40h
-ln508:
+ln505:
 sub edi,byte 10
 js near execexit
 mov bx,[esi]
@@ -11543,12 +11233,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln509
+jnc short ln506
 and ah,0BFh
-jmp short ln510
-ln509:
+jmp short ln507
+ln506:
 or ah,40h
-ln510:
+ln507:
 sub edi,byte 12
 js near execexit
 mov bx,[esi]
@@ -11567,12 +11257,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln511
+jnc short ln508
 and ah,0BFh
-jmp short ln512
-ln511:
+jmp short ln509
+ln508:
 or ah,40h
-ln512:
+ln509:
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
@@ -11590,12 +11280,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln513
+jnc short ln510
 and ah,0BFh
-jmp short ln514
-ln513:
+jmp short ln511
+ln510:
 or ah,40h
-ln514:
+ln511:
 sub edi,byte 12
 js near execexit
 mov bx,[esi]
@@ -11614,12 +11304,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln515
+jnc short ln512
 and ah,0BFh
-jmp short ln516
-ln515:
+jmp short ln513
+ln512:
 or ah,40h
-ln516:
+ln513:
 sub edi,byte 16
 js near execexit
 mov bx,[esi]
@@ -11639,12 +11329,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln517
+jnc short ln514
 and ah,0BFh
-jmp short ln518
-ln517:
+jmp short ln515
+ln514:
 or ah,40h
-ln518:
+ln515:
 sub edi,byte 12
 js near execexit
 mov bx,[esi]
@@ -11664,12 +11354,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln519
+jnc short ln516
 and ah,0BFh
-jmp short ln520
-ln519:
+jmp short ln517
+ln516:
 or ah,40h
-ln520:
+ln517:
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
@@ -11686,12 +11376,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln521
+jnc short ln518
 and ah,0BFh
-jmp short ln522
-ln521:
+jmp short ln519
+ln518:
 or ah,40h
-ln522:
+ln519:
 sub edi,byte 8
 js near execexit
 mov bx,[esi]
@@ -11706,12 +11396,12 @@ mov edx,1
 shl edx,cl
 mov ecx,[__dreg+ebx*4]
 test ecx,edx
-jz short ln523
+jz short ln520
 and ah,0BFh
-jmp short ln524
-ln523:
+jmp short ln521
+ln520:
 or ah,40h
-ln524:
+ln521:
 xor ecx,edx
 mov [__dreg+ebx*4],ecx
 sub edi,byte 8
@@ -11756,12 +11446,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln525
+jz short ln522
 and ah,0BFh
-jmp short ln526
-ln525:
+jmp short ln523
+ln522:
 or ah,40h
-ln526:
+ln523:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -11782,12 +11472,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln527
+jz short ln524
 and ah,0BFh
-jmp short ln528
-ln527:
+jmp short ln525
+ln524:
 or ah,40h
-ln528:
+ln525:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -11813,12 +11503,12 @@ adc edx,byte -2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln529
+jz short ln526
 and ah,0BFh
-jmp short ln530
-ln529:
+jmp short ln527
+ln526:
 or ah,40h
-ln530:
+ln527:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -11842,12 +11532,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln531
+jz short ln528
 and ah,0BFh
-jmp short ln532
-ln531:
+jmp short ln529
+ln528:
 or ah,40h
-ln532:
+ln529:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -11869,12 +11559,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln533
+jz short ln530
 and ah,0BFh
-jmp short ln534
-ln533:
+jmp short ln531
+ln530:
 or ah,40h
-ln534:
+ln531:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -11895,12 +11585,12 @@ add esi,byte 2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln535
+jz short ln532
 and ah,0BFh
-jmp short ln536
-ln535:
+jmp short ln533
+ln532:
 or ah,40h
-ln536:
+ln533:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -11922,12 +11612,12 @@ rol edx,16
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln537
+jz short ln534
 and ah,0BFh
-jmp short ln538
-ln537:
+jmp short ln535
+ln534:
 or ah,40h
-ln538:
+ln535:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -11945,12 +11635,12 @@ mov edx,1
 shl edx,cl
 mov ecx,[__dreg+ebx*4]
 test ecx,edx
-jz short ln539
+jz short ln536
 and ah,0BFh
-jmp short ln540
-ln539:
+jmp short ln537
+ln536:
 or ah,40h
-ln540:
+ln537:
 not edx
 and ecx,edx
 mov [__dreg+ebx*4],ecx
@@ -11988,12 +11678,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln541
+jz short ln538
 and ah,0BFh
-jmp short ln542
-ln541:
+jmp short ln539
+ln538:
 or ah,40h
-ln542:
+ln539:
 not dl
 and cl,dl
 pop edx
@@ -12015,12 +11705,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln543
+jz short ln540
 and ah,0BFh
-jmp short ln544
-ln543:
+jmp short ln541
+ln540:
 or ah,40h
-ln544:
+ln541:
 not dl
 and cl,dl
 pop edx
@@ -12047,12 +11737,12 @@ adc edx,byte -2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln545
+jz short ln542
 and ah,0BFh
-jmp short ln546
-ln545:
+jmp short ln543
+ln542:
 or ah,40h
-ln546:
+ln543:
 not dl
 and cl,dl
 pop edx
@@ -12077,12 +11767,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln547
+jz short ln544
 and ah,0BFh
-jmp short ln548
-ln547:
+jmp short ln545
+ln544:
 or ah,40h
-ln548:
+ln545:
 not dl
 and cl,dl
 pop edx
@@ -12105,12 +11795,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln549
+jz short ln546
 and ah,0BFh
-jmp short ln550
-ln549:
+jmp short ln547
+ln546:
 or ah,40h
-ln550:
+ln547:
 not dl
 and cl,dl
 pop edx
@@ -12132,12 +11822,12 @@ add esi,byte 2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln551
+jz short ln548
 and ah,0BFh
-jmp short ln552
-ln551:
+jmp short ln549
+ln548:
 or ah,40h
-ln552:
+ln549:
 not dl
 and cl,dl
 pop edx
@@ -12160,12 +11850,12 @@ rol edx,16
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln553
+jz short ln550
 and ah,0BFh
-jmp short ln554
-ln553:
+jmp short ln551
+ln550:
 or ah,40h
-ln554:
+ln551:
 not dl
 and cl,dl
 pop edx
@@ -12184,12 +11874,12 @@ mov edx,1
 shl edx,cl
 mov ecx,[__dreg+ebx*4]
 test ecx,edx
-jz short ln555
+jz short ln552
 and ah,0BFh
-jmp short ln556
-ln555:
+jmp short ln553
+ln552:
 or ah,40h
-ln556:
+ln553:
 or ecx,edx
 mov [__dreg+ebx*4],ecx
 sub edi,byte 8
@@ -12234,12 +11924,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln557
+jz short ln554
 and ah,0BFh
-jmp short ln558
-ln557:
+jmp short ln555
+ln554:
 or ah,40h
-ln558:
+ln555:
 or cl,dl
 pop edx
 call writememorybyte
@@ -12260,12 +11950,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln559
+jz short ln556
 and ah,0BFh
-jmp short ln560
-ln559:
+jmp short ln557
+ln556:
 or ah,40h
-ln560:
+ln557:
 or cl,dl
 pop edx
 call writememorybyte
@@ -12291,12 +11981,12 @@ adc edx,byte -2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln561
+jz short ln558
 and ah,0BFh
-jmp short ln562
-ln561:
+jmp short ln559
+ln558:
 or ah,40h
-ln562:
+ln559:
 or cl,dl
 pop edx
 call writememorybyte
@@ -12320,12 +12010,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln563
+jz short ln560
 and ah,0BFh
-jmp short ln564
-ln563:
+jmp short ln561
+ln560:
 or ah,40h
-ln564:
+ln561:
 or cl,dl
 pop edx
 call writememorybyte
@@ -12347,12 +12037,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln565
+jz short ln562
 and ah,0BFh
-jmp short ln566
-ln565:
+jmp short ln563
+ln562:
 or ah,40h
-ln566:
+ln563:
 or cl,dl
 pop edx
 call writememorybyte
@@ -12373,12 +12063,12 @@ add esi,byte 2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln567
+jz short ln564
 and ah,0BFh
-jmp short ln568
-ln567:
+jmp short ln565
+ln564:
 or ah,40h
-ln568:
+ln565:
 or cl,dl
 pop edx
 call writememorybyte
@@ -12400,12 +12090,12 @@ rol edx,16
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln569
+jz short ln566
 and ah,0BFh
-jmp short ln570
-ln569:
+jmp short ln567
+ln566:
 or ah,40h
-ln570:
+ln567:
 or cl,dl
 pop edx
 call writememorybyte
@@ -12422,12 +12112,12 @@ and ecx,byte 31
 mov edx,1
 shl edx,cl
 test [__dreg+ebx*4],edx
-jz short ln571
+jz short ln568
 and ah,0BFh
-jmp short ln572
-ln571:
+jmp short ln569
+ln568:
 or ah,40h
-ln572:
+ln569:
 sub edi,byte 6
 js near execexit
 mov bx,[esi]
@@ -12462,12 +12152,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln573
+jnc short ln570
 and ah,0BFh
-jmp short ln574
-ln573:
+jmp short ln571
+ln570:
 or ah,40h
-ln574:
+ln571:
 sub edi,byte 8
 js near execexit
 mov bx,[esi]
@@ -12488,12 +12178,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln575
+jnc short ln572
 and ah,0BFh
-jmp short ln576
-ln575:
+jmp short ln573
+ln572:
 or ah,40h
-ln576:
+ln573:
 sub edi,byte 8
 js near execexit
 mov bx,[esi]
@@ -12514,12 +12204,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln577
+jnc short ln574
 and ah,0BFh
-jmp short ln578
-ln577:
+jmp short ln575
+ln574:
 or ah,40h
-ln578:
+ln575:
 sub edi,byte 10
 js near execexit
 mov bx,[esi]
@@ -12539,12 +12229,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln579
+jnc short ln576
 and ah,0BFh
-jmp short ln580
-ln579:
+jmp short ln577
+ln576:
 or ah,40h
-ln580:
+ln577:
 sub edi,byte 12
 js near execexit
 mov bx,[esi]
@@ -12563,12 +12253,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln581
+jnc short ln578
 and ah,0BFh
-jmp short ln582
-ln581:
+jmp short ln579
+ln578:
 or ah,40h
-ln582:
+ln579:
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
@@ -12586,12 +12276,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln583
+jnc short ln580
 and ah,0BFh
-jmp short ln584
-ln583:
+jmp short ln581
+ln580:
 or ah,40h
-ln584:
+ln581:
 sub edi,byte 12
 js near execexit
 mov bx,[esi]
@@ -12610,12 +12300,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln585
+jnc short ln582
 and ah,0BFh
-jmp short ln586
-ln585:
+jmp short ln583
+ln582:
 or ah,40h
-ln586:
+ln583:
 sub edi,byte 16
 js near execexit
 mov bx,[esi]
@@ -12635,12 +12325,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln587
+jnc short ln584
 and ah,0BFh
-jmp short ln588
-ln587:
+jmp short ln585
+ln584:
 or ah,40h
-ln588:
+ln585:
 sub edi,byte 12
 js near execexit
 mov bx,[esi]
@@ -12660,12 +12350,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln589
+jnc short ln586
 and ah,0BFh
-jmp short ln590
-ln589:
+jmp short ln587
+ln586:
 or ah,40h
-ln590:
+ln587:
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
@@ -12682,12 +12372,12 @@ mov edx,ecx
 pop ecx
 inc cl
 shr dl,cl
-jnc short ln591
+jnc short ln588
 and ah,0BFh
-jmp short ln592
-ln591:
+jmp short ln589
+ln588:
 or ah,40h
-ln592:
+ln589:
 sub edi,byte 8
 js near execexit
 mov bx,[esi]
@@ -12702,12 +12392,12 @@ mov edx,1
 shl edx,cl
 mov ecx,[__dreg+ebx*4]
 test ecx,edx
-jz short ln593
+jz short ln590
 and ah,0BFh
-jmp short ln594
-ln593:
+jmp short ln591
+ln590:
 or ah,40h
-ln594:
+ln591:
 xor ecx,edx
 mov [__dreg+ebx*4],ecx
 sub edi,byte 8
@@ -12752,12 +12442,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln595
+jz short ln592
 and ah,0BFh
-jmp short ln596
-ln595:
+jmp short ln593
+ln592:
 or ah,40h
-ln596:
+ln593:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -12778,12 +12468,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln597
+jz short ln594
 and ah,0BFh
-jmp short ln598
-ln597:
+jmp short ln595
+ln594:
 or ah,40h
-ln598:
+ln595:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -12809,12 +12499,12 @@ adc edx,byte -2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln599
+jz short ln596
 and ah,0BFh
-jmp short ln600
-ln599:
+jmp short ln597
+ln596:
 or ah,40h
-ln600:
+ln597:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -12838,12 +12528,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln601
+jz short ln598
 and ah,0BFh
-jmp short ln602
-ln601:
+jmp short ln599
+ln598:
 or ah,40h
-ln602:
+ln599:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -12865,12 +12555,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln603
+jz short ln600
 and ah,0BFh
-jmp short ln604
-ln603:
+jmp short ln601
+ln600:
 or ah,40h
-ln604:
+ln601:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -12891,12 +12581,12 @@ add esi,byte 2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln605
+jz short ln602
 and ah,0BFh
-jmp short ln606
-ln605:
+jmp short ln603
+ln602:
 or ah,40h
-ln606:
+ln603:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -12918,12 +12608,12 @@ rol edx,16
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln607
+jz short ln604
 and ah,0BFh
-jmp short ln608
-ln607:
+jmp short ln605
+ln604:
 or ah,40h
-ln608:
+ln605:
 xor cl,dl
 pop edx
 call writememorybyte
@@ -12941,12 +12631,12 @@ mov edx,1
 shl edx,cl
 mov ecx,[__dreg+ebx*4]
 test ecx,edx
-jz short ln609
+jz short ln606
 and ah,0BFh
-jmp short ln610
-ln609:
+jmp short ln607
+ln606:
 or ah,40h
-ln610:
+ln607:
 not edx
 and ecx,edx
 mov [__dreg+ebx*4],ecx
@@ -12984,12 +12674,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln611
+jz short ln608
 and ah,0BFh
-jmp short ln612
-ln611:
+jmp short ln609
+ln608:
 or ah,40h
-ln612:
+ln609:
 not dl
 and cl,dl
 pop edx
@@ -13011,12 +12701,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln613
+jz short ln610
 and ah,0BFh
-jmp short ln614
-ln613:
+jmp short ln611
+ln610:
 or ah,40h
-ln614:
+ln611:
 not dl
 and cl,dl
 pop edx
@@ -13043,12 +12733,12 @@ adc edx,byte -2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln615
+jz short ln612
 and ah,0BFh
-jmp short ln616
-ln615:
+jmp short ln613
+ln612:
 or ah,40h
-ln616:
+ln613:
 not dl
 and cl,dl
 pop edx
@@ -13073,12 +12763,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln617
+jz short ln614
 and ah,0BFh
-jmp short ln618
-ln617:
+jmp short ln615
+ln614:
 or ah,40h
-ln618:
+ln615:
 not dl
 and cl,dl
 pop edx
@@ -13101,12 +12791,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln619
+jz short ln616
 and ah,0BFh
-jmp short ln620
-ln619:
+jmp short ln617
+ln616:
 or ah,40h
-ln620:
+ln617:
 not dl
 and cl,dl
 pop edx
@@ -13128,12 +12818,12 @@ add esi,byte 2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln621
+jz short ln618
 and ah,0BFh
-jmp short ln622
-ln621:
+jmp short ln619
+ln618:
 or ah,40h
-ln622:
+ln619:
 not dl
 and cl,dl
 pop edx
@@ -13156,12 +12846,12 @@ rol edx,16
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln623
+jz short ln620
 and ah,0BFh
-jmp short ln624
-ln623:
+jmp short ln621
+ln620:
 or ah,40h
-ln624:
+ln621:
 not dl
 and cl,dl
 pop edx
@@ -13180,12 +12870,12 @@ mov edx,1
 shl edx,cl
 mov ecx,[__dreg+ebx*4]
 test ecx,edx
-jz short ln625
+jz short ln622
 and ah,0BFh
-jmp short ln626
-ln625:
+jmp short ln623
+ln622:
 or ah,40h
-ln626:
+ln623:
 or ecx,edx
 mov [__dreg+ebx*4],ecx
 sub edi,byte 8
@@ -13230,12 +12920,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln627
+jz short ln624
 and ah,0BFh
-jmp short ln628
-ln627:
+jmp short ln625
+ln624:
 or ah,40h
-ln628:
+ln625:
 or cl,dl
 pop edx
 call writememorybyte
@@ -13256,12 +12946,12 @@ mov edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln629
+jz short ln626
 and ah,0BFh
-jmp short ln630
-ln629:
+jmp short ln627
+ln626:
 or ah,40h
-ln630:
+ln627:
 or cl,dl
 pop edx
 call writememorybyte
@@ -13287,12 +12977,12 @@ adc edx,byte -2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln631
+jz short ln628
 and ah,0BFh
-jmp short ln632
-ln631:
+jmp short ln629
+ln628:
 or ah,40h
-ln632:
+ln629:
 or cl,dl
 pop edx
 call writememorybyte
@@ -13316,12 +13006,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln633
+jz short ln630
 and ah,0BFh
-jmp short ln634
-ln633:
+jmp short ln631
+ln630:
 or ah,40h
-ln634:
+ln631:
 or cl,dl
 pop edx
 call writememorybyte
@@ -13343,12 +13033,12 @@ add edx,[__areg+ebx*4]
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln635
+jz short ln632
 and ah,0BFh
-jmp short ln636
-ln635:
+jmp short ln633
+ln632:
 or ah,40h
-ln636:
+ln633:
 or cl,dl
 pop edx
 call writememorybyte
@@ -13369,12 +13059,12 @@ add esi,byte 2
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln637
+jz short ln634
 and ah,0BFh
-jmp short ln638
-ln637:
+jmp short ln635
+ln634:
 or ah,40h
-ln638:
+ln635:
 or cl,dl
 pop edx
 call writememorybyte
@@ -13396,12 +13086,12 @@ rol edx,16
 call readmemorybyte
 xchg edx,[esp]
 test cl,dl
-jz short ln639
+jz short ln636
 and ah,0BFh
-jmp short ln640
-ln639:
+jmp short ln637
+ln636:
 or ah,40h
-ln640:
+ln637:
 or cl,dl
 pop edx
 call writememorybyte
@@ -46092,10 +45782,10 @@ mov dl,ah
 lahf
 seto al
 setc [__xflag]
-jnz short ln641
+jnz short ln638
 or dl,0BFh
 and ah,dl
-ln641:
+ln638:
 mov [__dreg+ebx*4],cl
 sub edi,byte 4
 js near execexit
@@ -46116,10 +45806,10 @@ mov bl,ah
 lahf
 seto al
 setc [__xflag]
-jnz short ln642
+jnz short ln639
 or bl,0BFh
 and ah,bl
-ln642:
+ln639:
 pop ebx
 call writememorybyte
 sub edi,byte 12
@@ -46141,10 +45831,10 @@ mov bl,ah
 lahf
 seto al
 setc [__xflag]
-jnz short ln643
+jnz short ln640
 or bl,0BFh
 and ah,bl
-ln643:
+ln640:
 pop ebx
 call writememorybyte
 cmp bl,7
@@ -46171,10 +45861,10 @@ mov bl,ah
 lahf
 seto al
 setc [__xflag]
-jnz short ln644
+jnz short ln641
 or bl,0BFh
 and ah,bl
-ln644:
+ln641:
 pop ebx
 call writememorybyte
 mov [__areg+ebx*4],edx
@@ -46199,10 +45889,10 @@ mov bl,ah
 lahf
 seto al
 setc [__xflag]
-jnz short ln645
+jnz short ln642
 or bl,0BFh
 and ah,bl
-ln645:
+ln642:
 pop ebx
 call writememorybyte
 sub edi,byte 16
@@ -46225,10 +45915,10 @@ mov bl,ah
 lahf
 seto al
 setc [__xflag]
-jnz short ln646
+jnz short ln643
 or bl,0BFh
 and ah,bl
-ln646:
+ln643:
 pop ebx
 call writememorybyte
 sub edi,byte 18
@@ -46250,10 +45940,10 @@ mov bl,ah
 lahf
 seto al
 setc [__xflag]
-jnz short ln647
+jnz short ln644
 or bl,0BFh
 and ah,bl
-ln647:
+ln644:
 pop ebx
 call writememorybyte
 sub edi,byte 16
@@ -46276,10 +45966,10 @@ mov bl,ah
 lahf
 seto al
 setc [__xflag]
-jnz short ln648
+jnz short ln645
 or bl,0BFh
 and ah,bl
-ln648:
+ln645:
 pop ebx
 call writememorybyte
 sub edi,byte 20
@@ -46297,10 +45987,10 @@ mov dl,ah
 lahf
 seto al
 setc [__xflag]
-jnz short ln649
+jnz short ln646
 or dl,0BFh
 and ah,dl
-ln649:
+ln646:
 mov [__dreg+ebx*4],cx
 sub edi,byte 4
 js near execexit
@@ -46321,10 +46011,10 @@ mov bl,ah
 lahf
 seto al
 setc [__xflag]
-jnz short ln650
+jnz short ln647
 or bl,0BFh
 and ah,bl
-ln650:
+ln647:
 pop ebx
 call writememoryword
 sub edi,byte 12
@@ -46346,10 +46036,10 @@ mov bl,ah
 lahf
 seto al
 setc [__xflag]
-jnz short ln651
+jnz short ln648
 or bl,0BFh
 and ah,bl
-ln651:
+ln648:
 pop ebx
 call writememoryword
 add edx,byte 2
@@ -46374,10 +46064,10 @@ mov bl,ah
 lahf
 seto al
 setc [__xflag]
-jnz short ln652
+jnz short ln649
 or bl,0BFh
 and ah,bl
-ln652:
+ln649:
 pop ebx
 call writememoryword
 mov [__areg+ebx*4],edx
@@ -46402,10 +46092,10 @@ mov bl,ah
 lahf
 seto al
 setc [__xflag]
-jnz short ln653
+jnz short ln650
 or bl,0BFh
 and ah,bl
-ln653:
+ln650:
 pop ebx
 call writememoryword
 sub edi,byte 16
@@ -46428,10 +46118,10 @@ mov bl,ah
 lahf
 seto al
 setc [__xflag]
-jnz short ln654
+jnz short ln651
 or bl,0BFh
 and ah,bl
-ln654:
+ln651:
 pop ebx
 call writememoryword
 sub edi,byte 18
@@ -46453,10 +46143,10 @@ mov bl,ah
 lahf
 seto al
 setc [__xflag]
-jnz short ln655
+jnz short ln652
 or bl,0BFh
 and ah,bl
-ln655:
+ln652:
 pop ebx
 call writememoryword
 sub edi,byte 16
@@ -46479,10 +46169,10 @@ mov bl,ah
 lahf
 seto al
 setc [__xflag]
-jnz short ln656
+jnz short ln653
 or bl,0BFh
 and ah,bl
-ln656:
+ln653:
 pop ebx
 call writememoryword
 sub edi,byte 20
@@ -46500,10 +46190,10 @@ mov dl,ah
 lahf
 seto al
 setc [__xflag]
-jnz short ln657
+jnz short ln654
 or dl,0BFh
 and ah,dl
-ln657:
+ln654:
 mov [__dreg+ebx*4],ecx
 sub edi,byte 6
 js near execexit
@@ -46524,10 +46214,10 @@ mov bl,ah
 lahf
 seto al
 setc [__xflag]
-jnz short ln658
+jnz short ln655
 or bl,0BFh
 and ah,bl
-ln658:
+ln655:
 pop ebx
 call writememorydword
 sub edi,byte 20
@@ -46549,10 +46239,10 @@ mov bl,ah
 lahf
 seto al
 setc [__xflag]
-jnz short ln659
+jnz short ln656
 or bl,0BFh
 and ah,bl
-ln659:
+ln656:
 pop ebx
 call writememorydword
 add edx,byte 4
@@ -46577,10 +46267,10 @@ mov bl,ah
 lahf
 seto al
 setc [__xflag]
-jnz short ln660
+jnz short ln657
 or bl,0BFh
 and ah,bl
-ln660:
+ln657:
 pop ebx
 call writememorydword
 mov [__areg+ebx*4],edx
@@ -46605,10 +46295,10 @@ mov bl,ah
 lahf
 seto al
 setc [__xflag]
-jnz short ln661
+jnz short ln658
 or bl,0BFh
 and ah,bl
-ln661:
+ln658:
 pop ebx
 call writememorydword
 sub edi,byte 24
@@ -46631,10 +46321,10 @@ mov bl,ah
 lahf
 seto al
 setc [__xflag]
-jnz short ln662
+jnz short ln659
 or bl,0BFh
 and ah,bl
-ln662:
+ln659:
 pop ebx
 call writememorydword
 sub edi,byte 26
@@ -46656,10 +46346,10 @@ mov bl,ah
 lahf
 seto al
 setc [__xflag]
-jnz short ln663
+jnz short ln660
 or bl,0BFh
 and ah,bl
-ln663:
+ln660:
 pop ebx
 call writememorydword
 sub edi,byte 24
@@ -46682,10 +46372,10 @@ mov bl,ah
 lahf
 seto al
 setc [__xflag]
-jnz short ln664
+jnz short ln661
 or bl,0BFh
 and ah,bl
-ln664:
+ln661:
 pop ebx
 call writememorydword
 sub edi,byte 28
@@ -46848,32 +46538,28 @@ jmp dword[__jmptbl+ebx*4]
 O180:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
-xor al,al
-mov bx,word[__dreg+0]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+0],word 0
-jl short setn665
+jl short setn662
 cmp word[__dreg+0],cx
-jg short ln665
+jg short ln662
 sub edi,byte 10
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn665:
+setn662:
 or ah,80h
-ln665:
+ln662:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln666
+je short ln663
 call basefunction
-ln666:
+ln663:
 add esi,ebp
 sub edi,byte 50
 js near execexit
@@ -46885,32 +46571,28 @@ O190:
 and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+0]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+0],word 0
-jl short setn667
+jl short setn664
 cmp word[__dreg+0],cx
-jg short ln667
+jg short ln664
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn667:
+setn664:
 or ah,80h
-ln667:
+ln664:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln668
+je short ln665
 call basefunction
-ln668:
+ln665:
 add esi,ebp
 sub edi,byte 54
 js near execexit
@@ -46924,32 +46606,28 @@ mov edx,[__areg+ebx*4]
 call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
-xor al,al
-mov bx,word[__dreg+0]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+0],word 0
-jl short setn669
+jl short setn666
 cmp word[__dreg+0],cx
-jg short ln669
+jg short ln666
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn669:
+setn666:
 or ah,80h
-ln669:
+ln666:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln670
+je short ln667
 call basefunction
-ln670:
+ln667:
 add esi,ebp
 sub edi,byte 54
 js near execexit
@@ -46963,32 +46641,28 @@ mov edx,[__areg+ebx*4]
 sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
-xor al,al
-mov bx,word[__dreg+0]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+0],word 0
-jl short setn671
+jl short setn668
 cmp word[__dreg+0],cx
-jg short ln671
+jg short ln668
 sub edi,byte 16
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn671:
+setn668:
 or ah,80h
-ln671:
+ln668:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln672
+je short ln669
 call basefunction
-ln672:
+ln669:
 add esi,ebp
 sub edi,byte 56
 js near execexit
@@ -47002,32 +46676,28 @@ movsx edx,word[esi]
 add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+0]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+0],word 0
-jl short setn673
+jl short setn670
 cmp word[__dreg+0],cx
-jg short ln673
+jg short ln670
 sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn673:
+setn670:
 or ah,80h
-ln673:
+ln670:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln674
+je short ln671
 call basefunction
-ln674:
+ln671:
 add esi,ebp
 sub edi,byte 58
 js near execexit
@@ -47040,32 +46710,28 @@ and ebx,byte 7
 call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+0]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+0],word 0
-jl short setn675
+jl short setn672
 cmp word[__dreg+0],cx
-jg short ln675
+jg short ln672
 sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn675:
+setn672:
 or ah,80h
-ln675:
+ln672:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln676
+je short ln673
 call basefunction
-ln676:
+ln673:
 add esi,ebp
 sub edi,byte 60
 js near execexit
@@ -47077,32 +46743,28 @@ O1B8:
 movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+0]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+0],word 0
-jl short setn677
+jl short setn674
 cmp word[__dreg+0],cx
-jg short ln677
+jg short ln674
 sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn677:
+setn674:
 or ah,80h
-ln677:
+ln674:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln678
+je short ln675
 call basefunction
-ln678:
+ln675:
 add esi,ebp
 sub edi,byte 58
 js near execexit
@@ -47115,32 +46777,28 @@ mov edx,[esi]
 add esi,byte 4
 rol edx,16
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+0]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+0],word 0
-jl short setn679
+jl short setn676
 cmp word[__dreg+0],cx
-jg short ln679
+jg short ln676
 sub edi,byte 22
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn679:
+setn676:
 or ah,80h
-ln679:
+ln676:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln680
+je short ln677
 call basefunction
-ln680:
+ln677:
 add esi,ebp
 sub edi,byte 62
 js near execexit
@@ -47154,32 +46812,28 @@ add edx,esi
 sub edx,ebp
 add esi,byte 2
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+0]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+0],word 0
-jl short setn681
+jl short setn678
 cmp word[__dreg+0],cx
-jg short ln681
+jg short ln678
 sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn681:
+setn678:
 or ah,80h
-ln681:
+ln678:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln682
+je short ln679
 call basefunction
-ln682:
+ln679:
 add esi,ebp
 sub edi,byte 58
 js near execexit
@@ -47193,32 +46847,28 @@ add edx,esi
 sub edx,ebp
 sub edx,byte 2
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+0]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+0],word 0
-jl short setn683
+jl short setn680
 cmp word[__dreg+0],cx
-jg short ln683
+jg short ln680
 sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn683:
+setn680:
 or ah,80h
-ln683:
+ln680:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln684
+je short ln681
 call basefunction
-ln684:
+ln681:
 add esi,ebp
 sub edi,byte 60
 js near execexit
@@ -47229,32 +46879,28 @@ jmp dword[__jmptbl+ebx*4]
 O1BC:
 mov cx,[esi]
 add esi,byte 2
-xor al,al
-mov bx,word[__dreg+0]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+0],word 0
-jl short setn685
+jl short setn682
 cmp word[__dreg+0],cx
-jg short ln685
+jg short ln682
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn685:
+setn682:
 or ah,80h
-ln685:
+ln682:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln686
+je short ln683
 call basefunction
-ln686:
+ln683:
 add esi,ebp
 sub edi,byte 54
 js near execexit
@@ -47654,32 +47300,28 @@ jmp dword[__jmptbl+ebx*4]
 O380:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
-xor al,al
-mov bx,word[__dreg+4]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+4],word 0
-jl short setn687
+jl short setn684
 cmp word[__dreg+4],cx
-jg short ln687
+jg short ln684
 sub edi,byte 10
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn687:
+setn684:
 or ah,80h
-ln687:
+ln684:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln688
+je short ln685
 call basefunction
-ln688:
+ln685:
 add esi,ebp
 sub edi,byte 50
 js near execexit
@@ -47691,32 +47333,28 @@ O390:
 and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+4]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+4],word 0
-jl short setn689
+jl short setn686
 cmp word[__dreg+4],cx
-jg short ln689
+jg short ln686
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn689:
+setn686:
 or ah,80h
-ln689:
+ln686:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln690
+je short ln687
 call basefunction
-ln690:
+ln687:
 add esi,ebp
 sub edi,byte 54
 js near execexit
@@ -47730,32 +47368,28 @@ mov edx,[__areg+ebx*4]
 call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
-xor al,al
-mov bx,word[__dreg+4]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+4],word 0
-jl short setn691
+jl short setn688
 cmp word[__dreg+4],cx
-jg short ln691
+jg short ln688
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn691:
+setn688:
 or ah,80h
-ln691:
+ln688:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln692
+je short ln689
 call basefunction
-ln692:
+ln689:
 add esi,ebp
 sub edi,byte 54
 js near execexit
@@ -47769,32 +47403,28 @@ mov edx,[__areg+ebx*4]
 sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
-xor al,al
-mov bx,word[__dreg+4]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+4],word 0
-jl short setn693
+jl short setn690
 cmp word[__dreg+4],cx
-jg short ln693
+jg short ln690
 sub edi,byte 16
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn693:
+setn690:
 or ah,80h
-ln693:
+ln690:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln694
+je short ln691
 call basefunction
-ln694:
+ln691:
 add esi,ebp
 sub edi,byte 56
 js near execexit
@@ -47808,32 +47438,28 @@ movsx edx,word[esi]
 add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+4]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+4],word 0
-jl short setn695
+jl short setn692
 cmp word[__dreg+4],cx
-jg short ln695
+jg short ln692
 sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn695:
+setn692:
 or ah,80h
-ln695:
+ln692:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln696
+je short ln693
 call basefunction
-ln696:
+ln693:
 add esi,ebp
 sub edi,byte 58
 js near execexit
@@ -47846,32 +47472,28 @@ and ebx,byte 7
 call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+4]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+4],word 0
-jl short setn697
+jl short setn694
 cmp word[__dreg+4],cx
-jg short ln697
+jg short ln694
 sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn697:
+setn694:
 or ah,80h
-ln697:
+ln694:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln698
+je short ln695
 call basefunction
-ln698:
+ln695:
 add esi,ebp
 sub edi,byte 60
 js near execexit
@@ -47883,32 +47505,28 @@ O3B8:
 movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+4]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+4],word 0
-jl short setn699
+jl short setn696
 cmp word[__dreg+4],cx
-jg short ln699
+jg short ln696
 sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn699:
+setn696:
 or ah,80h
-ln699:
+ln696:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln700
+je short ln697
 call basefunction
-ln700:
+ln697:
 add esi,ebp
 sub edi,byte 58
 js near execexit
@@ -47921,32 +47539,28 @@ mov edx,[esi]
 add esi,byte 4
 rol edx,16
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+4]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+4],word 0
-jl short setn701
+jl short setn698
 cmp word[__dreg+4],cx
-jg short ln701
+jg short ln698
 sub edi,byte 22
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn701:
+setn698:
 or ah,80h
-ln701:
+ln698:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln702
+je short ln699
 call basefunction
-ln702:
+ln699:
 add esi,ebp
 sub edi,byte 62
 js near execexit
@@ -47960,32 +47574,28 @@ add edx,esi
 sub edx,ebp
 add esi,byte 2
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+4]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+4],word 0
-jl short setn703
+jl short setn700
 cmp word[__dreg+4],cx
-jg short ln703
+jg short ln700
 sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn703:
+setn700:
 or ah,80h
-ln703:
+ln700:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln704
+je short ln701
 call basefunction
-ln704:
+ln701:
 add esi,ebp
 sub edi,byte 58
 js near execexit
@@ -47999,32 +47609,28 @@ add edx,esi
 sub edx,ebp
 sub edx,byte 2
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+4]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+4],word 0
-jl short setn705
+jl short setn702
 cmp word[__dreg+4],cx
-jg short ln705
+jg short ln702
 sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn705:
+setn702:
 or ah,80h
-ln705:
+ln702:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln706
+je short ln703
 call basefunction
-ln706:
+ln703:
 add esi,ebp
 sub edi,byte 60
 js near execexit
@@ -48035,32 +47641,28 @@ jmp dword[__jmptbl+ebx*4]
 O3BC:
 mov cx,[esi]
 add esi,byte 2
-xor al,al
-mov bx,word[__dreg+4]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+4],word 0
-jl short setn707
+jl short setn704
 cmp word[__dreg+4],cx
-jg short ln707
+jg short ln704
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn707:
+setn704:
 or ah,80h
-ln707:
+ln704:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln708
+je short ln705
 call basefunction
-ln708:
+ln705:
 add esi,ebp
 sub edi,byte 54
 js near execexit
@@ -48712,32 +48314,28 @@ jmp dword[__jmptbl+ebx*4]
 O580:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
-xor al,al
-mov bx,word[__dreg+8]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+8],word 0
-jl short setn709
+jl short setn706
 cmp word[__dreg+8],cx
-jg short ln709
+jg short ln706
 sub edi,byte 10
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn709:
+setn706:
 or ah,80h
-ln709:
+ln706:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln710
+je short ln707
 call basefunction
-ln710:
+ln707:
 add esi,ebp
 sub edi,byte 50
 js near execexit
@@ -48749,32 +48347,28 @@ O590:
 and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+8]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+8],word 0
-jl short setn711
+jl short setn708
 cmp word[__dreg+8],cx
-jg short ln711
+jg short ln708
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn711:
+setn708:
 or ah,80h
-ln711:
+ln708:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln712
+je short ln709
 call basefunction
-ln712:
+ln709:
 add esi,ebp
 sub edi,byte 54
 js near execexit
@@ -48788,32 +48382,28 @@ mov edx,[__areg+ebx*4]
 call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
-xor al,al
-mov bx,word[__dreg+8]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+8],word 0
-jl short setn713
+jl short setn710
 cmp word[__dreg+8],cx
-jg short ln713
+jg short ln710
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn713:
+setn710:
 or ah,80h
-ln713:
+ln710:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln714
+je short ln711
 call basefunction
-ln714:
+ln711:
 add esi,ebp
 sub edi,byte 54
 js near execexit
@@ -48827,32 +48417,28 @@ mov edx,[__areg+ebx*4]
 sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
-xor al,al
-mov bx,word[__dreg+8]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+8],word 0
-jl short setn715
+jl short setn712
 cmp word[__dreg+8],cx
-jg short ln715
+jg short ln712
 sub edi,byte 16
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn715:
+setn712:
 or ah,80h
-ln715:
+ln712:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln716
+je short ln713
 call basefunction
-ln716:
+ln713:
 add esi,ebp
 sub edi,byte 56
 js near execexit
@@ -48866,32 +48452,28 @@ movsx edx,word[esi]
 add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+8]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+8],word 0
-jl short setn717
+jl short setn714
 cmp word[__dreg+8],cx
-jg short ln717
+jg short ln714
 sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn717:
+setn714:
 or ah,80h
-ln717:
+ln714:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln718
+je short ln715
 call basefunction
-ln718:
+ln715:
 add esi,ebp
 sub edi,byte 58
 js near execexit
@@ -48904,32 +48486,28 @@ and ebx,byte 7
 call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+8]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+8],word 0
-jl short setn719
+jl short setn716
 cmp word[__dreg+8],cx
-jg short ln719
+jg short ln716
 sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn719:
+setn716:
 or ah,80h
-ln719:
+ln716:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln720
+je short ln717
 call basefunction
-ln720:
+ln717:
 add esi,ebp
 sub edi,byte 60
 js near execexit
@@ -48941,32 +48519,28 @@ O5B8:
 movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+8]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+8],word 0
-jl short setn721
+jl short setn718
 cmp word[__dreg+8],cx
-jg short ln721
+jg short ln718
 sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn721:
+setn718:
 or ah,80h
-ln721:
+ln718:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln722
+je short ln719
 call basefunction
-ln722:
+ln719:
 add esi,ebp
 sub edi,byte 58
 js near execexit
@@ -48979,32 +48553,28 @@ mov edx,[esi]
 add esi,byte 4
 rol edx,16
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+8]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+8],word 0
-jl short setn723
+jl short setn720
 cmp word[__dreg+8],cx
-jg short ln723
+jg short ln720
 sub edi,byte 22
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn723:
+setn720:
 or ah,80h
-ln723:
+ln720:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln724
+je short ln721
 call basefunction
-ln724:
+ln721:
 add esi,ebp
 sub edi,byte 62
 js near execexit
@@ -49018,32 +48588,28 @@ add edx,esi
 sub edx,ebp
 add esi,byte 2
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+8]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+8],word 0
-jl short setn725
+jl short setn722
 cmp word[__dreg+8],cx
-jg short ln725
+jg short ln722
 sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn725:
+setn722:
 or ah,80h
-ln725:
+ln722:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln726
+je short ln723
 call basefunction
-ln726:
+ln723:
 add esi,ebp
 sub edi,byte 58
 js near execexit
@@ -49057,32 +48623,28 @@ add edx,esi
 sub edx,ebp
 sub edx,byte 2
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+8]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+8],word 0
-jl short setn727
+jl short setn724
 cmp word[__dreg+8],cx
-jg short ln727
+jg short ln724
 sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn727:
+setn724:
 or ah,80h
-ln727:
+ln724:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln728
+je short ln725
 call basefunction
-ln728:
+ln725:
 add esi,ebp
 sub edi,byte 60
 js near execexit
@@ -49093,32 +48655,28 @@ jmp dword[__jmptbl+ebx*4]
 O5BC:
 mov cx,[esi]
 add esi,byte 2
-xor al,al
-mov bx,word[__dreg+8]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+8],word 0
-jl short setn729
+jl short setn726
 cmp word[__dreg+8],cx
-jg short ln729
+jg short ln726
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn729:
+setn726:
 or ah,80h
-ln729:
+ln726:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln730
+je short ln727
 call basefunction
-ln730:
+ln727:
 add esi,ebp
 sub edi,byte 54
 js near execexit
@@ -49566,25 +49124,11 @@ push ecx
 mov cl,[__sr+1]
 and cx,2020h
 xor ch,cl
-jz short ln731
+jz short ln728
 mov ecx,[__a7]
 xchg ecx,[__asp]
 mov [__a7],ecx
-test byte[esp+1],20h
-jz short ln732
-mov [__fetch_idx],dword __sfmhtbl
-mov [__readbyte_idx],dword __srbmhtbl
-mov [__readword_idx],dword __srwmhtbl
-mov [__writebyte_idx],dword __swbmhtbl
-mov [__writeword_idx],dword __swwmhtbl
-jmp short ln731
-ln732:
-mov [__fetch_idx],dword __ufmhtbl
-mov [__readbyte_idx],dword __urbmhtbl
-mov [__readword_idx],dword __urwmhtbl
-mov [__writebyte_idx],dword __uwbmhtbl
-mov [__writeword_idx],dword __uwwmhtbl
-ln731:
+ln728:
 pop ecx
 mov [__sr+1],ch
 and byte[__sr+1],0A7h
@@ -49597,8 +49141,6 @@ adc ah,ah
 sub edi,byte 12
 test edi,edi
 js near execexit
-test byte[__sr+1],80h
-jnz near trace_excep
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
@@ -49613,25 +49155,11 @@ push ecx
 mov cl,[__sr+1]
 and cx,2020h
 xor ch,cl
-jz short ln733
+jz short ln730
 mov ecx,[__a7]
 xchg ecx,[__asp]
 mov [__a7],ecx
-test byte[esp+1],20h
-jz short ln734
-mov [__fetch_idx],dword __sfmhtbl
-mov [__readbyte_idx],dword __srbmhtbl
-mov [__readword_idx],dword __srwmhtbl
-mov [__writebyte_idx],dword __swbmhtbl
-mov [__writeword_idx],dword __swwmhtbl
-jmp short ln733
-ln734:
-mov [__fetch_idx],dword __ufmhtbl
-mov [__readbyte_idx],dword __urbmhtbl
-mov [__readword_idx],dword __urwmhtbl
-mov [__writebyte_idx],dword __uwbmhtbl
-mov [__writeword_idx],dword __uwwmhtbl
-ln733:
+ln730:
 pop ecx
 mov [__sr+1],ch
 and byte[__sr+1],0A7h
@@ -49644,8 +49172,6 @@ adc ah,ah
 sub edi,byte 16
 test edi,edi
 js near execexit
-test byte[__sr+1],80h
-jnz near trace_excep
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
@@ -49662,25 +49188,11 @@ push ecx
 mov cl,[__sr+1]
 and cx,2020h
 xor ch,cl
-jz short ln735
+jz short ln732
 mov ecx,[__a7]
 xchg ecx,[__asp]
 mov [__a7],ecx
-test byte[esp+1],20h
-jz short ln736
-mov [__fetch_idx],dword __sfmhtbl
-mov [__readbyte_idx],dword __srbmhtbl
-mov [__readword_idx],dword __srwmhtbl
-mov [__writebyte_idx],dword __swbmhtbl
-mov [__writeword_idx],dword __swwmhtbl
-jmp short ln735
-ln736:
-mov [__fetch_idx],dword __ufmhtbl
-mov [__readbyte_idx],dword __urbmhtbl
-mov [__readword_idx],dword __urwmhtbl
-mov [__writebyte_idx],dword __uwbmhtbl
-mov [__writeword_idx],dword __uwwmhtbl
-ln735:
+ln732:
 pop ecx
 mov [__sr+1],ch
 and byte[__sr+1],0A7h
@@ -49693,8 +49205,6 @@ adc ah,ah
 sub edi,byte 16
 test edi,edi
 js near execexit
-test byte[__sr+1],80h
-jnz near trace_excep
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
@@ -49711,25 +49221,11 @@ push ecx
 mov cl,[__sr+1]
 and cx,2020h
 xor ch,cl
-jz short ln737
+jz short ln734
 mov ecx,[__a7]
 xchg ecx,[__asp]
 mov [__a7],ecx
-test byte[esp+1],20h
-jz short ln738
-mov [__fetch_idx],dword __sfmhtbl
-mov [__readbyte_idx],dword __srbmhtbl
-mov [__readword_idx],dword __srwmhtbl
-mov [__writebyte_idx],dword __swbmhtbl
-mov [__writeword_idx],dword __swwmhtbl
-jmp short ln737
-ln738:
-mov [__fetch_idx],dword __ufmhtbl
-mov [__readbyte_idx],dword __urbmhtbl
-mov [__readword_idx],dword __urwmhtbl
-mov [__writebyte_idx],dword __uwbmhtbl
-mov [__writeword_idx],dword __uwwmhtbl
-ln737:
+ln734:
 pop ecx
 mov [__sr+1],ch
 and byte[__sr+1],0A7h
@@ -49742,8 +49238,6 @@ adc ah,ah
 sub edi,byte 18
 test edi,edi
 js near execexit
-test byte[__sr+1],80h
-jnz near trace_excep
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
@@ -49760,25 +49254,11 @@ push ecx
 mov cl,[__sr+1]
 and cx,2020h
 xor ch,cl
-jz short ln739
+jz short ln736
 mov ecx,[__a7]
 xchg ecx,[__asp]
 mov [__a7],ecx
-test byte[esp+1],20h
-jz short ln740
-mov [__fetch_idx],dword __sfmhtbl
-mov [__readbyte_idx],dword __srbmhtbl
-mov [__readword_idx],dword __srwmhtbl
-mov [__writebyte_idx],dword __swbmhtbl
-mov [__writeword_idx],dword __swwmhtbl
-jmp short ln739
-ln740:
-mov [__fetch_idx],dword __ufmhtbl
-mov [__readbyte_idx],dword __urbmhtbl
-mov [__readword_idx],dword __urwmhtbl
-mov [__writebyte_idx],dword __uwbmhtbl
-mov [__writeword_idx],dword __uwwmhtbl
-ln739:
+ln736:
 pop ecx
 mov [__sr+1],ch
 and byte[__sr+1],0A7h
@@ -49791,8 +49271,6 @@ adc ah,ah
 sub edi,byte 20
 test edi,edi
 js near execexit
-test byte[__sr+1],80h
-jnz near trace_excep
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
@@ -49808,25 +49286,11 @@ push ecx
 mov cl,[__sr+1]
 and cx,2020h
 xor ch,cl
-jz short ln741
+jz short ln738
 mov ecx,[__a7]
 xchg ecx,[__asp]
 mov [__a7],ecx
-test byte[esp+1],20h
-jz short ln742
-mov [__fetch_idx],dword __sfmhtbl
-mov [__readbyte_idx],dword __srbmhtbl
-mov [__readword_idx],dword __srwmhtbl
-mov [__writebyte_idx],dword __swbmhtbl
-mov [__writeword_idx],dword __swwmhtbl
-jmp short ln741
-ln742:
-mov [__fetch_idx],dword __ufmhtbl
-mov [__readbyte_idx],dword __urbmhtbl
-mov [__readword_idx],dword __urwmhtbl
-mov [__writebyte_idx],dword __uwbmhtbl
-mov [__writeword_idx],dword __uwwmhtbl
-ln741:
+ln738:
 pop ecx
 mov [__sr+1],ch
 and byte[__sr+1],0A7h
@@ -49839,8 +49303,6 @@ adc ah,ah
 sub edi,byte 22
 test edi,edi
 js near execexit
-test byte[__sr+1],80h
-jnz near trace_excep
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
@@ -49855,25 +49317,11 @@ push ecx
 mov cl,[__sr+1]
 and cx,2020h
 xor ch,cl
-jz short ln743
+jz short ln740
 mov ecx,[__a7]
 xchg ecx,[__asp]
 mov [__a7],ecx
-test byte[esp+1],20h
-jz short ln744
-mov [__fetch_idx],dword __sfmhtbl
-mov [__readbyte_idx],dword __srbmhtbl
-mov [__readword_idx],dword __srwmhtbl
-mov [__writebyte_idx],dword __swbmhtbl
-mov [__writeword_idx],dword __swwmhtbl
-jmp short ln743
-ln744:
-mov [__fetch_idx],dword __ufmhtbl
-mov [__readbyte_idx],dword __urbmhtbl
-mov [__readword_idx],dword __urwmhtbl
-mov [__writebyte_idx],dword __uwbmhtbl
-mov [__writeword_idx],dword __uwwmhtbl
-ln743:
+ln740:
 pop ecx
 mov [__sr+1],ch
 and byte[__sr+1],0A7h
@@ -49886,8 +49334,6 @@ adc ah,ah
 sub edi,byte 20
 test edi,edi
 js near execexit
-test byte[__sr+1],80h
-jnz near trace_excep
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
@@ -49903,25 +49349,11 @@ push ecx
 mov cl,[__sr+1]
 and cx,2020h
 xor ch,cl
-jz short ln745
+jz short ln742
 mov ecx,[__a7]
 xchg ecx,[__asp]
 mov [__a7],ecx
-test byte[esp+1],20h
-jz short ln746
-mov [__fetch_idx],dword __sfmhtbl
-mov [__readbyte_idx],dword __srbmhtbl
-mov [__readword_idx],dword __srwmhtbl
-mov [__writebyte_idx],dword __swbmhtbl
-mov [__writeword_idx],dword __swwmhtbl
-jmp short ln745
-ln746:
-mov [__fetch_idx],dword __ufmhtbl
-mov [__readbyte_idx],dword __urbmhtbl
-mov [__readword_idx],dword __urwmhtbl
-mov [__writebyte_idx],dword __uwbmhtbl
-mov [__writeword_idx],dword __uwwmhtbl
-ln745:
+ln742:
 pop ecx
 mov [__sr+1],ch
 and byte[__sr+1],0A7h
@@ -49934,8 +49366,6 @@ adc ah,ah
 sub edi,byte 24
 test edi,edi
 js near execexit
-test byte[__sr+1],80h
-jnz near trace_excep
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
@@ -49952,25 +49382,11 @@ push ecx
 mov cl,[__sr+1]
 and cx,2020h
 xor ch,cl
-jz short ln747
+jz short ln744
 mov ecx,[__a7]
 xchg ecx,[__asp]
 mov [__a7],ecx
-test byte[esp+1],20h
-jz short ln748
-mov [__fetch_idx],dword __sfmhtbl
-mov [__readbyte_idx],dword __srbmhtbl
-mov [__readword_idx],dword __srwmhtbl
-mov [__writebyte_idx],dword __swbmhtbl
-mov [__writeword_idx],dword __swwmhtbl
-jmp short ln747
-ln748:
-mov [__fetch_idx],dword __ufmhtbl
-mov [__readbyte_idx],dword __urbmhtbl
-mov [__readword_idx],dword __urwmhtbl
-mov [__writebyte_idx],dword __uwbmhtbl
-mov [__writeword_idx],dword __uwwmhtbl
-ln747:
+ln744:
 pop ecx
 mov [__sr+1],ch
 and byte[__sr+1],0A7h
@@ -49983,8 +49399,6 @@ adc ah,ah
 sub edi,byte 20
 test edi,edi
 js near execexit
-test byte[__sr+1],80h
-jnz near trace_excep
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
@@ -50001,25 +49415,11 @@ push ecx
 mov cl,[__sr+1]
 and cx,2020h
 xor ch,cl
-jz short ln749
+jz short ln746
 mov ecx,[__a7]
 xchg ecx,[__asp]
 mov [__a7],ecx
-test byte[esp+1],20h
-jz short ln750
-mov [__fetch_idx],dword __sfmhtbl
-mov [__readbyte_idx],dword __srbmhtbl
-mov [__readword_idx],dword __srwmhtbl
-mov [__writebyte_idx],dword __swbmhtbl
-mov [__writeword_idx],dword __swwmhtbl
-jmp short ln749
-ln750:
-mov [__fetch_idx],dword __ufmhtbl
-mov [__readbyte_idx],dword __urbmhtbl
-mov [__readword_idx],dword __urwmhtbl
-mov [__writebyte_idx],dword __uwbmhtbl
-mov [__writeword_idx],dword __uwwmhtbl
-ln749:
+ln746:
 pop ecx
 mov [__sr+1],ch
 and byte[__sr+1],0A7h
@@ -50032,8 +49432,6 @@ adc ah,ah
 sub edi,byte 22
 test edi,edi
 js near execexit
-test byte[__sr+1],80h
-jnz near trace_excep
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
@@ -50047,25 +49445,11 @@ push ecx
 mov cl,[__sr+1]
 and cx,2020h
 xor ch,cl
-jz short ln751
+jz short ln748
 mov ecx,[__a7]
 xchg ecx,[__asp]
 mov [__a7],ecx
-test byte[esp+1],20h
-jz short ln752
-mov [__fetch_idx],dword __sfmhtbl
-mov [__readbyte_idx],dword __srbmhtbl
-mov [__readword_idx],dword __srwmhtbl
-mov [__writebyte_idx],dword __swbmhtbl
-mov [__writeword_idx],dword __swwmhtbl
-jmp short ln751
-ln752:
-mov [__fetch_idx],dword __ufmhtbl
-mov [__readbyte_idx],dword __urbmhtbl
-mov [__readword_idx],dword __urwmhtbl
-mov [__writebyte_idx],dword __uwbmhtbl
-mov [__writeword_idx],dword __uwwmhtbl
-ln751:
+ln748:
 pop ecx
 mov [__sr+1],ch
 and byte[__sr+1],0A7h
@@ -50078,8 +49462,6 @@ adc ah,ah
 sub edi,byte 16
 test edi,edi
 js near execexit
-test byte[__sr+1],80h
-jnz near trace_excep
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
@@ -50087,32 +49469,28 @@ jmp dword[__jmptbl+ebx*4]
 O780:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
-xor al,al
-mov bx,word[__dreg+12]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+12],word 0
-jl short setn753
+jl short setn750
 cmp word[__dreg+12],cx
-jg short ln753
+jg short ln750
 sub edi,byte 10
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn753:
+setn750:
 or ah,80h
-ln753:
+ln750:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln754
+je short ln751
 call basefunction
-ln754:
+ln751:
 add esi,ebp
 sub edi,byte 50
 js near execexit
@@ -50124,32 +49502,28 @@ O790:
 and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+12]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+12],word 0
-jl short setn755
+jl short setn752
 cmp word[__dreg+12],cx
-jg short ln755
+jg short ln752
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn755:
+setn752:
 or ah,80h
-ln755:
+ln752:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln756
+je short ln753
 call basefunction
-ln756:
+ln753:
 add esi,ebp
 sub edi,byte 54
 js near execexit
@@ -50163,32 +49537,28 @@ mov edx,[__areg+ebx*4]
 call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
-xor al,al
-mov bx,word[__dreg+12]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+12],word 0
-jl short setn757
+jl short setn754
 cmp word[__dreg+12],cx
-jg short ln757
+jg short ln754
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn757:
+setn754:
 or ah,80h
-ln757:
+ln754:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln758
+je short ln755
 call basefunction
-ln758:
+ln755:
 add esi,ebp
 sub edi,byte 54
 js near execexit
@@ -50202,32 +49572,28 @@ mov edx,[__areg+ebx*4]
 sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
-xor al,al
-mov bx,word[__dreg+12]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+12],word 0
-jl short setn759
+jl short setn756
 cmp word[__dreg+12],cx
-jg short ln759
+jg short ln756
 sub edi,byte 16
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn759:
+setn756:
 or ah,80h
-ln759:
+ln756:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln760
+je short ln757
 call basefunction
-ln760:
+ln757:
 add esi,ebp
 sub edi,byte 56
 js near execexit
@@ -50241,32 +49607,28 @@ movsx edx,word[esi]
 add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+12]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+12],word 0
-jl short setn761
+jl short setn758
 cmp word[__dreg+12],cx
-jg short ln761
+jg short ln758
 sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn761:
+setn758:
 or ah,80h
-ln761:
+ln758:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln762
+je short ln759
 call basefunction
-ln762:
+ln759:
 add esi,ebp
 sub edi,byte 58
 js near execexit
@@ -50279,32 +49641,28 @@ and ebx,byte 7
 call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+12]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+12],word 0
-jl short setn763
+jl short setn760
 cmp word[__dreg+12],cx
-jg short ln763
+jg short ln760
 sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn763:
+setn760:
 or ah,80h
-ln763:
+ln760:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln764
+je short ln761
 call basefunction
-ln764:
+ln761:
 add esi,ebp
 sub edi,byte 60
 js near execexit
@@ -50316,32 +49674,28 @@ O7B8:
 movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+12]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+12],word 0
-jl short setn765
+jl short setn762
 cmp word[__dreg+12],cx
-jg short ln765
+jg short ln762
 sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn765:
+setn762:
 or ah,80h
-ln765:
+ln762:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln766
+je short ln763
 call basefunction
-ln766:
+ln763:
 add esi,ebp
 sub edi,byte 58
 js near execexit
@@ -50354,32 +49708,28 @@ mov edx,[esi]
 add esi,byte 4
 rol edx,16
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+12]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+12],word 0
-jl short setn767
+jl short setn764
 cmp word[__dreg+12],cx
-jg short ln767
+jg short ln764
 sub edi,byte 22
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn767:
+setn764:
 or ah,80h
-ln767:
+ln764:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln768
+je short ln765
 call basefunction
-ln768:
+ln765:
 add esi,ebp
 sub edi,byte 62
 js near execexit
@@ -50393,32 +49743,28 @@ add edx,esi
 sub edx,ebp
 add esi,byte 2
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+12]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+12],word 0
-jl short setn769
+jl short setn766
 cmp word[__dreg+12],cx
-jg short ln769
+jg short ln766
 sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn769:
+setn766:
 or ah,80h
-ln769:
+ln766:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln770
+je short ln767
 call basefunction
-ln770:
+ln767:
 add esi,ebp
 sub edi,byte 58
 js near execexit
@@ -50432,32 +49778,28 @@ add edx,esi
 sub edx,ebp
 sub edx,byte 2
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+12]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+12],word 0
-jl short setn771
+jl short setn768
 cmp word[__dreg+12],cx
-jg short ln771
+jg short ln768
 sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn771:
+setn768:
 or ah,80h
-ln771:
+ln768:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln772
+je short ln769
 call basefunction
-ln772:
+ln769:
 add esi,ebp
 sub edi,byte 60
 js near execexit
@@ -50468,32 +49810,28 @@ jmp dword[__jmptbl+ebx*4]
 O7BC:
 mov cx,[esi]
 add esi,byte 2
-xor al,al
-mov bx,word[__dreg+12]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+12],word 0
-jl short setn773
+jl short setn770
 cmp word[__dreg+12],cx
-jg short ln773
+jg short ln770
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn773:
+setn770:
 or ah,80h
-ln773:
+ln770:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln774
+je short ln771
 call basefunction
-ln774:
+ln771:
 add esi,ebp
 sub edi,byte 54
 js near execexit
@@ -50590,21 +49928,12 @@ mov cl,al
 das
 lahf
 setc [__xflag]
-jnz short ln775
+jnz short ln772
 or ch,0BFh
 and ah,ch
-ln775:
-mov bh,al
-test al,al
-jns short ln776
+ln772:
+mov cl,al
 xor al,al
-jmp short ln777
-ln776:
-test cl,cl
-sets al
-ln777:
-mov cl,bh
-xor bh,bh
 mov [__dreg+ebx*4],cl
 sub edi,byte 6
 js near execexit
@@ -50624,21 +49953,12 @@ mov cl,al
 das
 lahf
 setc [__xflag]
-jnz short ln778
+jnz short ln773
 or ch,0BFh
 and ah,ch
-ln778:
-mov bh,al
-test al,al
-jns short ln779
+ln773:
+mov cl,al
 xor al,al
-jmp short ln780
-ln779:
-test cl,cl
-sets al
-ln780:
-mov cl,bh
-xor bh,bh
 call writememorybyte
 sub edi,byte 12
 js near execexit
@@ -50658,21 +49978,12 @@ mov cl,al
 das
 lahf
 setc [__xflag]
-jnz short ln781
+jnz short ln774
 or ch,0BFh
 and ah,ch
-ln781:
-mov bh,al
-test al,al
-jns short ln782
+ln774:
+mov cl,al
 xor al,al
-jmp short ln783
-ln782:
-test cl,cl
-sets al
-ln783:
-mov cl,bh
-xor bh,bh
 call writememorybyte
 cmp bl,7
 sbb edx,byte -2
@@ -50697,21 +50008,12 @@ mov cl,al
 das
 lahf
 setc [__xflag]
-jnz short ln784
+jnz short ln775
 or ch,0BFh
 and ah,ch
-ln784:
-mov bh,al
-test al,al
-jns short ln785
+ln775:
+mov cl,al
 xor al,al
-jmp short ln786
-ln785:
-test cl,cl
-sets al
-ln786:
-mov cl,bh
-xor bh,bh
 call writememorybyte
 mov [__areg+ebx*4],edx
 sub edi,byte 14
@@ -50734,21 +50036,12 @@ mov cl,al
 das
 lahf
 setc [__xflag]
-jnz short ln787
+jnz short ln776
 or ch,0BFh
 and ah,ch
-ln787:
-mov bh,al
-test al,al
-jns short ln788
+ln776:
+mov cl,al
 xor al,al
-jmp short ln789
-ln788:
-test cl,cl
-sets al
-ln789:
-mov cl,bh
-xor bh,bh
 call writememorybyte
 sub edi,byte 16
 js near execexit
@@ -50769,21 +50062,12 @@ mov cl,al
 das
 lahf
 setc [__xflag]
-jnz short ln790
+jnz short ln777
 or ch,0BFh
 and ah,ch
-ln790:
-mov bh,al
-test al,al
-jns short ln791
+ln777:
+mov cl,al
 xor al,al
-jmp short ln792
-ln791:
-test cl,cl
-sets al
-ln792:
-mov cl,bh
-xor bh,bh
 call writememorybyte
 sub edi,byte 18
 js near execexit
@@ -50803,21 +50087,12 @@ mov cl,al
 das
 lahf
 setc [__xflag]
-jnz short ln793
+jnz short ln778
 or ch,0BFh
 and ah,ch
-ln793:
-mov bh,al
-test al,al
-jns short ln794
+ln778:
+mov cl,al
 xor al,al
-jmp short ln795
-ln794:
-test cl,cl
-sets al
-ln795:
-mov cl,bh
-xor bh,bh
 call writememorybyte
 sub edi,byte 16
 js near execexit
@@ -50838,21 +50113,12 @@ mov cl,al
 das
 lahf
 setc [__xflag]
-jnz short ln796
+jnz short ln779
 or ch,0BFh
 and ah,ch
-ln796:
-mov bh,al
-test al,al
-jns short ln797
+ln779:
+mov cl,al
 xor al,al
-jmp short ln798
-ln797:
-test cl,cl
-sets al
-ln798:
-mov cl,bh
-xor bh,bh
 call writememorybyte
 sub edi,byte 20
 js near execexit
@@ -51001,20 +50267,17 @@ mov ax,word[esi]
 add esi,byte 2
 mov edx,[__areg+ebx*4]
 xor ebx,ebx
-ln799:
+ln780:
 shr ax,1
-jnc short ln800
-add eax,10000h
+jnc short ln781
 mov ecx,[__reg+ebx]
 call writememoryword
 add edx,byte 2
 sub edi,byte 4
-ln800:
+ln781:
 add bl,byte 4
 test bl,byte 64
-jz short ln799
-shr eax,14
-sub edi,eax
+jz short ln780
 pop eax
 sub edi,byte 8
 js near execexit
@@ -51031,19 +50294,16 @@ add esi,byte 2
 mov edx,[__areg+ebx*4]
 push ebx
 mov ebx,60
-ln801:
+ln782:
 shr ax,1
-jnc short ln802
+jnc short ln783
 mov ecx,[__reg+ebx]
 sub edx,byte 2
 sub edi,byte 4
-add eax,10000h
 call writememoryword
-ln802:
+ln783:
 sub ebx,byte 4
-jns short ln801
-shr eax,14
-sub edi,eax
+jns short ln782
 pop ebx
 pop eax
 mov [__areg+ebx*4],edx
@@ -51063,20 +50323,17 @@ movsx edx,word[esi]
 add esi,byte 2
 add edx,[__areg+ebx*4]
 xor ebx,ebx
-ln803:
+ln784:
 shr ax,1
-jnc short ln804
-add eax,10000h
+jnc short ln785
 mov ecx,[__reg+ebx]
 call writememoryword
 add edx,byte 2
 sub edi,byte 4
-ln804:
+ln785:
 add bl,byte 4
 test bl,byte 64
-jz short ln803
-shr eax,14
-sub edi,eax
+jz short ln784
 pop eax
 sub edi,byte 12
 js near execexit
@@ -51093,20 +50350,17 @@ add esi,byte 2
 call decode_ext
 add edx,[__areg+ebx*4]
 xor ebx,ebx
-ln805:
+ln786:
 shr ax,1
-jnc short ln806
-add eax,10000h
+jnc short ln787
 mov ecx,[__reg+ebx]
 call writememoryword
 add edx,byte 2
 sub edi,byte 4
-ln806:
+ln787:
 add bl,byte 4
 test bl,byte 64
-jz short ln805
-shr eax,14
-sub edi,eax
+jz short ln786
 pop eax
 sub edi,byte 14
 js near execexit
@@ -51122,20 +50376,17 @@ add esi,byte 2
 movsx edx,word[esi]
 add esi,byte 2
 xor ebx,ebx
-ln807:
+ln788:
 shr ax,1
-jnc short ln808
-add eax,10000h
+jnc short ln789
 mov ecx,[__reg+ebx]
 call writememoryword
 add edx,byte 2
 sub edi,byte 4
-ln808:
+ln789:
 add bl,byte 4
 test bl,byte 64
-jz short ln807
-shr eax,14
-sub edi,eax
+jz short ln788
 pop eax
 sub edi,byte 12
 js near execexit
@@ -51152,20 +50403,17 @@ mov edx,[esi]
 add esi,byte 4
 rol edx,16
 xor ebx,ebx
-ln809:
+ln790:
 shr ax,1
-jnc short ln810
-add eax,10000h
+jnc short ln791
 mov ecx,[__reg+ebx]
 call writememoryword
 add edx,byte 2
 sub edi,byte 4
-ln810:
+ln791:
 add bl,byte 4
 test bl,byte 64
-jz short ln809
-shr eax,14
-sub edi,eax
+jz short ln790
 pop eax
 sub edi,byte 16
 js near execexit
@@ -51194,20 +50442,17 @@ mov ax,word[esi]
 add esi,byte 2
 mov edx,[__areg+ebx*4]
 xor ebx,ebx
-ln811:
+ln792:
 shr ax,1
-jnc short ln812
-add eax,10000h
+jnc short ln793
 mov ecx,[__reg+ebx]
 call writememorydword
 add edx,byte 4
 sub edi,byte 8
-ln812:
+ln793:
 add bl,byte 4
 test bl,byte 64
-jz short ln811
-shr eax,13
-sub edi,eax
+jz short ln792
 pop eax
 sub edi,byte 8
 js near execexit
@@ -51224,19 +50469,16 @@ add esi,byte 2
 mov edx,[__areg+ebx*4]
 push ebx
 mov ebx,60
-ln813:
+ln794:
 shr ax,1
-jnc short ln814
+jnc short ln795
 mov ecx,[__reg+ebx]
 sub edx,byte 4
 sub edi,byte 8
-add eax,10000h
 call writememorydword
-ln814:
+ln795:
 sub ebx,byte 4
-jns short ln813
-shr eax,13
-sub edi,eax
+jns short ln794
 pop ebx
 pop eax
 mov [__areg+ebx*4],edx
@@ -51256,20 +50498,17 @@ movsx edx,word[esi]
 add esi,byte 2
 add edx,[__areg+ebx*4]
 xor ebx,ebx
-ln815:
+ln796:
 shr ax,1
-jnc short ln816
-add eax,10000h
+jnc short ln797
 mov ecx,[__reg+ebx]
 call writememorydword
 add edx,byte 4
 sub edi,byte 8
-ln816:
+ln797:
 add bl,byte 4
 test bl,byte 64
-jz short ln815
-shr eax,13
-sub edi,eax
+jz short ln796
 pop eax
 sub edi,byte 12
 js near execexit
@@ -51286,20 +50525,17 @@ add esi,byte 2
 call decode_ext
 add edx,[__areg+ebx*4]
 xor ebx,ebx
-ln817:
+ln798:
 shr ax,1
-jnc short ln818
-add eax,10000h
+jnc short ln799
 mov ecx,[__reg+ebx]
 call writememorydword
 add edx,byte 4
 sub edi,byte 8
-ln818:
+ln799:
 add bl,byte 4
 test bl,byte 64
-jz short ln817
-shr eax,13
-sub edi,eax
+jz short ln798
 pop eax
 sub edi,byte 14
 js near execexit
@@ -51315,20 +50551,17 @@ add esi,byte 2
 movsx edx,word[esi]
 add esi,byte 2
 xor ebx,ebx
-ln819:
+ln800:
 shr ax,1
-jnc short ln820
-add eax,10000h
+jnc short ln801
 mov ecx,[__reg+ebx]
 call writememorydword
 add edx,byte 4
 sub edi,byte 8
-ln820:
+ln801:
 add bl,byte 4
 test bl,byte 64
-jz short ln819
-shr eax,13
-sub edi,eax
+jz short ln800
 pop eax
 sub edi,byte 12
 js near execexit
@@ -51345,20 +50578,17 @@ mov edx,[esi]
 add esi,byte 4
 rol edx,16
 xor ebx,ebx
-ln821:
+ln802:
 shr ax,1
-jnc short ln822
-add eax,10000h
+jnc short ln803
 mov ecx,[__reg+ebx]
 call writememorydword
 add edx,byte 4
 sub edi,byte 8
-ln822:
+ln803:
 add bl,byte 4
 test bl,byte 64
-jz short ln821
-shr eax,13
-sub edi,eax
+jz short ln802
 pop eax
 sub edi,byte 16
 js near execexit
@@ -51369,32 +50599,28 @@ jmp dword[__jmptbl+ebx*4]
 O980:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
-xor al,al
-mov bx,word[__dreg+16]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+16],word 0
-jl short setn823
+jl short setn804
 cmp word[__dreg+16],cx
-jg short ln823
+jg short ln804
 sub edi,byte 10
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn823:
+setn804:
 or ah,80h
-ln823:
+ln804:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln824
+je short ln805
 call basefunction
-ln824:
+ln805:
 add esi,ebp
 sub edi,byte 50
 js near execexit
@@ -51406,32 +50632,28 @@ O990:
 and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+16]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+16],word 0
-jl short setn825
+jl short setn806
 cmp word[__dreg+16],cx
-jg short ln825
+jg short ln806
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn825:
+setn806:
 or ah,80h
-ln825:
+ln806:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln826
+je short ln807
 call basefunction
-ln826:
+ln807:
 add esi,ebp
 sub edi,byte 54
 js near execexit
@@ -51445,32 +50667,28 @@ mov edx,[__areg+ebx*4]
 call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
-xor al,al
-mov bx,word[__dreg+16]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+16],word 0
-jl short setn827
+jl short setn808
 cmp word[__dreg+16],cx
-jg short ln827
+jg short ln808
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn827:
+setn808:
 or ah,80h
-ln827:
+ln808:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln828
+je short ln809
 call basefunction
-ln828:
+ln809:
 add esi,ebp
 sub edi,byte 54
 js near execexit
@@ -51484,32 +50702,28 @@ mov edx,[__areg+ebx*4]
 sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
-xor al,al
-mov bx,word[__dreg+16]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+16],word 0
-jl short setn829
+jl short setn810
 cmp word[__dreg+16],cx
-jg short ln829
+jg short ln810
 sub edi,byte 16
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn829:
+setn810:
 or ah,80h
-ln829:
+ln810:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln830
+je short ln811
 call basefunction
-ln830:
+ln811:
 add esi,ebp
 sub edi,byte 56
 js near execexit
@@ -51523,32 +50737,28 @@ movsx edx,word[esi]
 add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+16]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+16],word 0
-jl short setn831
+jl short setn812
 cmp word[__dreg+16],cx
-jg short ln831
+jg short ln812
 sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn831:
+setn812:
 or ah,80h
-ln831:
+ln812:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln832
+je short ln813
 call basefunction
-ln832:
+ln813:
 add esi,ebp
 sub edi,byte 58
 js near execexit
@@ -51561,32 +50771,28 @@ and ebx,byte 7
 call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+16]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+16],word 0
-jl short setn833
+jl short setn814
 cmp word[__dreg+16],cx
-jg short ln833
+jg short ln814
 sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn833:
+setn814:
 or ah,80h
-ln833:
+ln814:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln834
+je short ln815
 call basefunction
-ln834:
+ln815:
 add esi,ebp
 sub edi,byte 60
 js near execexit
@@ -51598,32 +50804,28 @@ O9B8:
 movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+16]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+16],word 0
-jl short setn835
+jl short setn816
 cmp word[__dreg+16],cx
-jg short ln835
+jg short ln816
 sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn835:
+setn816:
 or ah,80h
-ln835:
+ln816:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln836
+je short ln817
 call basefunction
-ln836:
+ln817:
 add esi,ebp
 sub edi,byte 58
 js near execexit
@@ -51636,32 +50838,28 @@ mov edx,[esi]
 add esi,byte 4
 rol edx,16
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+16]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+16],word 0
-jl short setn837
+jl short setn818
 cmp word[__dreg+16],cx
-jg short ln837
+jg short ln818
 sub edi,byte 22
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn837:
+setn818:
 or ah,80h
-ln837:
+ln818:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln838
+je short ln819
 call basefunction
-ln838:
+ln819:
 add esi,ebp
 sub edi,byte 62
 js near execexit
@@ -51675,32 +50873,28 @@ add edx,esi
 sub edx,ebp
 add esi,byte 2
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+16]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+16],word 0
-jl short setn839
+jl short setn820
 cmp word[__dreg+16],cx
-jg short ln839
+jg short ln820
 sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn839:
+setn820:
 or ah,80h
-ln839:
+ln820:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln840
+je short ln821
 call basefunction
-ln840:
+ln821:
 add esi,ebp
 sub edi,byte 58
 js near execexit
@@ -51714,32 +50908,28 @@ add edx,esi
 sub edx,ebp
 sub edx,byte 2
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+16]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+16],word 0
-jl short setn841
+jl short setn822
 cmp word[__dreg+16],cx
-jg short ln841
+jg short ln822
 sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn841:
+setn822:
 or ah,80h
-ln841:
+ln822:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln842
+je short ln823
 call basefunction
-ln842:
+ln823:
 add esi,ebp
 sub edi,byte 60
 js near execexit
@@ -51750,32 +50940,28 @@ jmp dword[__jmptbl+ebx*4]
 O9BC:
 mov cx,[esi]
 add esi,byte 2
-xor al,al
-mov bx,word[__dreg+16]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+16],word 0
-jl short setn843
+jl short setn824
 cmp word[__dreg+16],cx
-jg short ln843
+jg short ln824
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn843:
+setn824:
 or ah,80h
-ln843:
+ln824:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln844
+je short ln825
 call basefunction
-ln844:
+ln825:
 add esi,ebp
 sub edi,byte 54
 js near execexit
@@ -52334,9 +51520,9 @@ and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln845
+je short ln826
 call basefunction
-ln845:
+ln826:
 add esi,ebp
 sub edi,byte 34
 js near execexit
@@ -52352,9 +51538,9 @@ and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln846
+je short ln827
 call basefunction
-ln846:
+ln827:
 add esi,ebp
 sub edi,byte 34
 js near execexit
@@ -52370,9 +51556,9 @@ and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln847
+je short ln828
 call basefunction
-ln847:
+ln828:
 add esi,ebp
 sub edi,byte 34
 js near execexit
@@ -52383,32 +51569,28 @@ jmp dword[__jmptbl+ebx*4]
 OB80:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
-xor al,al
-mov bx,word[__dreg+20]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+20],word 0
-jl short setn848
+jl short setn829
 cmp word[__dreg+20],cx
-jg short ln848
+jg short ln829
 sub edi,byte 10
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn848:
+setn829:
 or ah,80h
-ln848:
+ln829:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln849
+je short ln830
 call basefunction
-ln849:
+ln830:
 add esi,ebp
 sub edi,byte 50
 js near execexit
@@ -52420,32 +51602,28 @@ OB90:
 and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+20]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+20],word 0
-jl short setn850
+jl short setn831
 cmp word[__dreg+20],cx
-jg short ln850
+jg short ln831
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn850:
+setn831:
 or ah,80h
-ln850:
+ln831:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln851
+je short ln832
 call basefunction
-ln851:
+ln832:
 add esi,ebp
 sub edi,byte 54
 js near execexit
@@ -52459,32 +51637,28 @@ mov edx,[__areg+ebx*4]
 call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
-xor al,al
-mov bx,word[__dreg+20]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+20],word 0
-jl short setn852
+jl short setn833
 cmp word[__dreg+20],cx
-jg short ln852
+jg short ln833
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn852:
+setn833:
 or ah,80h
-ln852:
+ln833:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln853
+je short ln834
 call basefunction
-ln853:
+ln834:
 add esi,ebp
 sub edi,byte 54
 js near execexit
@@ -52498,32 +51672,28 @@ mov edx,[__areg+ebx*4]
 sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
-xor al,al
-mov bx,word[__dreg+20]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+20],word 0
-jl short setn854
+jl short setn835
 cmp word[__dreg+20],cx
-jg short ln854
+jg short ln835
 sub edi,byte 16
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn854:
+setn835:
 or ah,80h
-ln854:
+ln835:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln855
+je short ln836
 call basefunction
-ln855:
+ln836:
 add esi,ebp
 sub edi,byte 56
 js near execexit
@@ -52537,32 +51707,28 @@ movsx edx,word[esi]
 add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+20]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+20],word 0
-jl short setn856
+jl short setn837
 cmp word[__dreg+20],cx
-jg short ln856
+jg short ln837
 sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn856:
+setn837:
 or ah,80h
-ln856:
+ln837:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln857
+je short ln838
 call basefunction
-ln857:
+ln838:
 add esi,ebp
 sub edi,byte 58
 js near execexit
@@ -52575,32 +51741,28 @@ and ebx,byte 7
 call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+20]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+20],word 0
-jl short setn858
+jl short setn839
 cmp word[__dreg+20],cx
-jg short ln858
+jg short ln839
 sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn858:
+setn839:
 or ah,80h
-ln858:
+ln839:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln859
+je short ln840
 call basefunction
-ln859:
+ln840:
 add esi,ebp
 sub edi,byte 60
 js near execexit
@@ -52612,32 +51774,28 @@ OBB8:
 movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+20]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+20],word 0
-jl short setn860
+jl short setn841
 cmp word[__dreg+20],cx
-jg short ln860
+jg short ln841
 sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn860:
+setn841:
 or ah,80h
-ln860:
+ln841:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln861
+je short ln842
 call basefunction
-ln861:
+ln842:
 add esi,ebp
 sub edi,byte 58
 js near execexit
@@ -52650,32 +51808,28 @@ mov edx,[esi]
 add esi,byte 4
 rol edx,16
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+20]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+20],word 0
-jl short setn862
+jl short setn843
 cmp word[__dreg+20],cx
-jg short ln862
+jg short ln843
 sub edi,byte 22
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn862:
+setn843:
 or ah,80h
-ln862:
+ln843:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln863
+je short ln844
 call basefunction
-ln863:
+ln844:
 add esi,ebp
 sub edi,byte 62
 js near execexit
@@ -52689,32 +51843,28 @@ add edx,esi
 sub edx,ebp
 add esi,byte 2
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+20]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+20],word 0
-jl short setn864
+jl short setn845
 cmp word[__dreg+20],cx
-jg short ln864
+jg short ln845
 sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn864:
+setn845:
 or ah,80h
-ln864:
+ln845:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln865
+je short ln846
 call basefunction
-ln865:
+ln846:
 add esi,ebp
 sub edi,byte 58
 js near execexit
@@ -52728,32 +51878,28 @@ add edx,esi
 sub edx,ebp
 sub edx,byte 2
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+20]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+20],word 0
-jl short setn866
+jl short setn847
 cmp word[__dreg+20],cx
-jg short ln866
+jg short ln847
 sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn866:
+setn847:
 or ah,80h
-ln866:
+ln847:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln867
+je short ln848
 call basefunction
-ln867:
+ln848:
 add esi,ebp
 sub edi,byte 60
 js near execexit
@@ -52764,32 +51910,28 @@ jmp dword[__jmptbl+ebx*4]
 OBBC:
 mov cx,[esi]
 add esi,byte 2
-xor al,al
-mov bx,word[__dreg+20]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+20],word 0
-jl short setn868
+jl short setn849
 cmp word[__dreg+20],cx
-jg short ln868
+jg short ln849
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn868:
+setn849:
 or ah,80h
-ln868:
+ln849:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln869
+je short ln850
 call basefunction
-ln869:
+ln850:
 add esi,ebp
 sub edi,byte 54
 js near execexit
@@ -52883,21 +52025,18 @@ mov ax,word[esi]
 add esi,byte 2
 mov edx,[__areg+ebx*4]
 xor ebx,ebx
-ln870:
+ln851:
 shr ax,1
-jnc short ln871
-add eax,10000h
+jnc short ln852
 call readmemoryword
 movsx ecx,cx
 mov [__reg+ebx],ecx
 add edx,byte 2
 sub edi,byte 4
-ln871:
+ln852:
 add bl,byte 4
 test bl,byte 64
-jz short ln870
-shr eax,14
-sub edi,eax
+jz short ln851
 pop eax
 sub edi,byte 12
 js near execexit
@@ -52914,21 +52053,18 @@ add esi,byte 2
 mov edx,[__areg+ebx*4]
 push ebx
 xor ebx,ebx
-ln872:
+ln853:
 shr ax,1
-jnc short ln873
-add eax,10000h
+jnc short ln854
 call readmemoryword
 movsx ecx,cx
 mov [__reg+ebx],ecx
 add edx,byte 2
 sub edi,byte 4
-ln873:
+ln854:
 add ebx,byte 4
 test bl,byte 64
-jz short ln872
-shr eax,14
-sub edi,eax
+jz short ln853
 pop ebx
 pop eax
 mov [__areg+ebx*4],edx
@@ -52948,21 +52084,18 @@ movsx edx,word[esi]
 add esi,byte 2
 add edx,[__areg+ebx*4]
 xor ebx,ebx
-ln874:
+ln855:
 shr ax,1
-jnc short ln875
-add eax,10000h
+jnc short ln856
 call readmemoryword
 movsx ecx,cx
 mov [__reg+ebx],ecx
 add edx,byte 2
 sub edi,byte 4
-ln875:
+ln856:
 add bl,byte 4
 test bl,byte 64
-jz short ln874
-shr eax,14
-sub edi,eax
+jz short ln855
 pop eax
 sub edi,byte 16
 js near execexit
@@ -52979,21 +52112,18 @@ add esi,byte 2
 call decode_ext
 add edx,[__areg+ebx*4]
 xor ebx,ebx
-ln876:
+ln857:
 shr ax,1
-jnc short ln877
-add eax,10000h
+jnc short ln858
 call readmemoryword
 movsx ecx,cx
 mov [__reg+ebx],ecx
 add edx,byte 2
 sub edi,byte 4
-ln877:
+ln858:
 add bl,byte 4
 test bl,byte 64
-jz short ln876
-shr eax,14
-sub edi,eax
+jz short ln857
 pop eax
 sub edi,byte 18
 js near execexit
@@ -53009,21 +52139,18 @@ add esi,byte 2
 movsx edx,word[esi]
 add esi,byte 2
 xor ebx,ebx
-ln878:
+ln859:
 shr ax,1
-jnc short ln879
-add eax,10000h
+jnc short ln860
 call readmemoryword
 movsx ecx,cx
 mov [__reg+ebx],ecx
 add edx,byte 2
 sub edi,byte 4
-ln879:
+ln860:
 add bl,byte 4
 test bl,byte 64
-jz short ln878
-shr eax,14
-sub edi,eax
+jz short ln859
 pop eax
 sub edi,byte 16
 js near execexit
@@ -53040,21 +52167,18 @@ mov edx,[esi]
 add esi,byte 4
 rol edx,16
 xor ebx,ebx
-ln880:
+ln861:
 shr ax,1
-jnc short ln881
-add eax,10000h
+jnc short ln862
 call readmemoryword
 movsx ecx,cx
 mov [__reg+ebx],ecx
 add edx,byte 2
 sub edi,byte 4
-ln881:
+ln862:
 add bl,byte 4
 test bl,byte 64
-jz short ln880
-shr eax,14
-sub edi,eax
+jz short ln861
 pop eax
 sub edi,byte 20
 js near execexit
@@ -53072,21 +52196,18 @@ add edx,esi
 sub edx,ebp
 add esi,byte 2
 xor ebx,ebx
-ln882:
+ln863:
 shr ax,1
-jnc short ln883
-add eax,10000h
+jnc short ln864
 call readmemoryword
 movsx ecx,cx
 mov [__reg+ebx],ecx
 add edx,byte 2
 sub edi,byte 4
-ln883:
+ln864:
 add bl,byte 4
 test bl,byte 64
-jz short ln882
-shr eax,14
-sub edi,eax
+jz short ln863
 pop eax
 sub edi,byte 16
 js near execexit
@@ -53104,21 +52225,18 @@ add edx,esi
 sub edx,ebp
 sub edx,byte 2
 xor ebx,ebx
-ln884:
+ln865:
 shr ax,1
-jnc short ln885
-add eax,10000h
+jnc short ln866
 call readmemoryword
 movsx ecx,cx
 mov [__reg+ebx],ecx
 add edx,byte 2
 sub edi,byte 4
-ln885:
+ln866:
 add bl,byte 4
 test bl,byte 64
-jz short ln884
-shr eax,14
-sub edi,eax
+jz short ln865
 pop eax
 sub edi,byte 18
 js near execexit
@@ -53134,20 +52252,17 @@ mov ax,word[esi]
 add esi,byte 2
 mov edx,[__areg+ebx*4]
 xor ebx,ebx
-ln886:
+ln867:
 shr ax,1
-jnc short ln887
-add eax,10000h
+jnc short ln868
 call readmemorydword
 mov [__reg+ebx],ecx
 add edx,byte 4
 sub edi,byte 8
-ln887:
+ln868:
 add bl,byte 4
 test bl,byte 64
-jz short ln886
-shr eax,13
-sub edi,eax
+jz short ln867
 pop eax
 sub edi,byte 12
 js near execexit
@@ -53164,20 +52279,17 @@ add esi,byte 2
 mov edx,[__areg+ebx*4]
 push ebx
 xor ebx,ebx
-ln888:
+ln869:
 shr ax,1
-jnc short ln889
-add eax,10000h
+jnc short ln870
 call readmemorydword
 mov [__reg+ebx],ecx
 add edx,byte 4
 sub edi,byte 8
-ln889:
+ln870:
 add ebx,byte 4
 test bl,byte 64
-jz short ln888
-shr eax,13
-sub edi,eax
+jz short ln869
 pop ebx
 pop eax
 mov [__areg+ebx*4],edx
@@ -53197,20 +52309,17 @@ movsx edx,word[esi]
 add esi,byte 2
 add edx,[__areg+ebx*4]
 xor ebx,ebx
-ln890:
+ln871:
 shr ax,1
-jnc short ln891
-add eax,10000h
+jnc short ln872
 call readmemorydword
 mov [__reg+ebx],ecx
 add edx,byte 4
 sub edi,byte 8
-ln891:
+ln872:
 add bl,byte 4
 test bl,byte 64
-jz short ln890
-shr eax,13
-sub edi,eax
+jz short ln871
 pop eax
 sub edi,byte 16
 js near execexit
@@ -53227,20 +52336,17 @@ add esi,byte 2
 call decode_ext
 add edx,[__areg+ebx*4]
 xor ebx,ebx
-ln892:
+ln873:
 shr ax,1
-jnc short ln893
-add eax,10000h
+jnc short ln874
 call readmemorydword
 mov [__reg+ebx],ecx
 add edx,byte 4
 sub edi,byte 8
-ln893:
+ln874:
 add bl,byte 4
 test bl,byte 64
-jz short ln892
-shr eax,13
-sub edi,eax
+jz short ln873
 pop eax
 sub edi,byte 18
 js near execexit
@@ -53256,20 +52362,17 @@ add esi,byte 2
 movsx edx,word[esi]
 add esi,byte 2
 xor ebx,ebx
-ln894:
+ln875:
 shr ax,1
-jnc short ln895
-add eax,10000h
+jnc short ln876
 call readmemorydword
 mov [__reg+ebx],ecx
 add edx,byte 4
 sub edi,byte 8
-ln895:
+ln876:
 add bl,byte 4
 test bl,byte 64
-jz short ln894
-shr eax,13
-sub edi,eax
+jz short ln875
 pop eax
 sub edi,byte 16
 js near execexit
@@ -53286,20 +52389,17 @@ mov edx,[esi]
 add esi,byte 4
 rol edx,16
 xor ebx,ebx
-ln896:
+ln877:
 shr ax,1
-jnc short ln897
-add eax,10000h
+jnc short ln878
 call readmemorydword
 mov [__reg+ebx],ecx
 add edx,byte 4
 sub edi,byte 8
-ln897:
+ln878:
 add bl,byte 4
 test bl,byte 64
-jz short ln896
-shr eax,13
-sub edi,eax
+jz short ln877
 pop eax
 sub edi,byte 20
 js near execexit
@@ -53317,20 +52417,17 @@ add edx,esi
 sub edx,ebp
 add esi,byte 2
 xor ebx,ebx
-ln898:
+ln879:
 shr ax,1
-jnc short ln899
-add eax,10000h
+jnc short ln880
 call readmemorydword
 mov [__reg+ebx],ecx
 add edx,byte 4
 sub edi,byte 8
-ln899:
+ln880:
 add bl,byte 4
 test bl,byte 64
-jz short ln898
-shr eax,13
-sub edi,eax
+jz short ln879
 pop eax
 sub edi,byte 16
 js near execexit
@@ -53348,20 +52445,17 @@ add edx,esi
 sub edx,ebp
 sub edx,byte 2
 xor ebx,ebx
-ln900:
+ln881:
 shr ax,1
-jnc short ln901
-add eax,10000h
+jnc short ln882
 call readmemorydword
 mov [__reg+ebx],ecx
 add edx,byte 4
 sub edi,byte 8
-ln901:
+ln882:
 add bl,byte 4
 test bl,byte 64
-jz short ln900
-shr eax,13
-sub edi,eax
+jz short ln881
 pop eax
 sub edi,byte 18
 js near execexit
@@ -53372,32 +52466,28 @@ jmp dword[__jmptbl+ebx*4]
 OD80:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
-xor al,al
-mov bx,word[__dreg+24]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+24],word 0
-jl short setn902
+jl short setn883
 cmp word[__dreg+24],cx
-jg short ln902
+jg short ln883
 sub edi,byte 10
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn902:
+setn883:
 or ah,80h
-ln902:
+ln883:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln903
+je short ln884
 call basefunction
-ln903:
+ln884:
 add esi,ebp
 sub edi,byte 50
 js near execexit
@@ -53409,32 +52499,28 @@ OD90:
 and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+24]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+24],word 0
-jl short setn904
+jl short setn885
 cmp word[__dreg+24],cx
-jg short ln904
+jg short ln885
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn904:
+setn885:
 or ah,80h
-ln904:
+ln885:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln905
+je short ln886
 call basefunction
-ln905:
+ln886:
 add esi,ebp
 sub edi,byte 54
 js near execexit
@@ -53448,32 +52534,28 @@ mov edx,[__areg+ebx*4]
 call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
-xor al,al
-mov bx,word[__dreg+24]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+24],word 0
-jl short setn906
+jl short setn887
 cmp word[__dreg+24],cx
-jg short ln906
+jg short ln887
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn906:
+setn887:
 or ah,80h
-ln906:
+ln887:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln907
+je short ln888
 call basefunction
-ln907:
+ln888:
 add esi,ebp
 sub edi,byte 54
 js near execexit
@@ -53487,32 +52569,28 @@ mov edx,[__areg+ebx*4]
 sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
-xor al,al
-mov bx,word[__dreg+24]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+24],word 0
-jl short setn908
+jl short setn889
 cmp word[__dreg+24],cx
-jg short ln908
+jg short ln889
 sub edi,byte 16
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn908:
+setn889:
 or ah,80h
-ln908:
+ln889:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln909
+je short ln890
 call basefunction
-ln909:
+ln890:
 add esi,ebp
 sub edi,byte 56
 js near execexit
@@ -53526,32 +52604,28 @@ movsx edx,word[esi]
 add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+24]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+24],word 0
-jl short setn910
+jl short setn891
 cmp word[__dreg+24],cx
-jg short ln910
+jg short ln891
 sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn910:
+setn891:
 or ah,80h
-ln910:
+ln891:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln911
+je short ln892
 call basefunction
-ln911:
+ln892:
 add esi,ebp
 sub edi,byte 58
 js near execexit
@@ -53564,32 +52638,28 @@ and ebx,byte 7
 call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+24]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+24],word 0
-jl short setn912
+jl short setn893
 cmp word[__dreg+24],cx
-jg short ln912
+jg short ln893
 sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn912:
+setn893:
 or ah,80h
-ln912:
+ln893:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln913
+je short ln894
 call basefunction
-ln913:
+ln894:
 add esi,ebp
 sub edi,byte 60
 js near execexit
@@ -53601,32 +52671,28 @@ ODB8:
 movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+24]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+24],word 0
-jl short setn914
+jl short setn895
 cmp word[__dreg+24],cx
-jg short ln914
+jg short ln895
 sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn914:
+setn895:
 or ah,80h
-ln914:
+ln895:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln915
+je short ln896
 call basefunction
-ln915:
+ln896:
 add esi,ebp
 sub edi,byte 58
 js near execexit
@@ -53639,32 +52705,28 @@ mov edx,[esi]
 add esi,byte 4
 rol edx,16
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+24]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+24],word 0
-jl short setn916
+jl short setn897
 cmp word[__dreg+24],cx
-jg short ln916
+jg short ln897
 sub edi,byte 22
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn916:
+setn897:
 or ah,80h
-ln916:
+ln897:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln917
+je short ln898
 call basefunction
-ln917:
+ln898:
 add esi,ebp
 sub edi,byte 62
 js near execexit
@@ -53678,32 +52740,28 @@ add edx,esi
 sub edx,ebp
 add esi,byte 2
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+24]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+24],word 0
-jl short setn918
+jl short setn899
 cmp word[__dreg+24],cx
-jg short ln918
+jg short ln899
 sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn918:
+setn899:
 or ah,80h
-ln918:
+ln899:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln919
+je short ln900
 call basefunction
-ln919:
+ln900:
 add esi,ebp
 sub edi,byte 58
 js near execexit
@@ -53717,32 +52775,28 @@ add edx,esi
 sub edx,ebp
 sub edx,byte 2
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+24]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+24],word 0
-jl short setn920
+jl short setn901
 cmp word[__dreg+24],cx
-jg short ln920
+jg short ln901
 sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn920:
+setn901:
 or ah,80h
-ln920:
+ln901:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln921
+je short ln902
 call basefunction
-ln921:
+ln902:
 add esi,ebp
 sub edi,byte 60
 js near execexit
@@ -53753,32 +52807,28 @@ jmp dword[__jmptbl+ebx*4]
 ODBC:
 mov cx,[esi]
 add esi,byte 2
-xor al,al
-mov bx,word[__dreg+24]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+24],word 0
-jl short setn922
+jl short setn903
 cmp word[__dreg+24],cx
-jg short ln922
+jg short ln903
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn922:
+setn903:
 or ah,80h
-ln922:
+ln903:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln923
+je short ln904
 call basefunction
-ln923:
+ln904:
 add esi,ebp
 sub edi,byte 54
 js near execexit
@@ -53872,9 +52922,9 @@ and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln924
+je short ln905
 call basefunction
-ln924:
+ln905:
 add esi,ebp
 sub edi,byte 34
 js near execexit
@@ -53980,25 +53030,11 @@ push ecx
 mov cl,[__sr+1]
 and cx,2020h
 xor ch,cl
-jz short ln925
+jz short ln906
 mov ecx,[__a7]
 xchg ecx,[__asp]
 mov [__a7],ecx
-test byte[esp+1],20h
-jz short ln926
-mov [__fetch_idx],dword __sfmhtbl
-mov [__readbyte_idx],dword __srbmhtbl
-mov [__readword_idx],dword __srwmhtbl
-mov [__writebyte_idx],dword __swbmhtbl
-mov [__writeword_idx],dword __swwmhtbl
-jmp short ln925
-ln926:
-mov [__fetch_idx],dword __ufmhtbl
-mov [__readbyte_idx],dword __urbmhtbl
-mov [__readword_idx],dword __urwmhtbl
-mov [__writebyte_idx],dword __uwbmhtbl
-mov [__writeword_idx],dword __uwwmhtbl
-ln925:
+ln906:
 pop ecx
 mov [__sr+1],ch
 and byte[__sr+1],0A7h
@@ -54022,25 +53058,11 @@ push ecx
 mov cl,[__sr+1]
 and cx,2020h
 xor ch,cl
-jz short ln927
+jz short ln908
 mov ecx,[__a7]
 xchg ecx,[__asp]
 mov [__a7],ecx
-test byte[esp+1],20h
-jz short ln928
-mov [__fetch_idx],dword __sfmhtbl
-mov [__readbyte_idx],dword __srbmhtbl
-mov [__readword_idx],dword __srwmhtbl
-mov [__writebyte_idx],dword __swbmhtbl
-mov [__writeword_idx],dword __swwmhtbl
-jmp short ln927
-ln928:
-mov [__fetch_idx],dword __ufmhtbl
-mov [__readbyte_idx],dword __urbmhtbl
-mov [__readword_idx],dword __urwmhtbl
-mov [__writebyte_idx],dword __uwbmhtbl
-mov [__writeword_idx],dword __uwwmhtbl
-ln927:
+ln908:
 pop ecx
 mov [__sr+1],ch
 and byte[__sr+1],0A7h
@@ -54056,20 +53078,18 @@ movzx ecx,cl
 lea ecx,[__a7+ecx*4]
 add dword[ecx],byte 6
 call readmemorydword
-and byte[__execinfo],0EDh
+and byte[__execinfo],0E7h
 and ecx,16777215
 mov esi,ecx
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln929
+je short ln910
 call basefunction
-ln929:
+ln910:
 add esi,ebp
 sub edi,byte 20
 test edi,edi
 js near execexit
-test byte[__sr+1],80h
-jnz near trace_excep
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
@@ -54083,9 +53103,9 @@ and ecx,16777215
 mov esi,ecx
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln930
+je short ln911
 call basefunction
-ln930:
+ln911:
 add esi,ebp
 sub edi,byte 16
 js near execexit
@@ -54095,22 +53115,22 @@ jmp dword[__jmptbl+ebx*4]
 ; Opcode 4E76
 OE76:
 test al,1
-jnz short ln931
+jnz short ln912
 sub edi,byte 4
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln931:
+ln912:
 mov edx,1Ch
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln932
+je short ln913
 call basefunction
-ln932:
+ln913:
 add esi,ebp
 sub edi,byte 38
 js near execexit
@@ -54137,9 +53157,9 @@ and ecx,16777215
 mov esi,ecx
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln933
+je short ln914
 call basefunction
-ln933:
+ln914:
 add esi,ebp
 sub edi,byte 20
 js near execexit
@@ -54157,9 +53177,9 @@ and edx,16777215
 mov esi,edx
 shr edx,12
 cmp dx,word[__fetch_bank]
-je short ln934
+je short ln915
 call basefunction
-ln934:
+ln915:
 add esi,ebp
 pop ecx
 mov edx,[__areg+28]
@@ -54184,9 +53204,9 @@ and edx,16777215
 mov esi,edx
 shr edx,12
 cmp dx,word[__fetch_bank]
-je short ln935
+je short ln916
 call basefunction
-ln935:
+ln916:
 add esi,ebp
 pop ecx
 mov edx,[__areg+28]
@@ -54210,9 +53230,9 @@ and edx,16777215
 mov esi,edx
 shr edx,12
 cmp dx,word[__fetch_bank]
-je short ln936
+je short ln917
 call basefunction
-ln936:
+ln917:
 add esi,ebp
 pop ecx
 mov edx,[__areg+28]
@@ -54235,9 +53255,9 @@ and edx,16777215
 mov esi,edx
 shr edx,12
 cmp dx,word[__fetch_bank]
-je short ln937
+je short ln918
 call basefunction
-ln937:
+ln918:
 add esi,ebp
 pop ecx
 mov edx,[__areg+28]
@@ -54261,9 +53281,9 @@ and edx,16777215
 mov esi,edx
 shr edx,12
 cmp dx,word[__fetch_bank]
-je short ln938
+je short ln919
 call basefunction
-ln938:
+ln919:
 add esi,ebp
 pop ecx
 mov edx,[__areg+28]
@@ -54288,9 +53308,9 @@ and edx,16777215
 mov esi,edx
 shr edx,12
 cmp dx,word[__fetch_bank]
-je short ln939
+je short ln920
 call basefunction
-ln939:
+ln920:
 add esi,ebp
 pop ecx
 mov edx,[__areg+28]
@@ -54315,9 +53335,9 @@ and edx,16777215
 mov esi,edx
 shr edx,12
 cmp dx,word[__fetch_bank]
-je short ln940
+je short ln921
 call basefunction
-ln940:
+ln921:
 add esi,ebp
 pop ecx
 mov edx,[__areg+28]
@@ -54337,9 +53357,9 @@ and edx,16777215
 mov esi,edx
 shr edx,12
 cmp dx,word[__fetch_bank]
-je short ln941
+je short ln922
 call basefunction
-ln941:
+ln922:
 add esi,ebp
 sub edi,byte 8
 js near execexit
@@ -54356,9 +53376,9 @@ and edx,16777215
 mov esi,edx
 shr edx,12
 cmp dx,word[__fetch_bank]
-je short ln942
+je short ln923
 call basefunction
-ln942:
+ln923:
 add esi,ebp
 sub edi,byte 10
 js near execexit
@@ -54374,9 +53394,9 @@ and edx,16777215
 mov esi,edx
 shr edx,12
 cmp dx,word[__fetch_bank]
-je short ln943
+je short ln924
 call basefunction
-ln943:
+ln924:
 add esi,ebp
 sub edi,byte 14
 js near execexit
@@ -54391,9 +53411,9 @@ and edx,16777215
 mov esi,edx
 shr edx,12
 cmp dx,word[__fetch_bank]
-je short ln944
+je short ln925
 call basefunction
-ln944:
+ln925:
 add esi,ebp
 sub edi,byte 10
 js near execexit
@@ -54409,9 +53429,9 @@ and edx,16777215
 mov esi,edx
 shr edx,12
 cmp dx,word[__fetch_bank]
-je short ln945
+je short ln926
 call basefunction
-ln945:
+ln926:
 add esi,ebp
 sub edi,byte 12
 js near execexit
@@ -54428,9 +53448,9 @@ and edx,16777215
 mov esi,edx
 shr edx,12
 cmp dx,word[__fetch_bank]
-je short ln946
+je short ln927
 call basefunction
-ln946:
+ln927:
 add esi,ebp
 sub edi,byte 10
 js near execexit
@@ -54447,9 +53467,9 @@ and edx,16777215
 mov esi,edx
 shr edx,12
 cmp dx,word[__fetch_bank]
-je short ln947
+je short ln928
 call basefunction
-ln947:
+ln928:
 add esi,ebp
 sub edi,byte 14
 js near execexit
@@ -54460,32 +53480,28 @@ jmp dword[__jmptbl+ebx*4]
 OF80:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
-xor al,al
-mov bx,word[__dreg+28]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+28],word 0
-jl short setn948
+jl short setn929
 cmp word[__dreg+28],cx
-jg short ln948
+jg short ln929
 sub edi,byte 10
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn948:
+setn929:
 or ah,80h
-ln948:
+ln929:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln949
+je short ln930
 call basefunction
-ln949:
+ln930:
 add esi,ebp
 sub edi,byte 50
 js near execexit
@@ -54497,32 +53513,28 @@ OF90:
 and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+28]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+28],word 0
-jl short setn950
+jl short setn931
 cmp word[__dreg+28],cx
-jg short ln950
+jg short ln931
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn950:
+setn931:
 or ah,80h
-ln950:
+ln931:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln951
+je short ln932
 call basefunction
-ln951:
+ln932:
 add esi,ebp
 sub edi,byte 54
 js near execexit
@@ -54536,32 +53548,28 @@ mov edx,[__areg+ebx*4]
 call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
-xor al,al
-mov bx,word[__dreg+28]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+28],word 0
-jl short setn952
+jl short setn933
 cmp word[__dreg+28],cx
-jg short ln952
+jg short ln933
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn952:
+setn933:
 or ah,80h
-ln952:
+ln933:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln953
+je short ln934
 call basefunction
-ln953:
+ln934:
 add esi,ebp
 sub edi,byte 54
 js near execexit
@@ -54575,32 +53583,28 @@ mov edx,[__areg+ebx*4]
 sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
-xor al,al
-mov bx,word[__dreg+28]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+28],word 0
-jl short setn954
+jl short setn935
 cmp word[__dreg+28],cx
-jg short ln954
+jg short ln935
 sub edi,byte 16
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn954:
+setn935:
 or ah,80h
-ln954:
+ln935:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln955
+je short ln936
 call basefunction
-ln955:
+ln936:
 add esi,ebp
 sub edi,byte 56
 js near execexit
@@ -54614,32 +53618,28 @@ movsx edx,word[esi]
 add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+28]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+28],word 0
-jl short setn956
+jl short setn937
 cmp word[__dreg+28],cx
-jg short ln956
+jg short ln937
 sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn956:
+setn937:
 or ah,80h
-ln956:
+ln937:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln957
+je short ln938
 call basefunction
-ln957:
+ln938:
 add esi,ebp
 sub edi,byte 58
 js near execexit
@@ -54652,32 +53652,28 @@ and ebx,byte 7
 call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+28]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+28],word 0
-jl short setn958
+jl short setn939
 cmp word[__dreg+28],cx
-jg short ln958
+jg short ln939
 sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn958:
+setn939:
 or ah,80h
-ln958:
+ln939:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln959
+je short ln940
 call basefunction
-ln959:
+ln940:
 add esi,ebp
 sub edi,byte 60
 js near execexit
@@ -54689,32 +53685,28 @@ OFB8:
 movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+28]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+28],word 0
-jl short setn960
+jl short setn941
 cmp word[__dreg+28],cx
-jg short ln960
+jg short ln941
 sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn960:
+setn941:
 or ah,80h
-ln960:
+ln941:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln961
+je short ln942
 call basefunction
-ln961:
+ln942:
 add esi,ebp
 sub edi,byte 58
 js near execexit
@@ -54727,32 +53719,28 @@ mov edx,[esi]
 add esi,byte 4
 rol edx,16
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+28]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+28],word 0
-jl short setn962
+jl short setn943
 cmp word[__dreg+28],cx
-jg short ln962
+jg short ln943
 sub edi,byte 22
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn962:
+setn943:
 or ah,80h
-ln962:
+ln943:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln963
+je short ln944
 call basefunction
-ln963:
+ln944:
 add esi,ebp
 sub edi,byte 62
 js near execexit
@@ -54766,32 +53754,28 @@ add edx,esi
 sub edx,ebp
 add esi,byte 2
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+28]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+28],word 0
-jl short setn964
+jl short setn945
 cmp word[__dreg+28],cx
-jg short ln964
+jg short ln945
 sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn964:
+setn945:
 or ah,80h
-ln964:
+ln945:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln965
+je short ln946
 call basefunction
-ln965:
+ln946:
 add esi,ebp
 sub edi,byte 58
 js near execexit
@@ -54805,32 +53789,28 @@ add edx,esi
 sub edx,ebp
 sub edx,byte 2
 call readmemoryword
-xor al,al
-mov bx,word[__dreg+28]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+28],word 0
-jl short setn966
+jl short setn947
 cmp word[__dreg+28],cx
-jg short ln966
+jg short ln947
 sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn966:
+setn947:
 or ah,80h
-ln966:
+ln947:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln967
+je short ln948
 call basefunction
-ln967:
+ln948:
 add esi,ebp
 sub edi,byte 60
 js near execexit
@@ -54841,32 +53821,28 @@ jmp dword[__jmptbl+ebx*4]
 OFBC:
 mov cx,[esi]
 add esi,byte 2
-xor al,al
-mov bx,word[__dreg+28]
-test bx,bx
-setz ah
-shr ah,6
+xor ax,ax
 cmp word[__dreg+28],word 0
-jl short setn968
+jl short setn949
 cmp word[__dreg+28],cx
-jg short ln968
+jg short ln949
 sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-setn968:
+setn949:
 or ah,80h
-ln968:
+ln949:
 mov edx,18h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln969
+je short ln950
 call basefunction
-ln969:
+ln950:
 add esi,ebp
 sub edi,byte 54
 js near execexit
@@ -64495,42 +63471,59 @@ jmp dword[__jmptbl+ebx*4]
 S0C0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
-jcxz ln970
-movzx ecx,cx
+test cx,cx
+jz near zex951
 mov eax,[__dreg+0]
+shl ecx,16
+cmp eax,ecx
+jae short ov951
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln970
-nodo970:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+0],edx
-sub edi,133
+mov al,15
+pop ecx
+shl ecx,16
+.detloop951:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd951
+sub ebx,ecx
+add edi,byte 2
+.nsbhd951:
+dec al
+jnz short .detloop951
+xor ebx,ebx
+sub edi,byte 76
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln970:
+ov951:
 mov ax,1
-sub edi,133
+sub edi,byte 10
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln971
+zex951:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln972
+je short ln952
 call basefunction
-ln972:
+ln952:
 add esi,ebp
 sub edi,byte 38
 js near execexit
@@ -64542,42 +63535,59 @@ S0D0:
 and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln973
-movzx ecx,cx
+test cx,cx
+jz near zex953
 mov eax,[__dreg+0]
+shl ecx,16
+cmp eax,ecx
+jae short ov953
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln973
-nodo973:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+0],edx
-sub edi,137
+mov al,15
+pop ecx
+shl ecx,16
+.detloop953:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd953
+sub ebx,ecx
+add edi,byte 2
+.nsbhd953:
+dec al
+jnz short .detloop953
+xor ebx,ebx
+sub edi,byte 80
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln973:
+ov953:
 mov ax,1
-sub edi,137
+sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln974
+zex953:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln975
+je short ln954
 call basefunction
-ln975:
+ln954:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -64591,42 +63601,59 @@ mov edx,[__areg+ebx*4]
 call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
-jcxz ln976
-movzx ecx,cx
+test cx,cx
+jz near zex955
 mov eax,[__dreg+0]
+shl ecx,16
+cmp eax,ecx
+jae short ov955
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln976
-nodo976:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+0],edx
-sub edi,137
+mov al,15
+pop ecx
+shl ecx,16
+.detloop955:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd955
+sub ebx,ecx
+add edi,byte 2
+.nsbhd955:
+dec al
+jnz short .detloop955
+xor ebx,ebx
+sub edi,byte 80
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln976:
+ov955:
 mov ax,1
-sub edi,137
+sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln977
+zex955:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln978
+je short ln956
 call basefunction
-ln978:
+ln956:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -64640,42 +63667,59 @@ mov edx,[__areg+ebx*4]
 sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
-jcxz ln979
-movzx ecx,cx
+test cx,cx
+jz near zex957
 mov eax,[__dreg+0]
+shl ecx,16
+cmp eax,ecx
+jae short ov957
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln979
-nodo979:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+0],edx
-sub edi,139
+mov al,15
+pop ecx
+shl ecx,16
+.detloop957:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd957
+sub ebx,ecx
+add edi,byte 2
+.nsbhd957:
+dec al
+jnz short .detloop957
+xor ebx,ebx
+sub edi,byte 82
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln979:
+ov957:
 mov ax,1
-sub edi,139
+sub edi,byte 16
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln980
+zex957:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln981
+je short ln958
 call basefunction
-ln981:
+ln958:
 add esi,ebp
 sub edi,byte 44
 js near execexit
@@ -64689,42 +63733,59 @@ movsx edx,word[esi]
 add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln982
-movzx ecx,cx
+test cx,cx
+jz near zex959
 mov eax,[__dreg+0]
+shl ecx,16
+cmp eax,ecx
+jae short ov959
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln982
-nodo982:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+0],edx
-sub edi,141
+mov al,15
+pop ecx
+shl ecx,16
+.detloop959:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd959
+sub ebx,ecx
+add edi,byte 2
+.nsbhd959:
+dec al
+jnz short .detloop959
+xor ebx,ebx
+sub edi,byte 84
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln982:
+ov959:
 mov ax,1
-sub edi,141
+sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln983
+zex959:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln984
+je short ln960
 call basefunction
-ln984:
+ln960:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -64737,42 +63798,59 @@ and ebx,byte 7
 call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln985
-movzx ecx,cx
+test cx,cx
+jz near zex961
 mov eax,[__dreg+0]
+shl ecx,16
+cmp eax,ecx
+jae short ov961
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln985
-nodo985:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+0],edx
-sub edi,143
+mov al,15
+pop ecx
+shl ecx,16
+.detloop961:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd961
+sub ebx,ecx
+add edi,byte 2
+.nsbhd961:
+dec al
+jnz short .detloop961
+xor ebx,ebx
+sub edi,byte 86
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln985:
+ov961:
 mov ax,1
-sub edi,143
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln986
+zex961:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln987
+je short ln962
 call basefunction
-ln987:
+ln962:
 add esi,ebp
 sub edi,byte 48
 js near execexit
@@ -64784,42 +63862,59 @@ S0F8:
 movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
-jcxz ln988
-movzx ecx,cx
+test cx,cx
+jz near zex963
 mov eax,[__dreg+0]
+shl ecx,16
+cmp eax,ecx
+jae short ov963
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln988
-nodo988:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+0],edx
-sub edi,141
+mov al,15
+pop ecx
+shl ecx,16
+.detloop963:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd963
+sub ebx,ecx
+add edi,byte 2
+.nsbhd963:
+dec al
+jnz short .detloop963
+xor ebx,ebx
+sub edi,byte 84
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln988:
+ov963:
 mov ax,1
-sub edi,141
+sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln989
+zex963:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln990
+je short ln964
 call basefunction
-ln990:
+ln964:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -64832,42 +63927,59 @@ mov edx,[esi]
 add esi,byte 4
 rol edx,16
 call readmemoryword
-jcxz ln991
-movzx ecx,cx
+test cx,cx
+jz near zex965
 mov eax,[__dreg+0]
+shl ecx,16
+cmp eax,ecx
+jae short ov965
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln991
-nodo991:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+0],edx
-sub edi,145
+mov al,15
+pop ecx
+shl ecx,16
+.detloop965:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd965
+sub ebx,ecx
+add edi,byte 2
+.nsbhd965:
+dec al
+jnz short .detloop965
+xor ebx,ebx
+sub edi,byte 88
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln991:
+ov965:
 mov ax,1
-sub edi,145
+sub edi,byte 22
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln992
+zex965:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln993
+je short ln966
 call basefunction
-ln993:
+ln966:
 add esi,ebp
 sub edi,byte 50
 js near execexit
@@ -64881,42 +63993,59 @@ add edx,esi
 sub edx,ebp
 add esi,byte 2
 call readmemoryword
-jcxz ln994
-movzx ecx,cx
+test cx,cx
+jz near zex967
 mov eax,[__dreg+0]
+shl ecx,16
+cmp eax,ecx
+jae short ov967
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln994
-nodo994:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+0],edx
-sub edi,141
+mov al,15
+pop ecx
+shl ecx,16
+.detloop967:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd967
+sub ebx,ecx
+add edi,byte 2
+.nsbhd967:
+dec al
+jnz short .detloop967
+xor ebx,ebx
+sub edi,byte 84
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln994:
+ov967:
 mov ax,1
-sub edi,141
+sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln995
+zex967:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln996
+je short ln968
 call basefunction
-ln996:
+ln968:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -64930,42 +64059,59 @@ add edx,esi
 sub edx,ebp
 sub edx,byte 2
 call readmemoryword
-jcxz ln997
-movzx ecx,cx
+test cx,cx
+jz near zex969
 mov eax,[__dreg+0]
+shl ecx,16
+cmp eax,ecx
+jae short ov969
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln997
-nodo997:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+0],edx
-sub edi,143
+mov al,15
+pop ecx
+shl ecx,16
+.detloop969:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd969
+sub ebx,ecx
+add edi,byte 2
+.nsbhd969:
+dec al
+jnz short .detloop969
+xor ebx,ebx
+sub edi,byte 86
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln997:
+ov969:
 mov ax,1
-sub edi,143
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln998
+zex969:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln999
+je short ln970
 call basefunction
-ln999:
+ln970:
 add esi,ebp
 sub edi,byte 48
 js near execexit
@@ -64976,42 +64122,59 @@ jmp dword[__jmptbl+ebx*4]
 S0FC:
 mov cx,[esi]
 add esi,byte 2
-jcxz ln1000
-movzx ecx,cx
+test cx,cx
+jz near zex971
 mov eax,[__dreg+0]
+shl ecx,16
+cmp eax,ecx
+jae short ov971
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1000
-nodo1000:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+0],edx
-sub edi,137
+mov al,15
+pop ecx
+shl ecx,16
+.detloop971:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd971
+sub ebx,ecx
+add edi,byte 2
+.nsbhd971:
+dec al
+jnz short .detloop971
+xor ebx,ebx
+sub edi,byte 80
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1000:
+ov971:
 mov ax,1
-sub edi,137
+sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1001
+zex971:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1002
+je short ln972
 call basefunction
-ln1002:
+ln972:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -65030,18 +64193,11 @@ das
 mov [__dreg+0],al
 lahf
 setc [__xflag]
-jnz short ln1003
+jnz short ln973
 or ch,0BFh
 and ah,ch
-ln1003:
-test al,al
-jns short ln1004
+ln973:
 xor al,al
-jmp short ln1005
-ln1004:
-test cl,cl
-sets al
-ln1005:
 sub edi,byte 6
 js near execexit
 mov bx,[esi]
@@ -65067,18 +64223,11 @@ das
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1006
+jnz short ln974
 or ch,0BFh
 and ah,ch
-ln1006:
-test al,al
-jns short ln1007
+ln974:
 xor al,al
-jmp short ln1008
-ln1007:
-test cl,cl
-sets al
-ln1008:
 mov ecx,ebx
 xor ebx,ebx
 call writememorybyte
@@ -65412,45 +64561,83 @@ jmp dword[__jmptbl+ebx*4]
 S1C0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
-jcxz ln1009
-movsx ecx,cx
+test cx,cx
+jz near zex975
 mov eax,[__dreg+0]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov975
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1009
-inc ecx
-jnz short ln1009
-nodo1009:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+0],edx
-sub edi,150
+pop ecx
+test cx,cx
+js short .ndivs975
+test ebx,ebx
+js short .ndivd975
+add edi,byte 4
+.ndivd975:
+sub edi,byte 2
+.ndivs975:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop975
+neg dx
+.dsetloop975:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop975
+xor ebx,ebx
+sub edi,byte 122
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1009:
+ov975:
 mov ax,1
-sub edi,150
+sub edi,byte 16
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1010
+zex975:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1011
+je short ln976
 call basefunction
-ln1011:
+ln976:
 add esi,ebp
 sub edi,byte 38
 js near execexit
@@ -65462,45 +64649,83 @@ S1D0:
 and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1012
-movsx ecx,cx
+test cx,cx
+jz near zex977
 mov eax,[__dreg+0]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov977
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1012
-inc ecx
-jnz short ln1012
-nodo1012:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+0],edx
-sub edi,154
+pop ecx
+test cx,cx
+js short .ndivs977
+test ebx,ebx
+js short .ndivd977
+add edi,byte 4
+.ndivd977:
+sub edi,byte 2
+.ndivs977:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop977
+neg dx
+.dsetloop977:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop977
+xor ebx,ebx
+sub edi,byte 126
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1012:
+ov977:
 mov ax,1
-sub edi,154
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1013
+zex977:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1014
+je short ln978
 call basefunction
-ln1014:
+ln978:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -65514,45 +64739,83 @@ mov edx,[__areg+ebx*4]
 call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
-jcxz ln1015
-movsx ecx,cx
+test cx,cx
+jz near zex979
 mov eax,[__dreg+0]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov979
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1015
-inc ecx
-jnz short ln1015
-nodo1015:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+0],edx
-sub edi,154
+pop ecx
+test cx,cx
+js short .ndivs979
+test ebx,ebx
+js short .ndivd979
+add edi,byte 4
+.ndivd979:
+sub edi,byte 2
+.ndivs979:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop979
+neg dx
+.dsetloop979:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop979
+xor ebx,ebx
+sub edi,byte 126
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1015:
+ov979:
 mov ax,1
-sub edi,154
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1016
+zex979:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1017
+je short ln980
 call basefunction
-ln1017:
+ln980:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -65566,45 +64829,83 @@ mov edx,[__areg+ebx*4]
 sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
-jcxz ln1018
-movsx ecx,cx
+test cx,cx
+jz near zex981
 mov eax,[__dreg+0]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov981
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1018
-inc ecx
-jnz short ln1018
-nodo1018:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+0],edx
-sub edi,156
+pop ecx
+test cx,cx
+js short .ndivs981
+test ebx,ebx
+js short .ndivd981
+add edi,byte 4
+.ndivd981:
+sub edi,byte 2
+.ndivs981:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop981
+neg dx
+.dsetloop981:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop981
+xor ebx,ebx
+sub edi,128
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1018:
+ov981:
 mov ax,1
-sub edi,156
+sub edi,byte 22
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1019
+zex981:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1020
+je short ln982
 call basefunction
-ln1020:
+ln982:
 add esi,ebp
 sub edi,byte 44
 js near execexit
@@ -65618,45 +64919,83 @@ movsx edx,word[esi]
 add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1021
-movsx ecx,cx
+test cx,cx
+jz near zex983
 mov eax,[__dreg+0]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov983
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1021
-inc ecx
-jnz short ln1021
-nodo1021:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+0],edx
-sub edi,158
+pop ecx
+test cx,cx
+js short .ndivs983
+test ebx,ebx
+js short .ndivd983
+add edi,byte 4
+.ndivd983:
+sub edi,byte 2
+.ndivs983:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop983
+neg dx
+.dsetloop983:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop983
+xor ebx,ebx
+sub edi,130
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1021:
+ov983:
 mov ax,1
-sub edi,158
+sub edi,byte 24
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1022
+zex983:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1023
+je short ln984
 call basefunction
-ln1023:
+ln984:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -65669,45 +65008,83 @@ and ebx,byte 7
 call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1024
-movsx ecx,cx
+test cx,cx
+jz near zex985
 mov eax,[__dreg+0]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov985
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1024
-inc ecx
-jnz short ln1024
-nodo1024:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+0],edx
-sub edi,160
+pop ecx
+test cx,cx
+js short .ndivs985
+test ebx,ebx
+js short .ndivd985
+add edi,byte 4
+.ndivd985:
+sub edi,byte 2
+.ndivs985:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop985
+neg dx
+.dsetloop985:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop985
+xor ebx,ebx
+sub edi,132
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1024:
+ov985:
 mov ax,1
-sub edi,160
+sub edi,byte 26
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1025
+zex985:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1026
+je short ln986
 call basefunction
-ln1026:
+ln986:
 add esi,ebp
 sub edi,byte 48
 js near execexit
@@ -65719,45 +65096,83 @@ S1F8:
 movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
-jcxz ln1027
-movsx ecx,cx
+test cx,cx
+jz near zex987
 mov eax,[__dreg+0]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov987
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1027
-inc ecx
-jnz short ln1027
-nodo1027:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+0],edx
-sub edi,158
+pop ecx
+test cx,cx
+js short .ndivs987
+test ebx,ebx
+js short .ndivd987
+add edi,byte 4
+.ndivd987:
+sub edi,byte 2
+.ndivs987:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop987
+neg dx
+.dsetloop987:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop987
+xor ebx,ebx
+sub edi,130
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1027:
+ov987:
 mov ax,1
-sub edi,158
+sub edi,byte 24
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1028
+zex987:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1029
+je short ln988
 call basefunction
-ln1029:
+ln988:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -65770,45 +65185,83 @@ mov edx,[esi]
 add esi,byte 4
 rol edx,16
 call readmemoryword
-jcxz ln1030
-movsx ecx,cx
+test cx,cx
+jz near zex989
 mov eax,[__dreg+0]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov989
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1030
-inc ecx
-jnz short ln1030
-nodo1030:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+0],edx
-sub edi,162
+pop ecx
+test cx,cx
+js short .ndivs989
+test ebx,ebx
+js short .ndivd989
+add edi,byte 4
+.ndivd989:
+sub edi,byte 2
+.ndivs989:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop989
+neg dx
+.dsetloop989:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop989
+xor ebx,ebx
+sub edi,134
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1030:
+ov989:
 mov ax,1
-sub edi,162
+sub edi,byte 28
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1031
+zex989:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1032
+je short ln990
 call basefunction
-ln1032:
+ln990:
 add esi,ebp
 sub edi,byte 50
 js near execexit
@@ -65822,45 +65275,83 @@ add edx,esi
 sub edx,ebp
 add esi,byte 2
 call readmemoryword
-jcxz ln1033
-movsx ecx,cx
+test cx,cx
+jz near zex991
 mov eax,[__dreg+0]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov991
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1033
-inc ecx
-jnz short ln1033
-nodo1033:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+0],edx
-sub edi,158
+pop ecx
+test cx,cx
+js short .ndivs991
+test ebx,ebx
+js short .ndivd991
+add edi,byte 4
+.ndivd991:
+sub edi,byte 2
+.ndivs991:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop991
+neg dx
+.dsetloop991:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop991
+xor ebx,ebx
+sub edi,130
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1033:
+ov991:
 mov ax,1
-sub edi,158
+sub edi,byte 24
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1034
+zex991:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1035
+je short ln992
 call basefunction
-ln1035:
+ln992:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -65874,45 +65365,83 @@ add edx,esi
 sub edx,ebp
 sub edx,byte 2
 call readmemoryword
-jcxz ln1036
-movsx ecx,cx
+test cx,cx
+jz near zex993
 mov eax,[__dreg+0]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov993
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1036
-inc ecx
-jnz short ln1036
-nodo1036:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+0],edx
-sub edi,160
+pop ecx
+test cx,cx
+js short .ndivs993
+test ebx,ebx
+js short .ndivd993
+add edi,byte 4
+.ndivd993:
+sub edi,byte 2
+.ndivs993:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop993
+neg dx
+.dsetloop993:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop993
+xor ebx,ebx
+sub edi,132
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1036:
+ov993:
 mov ax,1
-sub edi,160
+sub edi,byte 26
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1037
+zex993:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1038
+je short ln994
 call basefunction
-ln1038:
+ln994:
 add esi,ebp
 sub edi,byte 48
 js near execexit
@@ -65923,45 +65452,83 @@ jmp dword[__jmptbl+ebx*4]
 S1FC:
 mov cx,[esi]
 add esi,byte 2
-jcxz ln1039
-movsx ecx,cx
+test cx,cx
+jz near zex995
 mov eax,[__dreg+0]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov995
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1039
-inc ecx
-jnz short ln1039
-nodo1039:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+0],edx
-sub edi,154
+pop ecx
+test cx,cx
+js short .ndivs995
+test ebx,ebx
+js short .ndivd995
+add edi,byte 4
+.ndivd995:
+sub edi,byte 2
+.ndivs995:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop995
+neg dx
+.dsetloop995:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop995
+xor ebx,ebx
+sub edi,byte 126
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1039:
+ov995:
 mov ax,1
-sub edi,154
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1040
+zex995:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1041
+je short ln996
 call basefunction
-ln1041:
+ln996:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -66434,42 +66001,59 @@ jmp dword[__jmptbl+ebx*4]
 S2C0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
-jcxz ln1042
-movzx ecx,cx
+test cx,cx
+jz near zex997
 mov eax,[__dreg+4]
+shl ecx,16
+cmp eax,ecx
+jae short ov997
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1042
-nodo1042:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+4],edx
-sub edi,133
+mov al,15
+pop ecx
+shl ecx,16
+.detloop997:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd997
+sub ebx,ecx
+add edi,byte 2
+.nsbhd997:
+dec al
+jnz short .detloop997
+xor ebx,ebx
+sub edi,byte 76
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1042:
+ov997:
 mov ax,1
-sub edi,133
+sub edi,byte 10
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1043
+zex997:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1044
+je short ln998
 call basefunction
-ln1044:
+ln998:
 add esi,ebp
 sub edi,byte 38
 js near execexit
@@ -66481,42 +66065,59 @@ S2D0:
 and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1045
-movzx ecx,cx
+test cx,cx
+jz near zex999
 mov eax,[__dreg+4]
+shl ecx,16
+cmp eax,ecx
+jae short ov999
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1045
-nodo1045:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+4],edx
-sub edi,137
+mov al,15
+pop ecx
+shl ecx,16
+.detloop999:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd999
+sub ebx,ecx
+add edi,byte 2
+.nsbhd999:
+dec al
+jnz short .detloop999
+xor ebx,ebx
+sub edi,byte 80
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1045:
+ov999:
 mov ax,1
-sub edi,137
+sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1046
+zex999:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1047
+je short ln1000
 call basefunction
-ln1047:
+ln1000:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -66530,42 +66131,59 @@ mov edx,[__areg+ebx*4]
 call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
-jcxz ln1048
-movzx ecx,cx
+test cx,cx
+jz near zex1001
 mov eax,[__dreg+4]
+shl ecx,16
+cmp eax,ecx
+jae short ov1001
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1048
-nodo1048:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+4],edx
-sub edi,137
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1001:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1001
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1001:
+dec al
+jnz short .detloop1001
+xor ebx,ebx
+sub edi,byte 80
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1048:
+ov1001:
 mov ax,1
-sub edi,137
+sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1049
+zex1001:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1050
+je short ln1002
 call basefunction
-ln1050:
+ln1002:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -66579,42 +66197,59 @@ mov edx,[__areg+ebx*4]
 sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
-jcxz ln1051
-movzx ecx,cx
+test cx,cx
+jz near zex1003
 mov eax,[__dreg+4]
+shl ecx,16
+cmp eax,ecx
+jae short ov1003
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1051
-nodo1051:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+4],edx
-sub edi,139
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1003:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1003
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1003:
+dec al
+jnz short .detloop1003
+xor ebx,ebx
+sub edi,byte 82
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1051:
+ov1003:
 mov ax,1
-sub edi,139
+sub edi,byte 16
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1052
+zex1003:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1053
+je short ln1004
 call basefunction
-ln1053:
+ln1004:
 add esi,ebp
 sub edi,byte 44
 js near execexit
@@ -66628,42 +66263,59 @@ movsx edx,word[esi]
 add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1054
-movzx ecx,cx
+test cx,cx
+jz near zex1005
 mov eax,[__dreg+4]
+shl ecx,16
+cmp eax,ecx
+jae short ov1005
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1054
-nodo1054:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+4],edx
-sub edi,141
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1005:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1005
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1005:
+dec al
+jnz short .detloop1005
+xor ebx,ebx
+sub edi,byte 84
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1054:
+ov1005:
 mov ax,1
-sub edi,141
+sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1055
+zex1005:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1056
+je short ln1006
 call basefunction
-ln1056:
+ln1006:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -66676,42 +66328,59 @@ and ebx,byte 7
 call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1057
-movzx ecx,cx
+test cx,cx
+jz near zex1007
 mov eax,[__dreg+4]
+shl ecx,16
+cmp eax,ecx
+jae short ov1007
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1057
-nodo1057:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+4],edx
-sub edi,143
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1007:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1007
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1007:
+dec al
+jnz short .detloop1007
+xor ebx,ebx
+sub edi,byte 86
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1057:
+ov1007:
 mov ax,1
-sub edi,143
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1058
+zex1007:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1059
+je short ln1008
 call basefunction
-ln1059:
+ln1008:
 add esi,ebp
 sub edi,byte 48
 js near execexit
@@ -66723,42 +66392,59 @@ S2F8:
 movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
-jcxz ln1060
-movzx ecx,cx
+test cx,cx
+jz near zex1009
 mov eax,[__dreg+4]
+shl ecx,16
+cmp eax,ecx
+jae short ov1009
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1060
-nodo1060:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+4],edx
-sub edi,141
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1009:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1009
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1009:
+dec al
+jnz short .detloop1009
+xor ebx,ebx
+sub edi,byte 84
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1060:
+ov1009:
 mov ax,1
-sub edi,141
+sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1061
+zex1009:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1062
+je short ln1010
 call basefunction
-ln1062:
+ln1010:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -66771,42 +66457,59 @@ mov edx,[esi]
 add esi,byte 4
 rol edx,16
 call readmemoryword
-jcxz ln1063
-movzx ecx,cx
+test cx,cx
+jz near zex1011
 mov eax,[__dreg+4]
+shl ecx,16
+cmp eax,ecx
+jae short ov1011
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1063
-nodo1063:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+4],edx
-sub edi,145
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1011:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1011
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1011:
+dec al
+jnz short .detloop1011
+xor ebx,ebx
+sub edi,byte 88
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1063:
+ov1011:
 mov ax,1
-sub edi,145
+sub edi,byte 22
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1064
+zex1011:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1065
+je short ln1012
 call basefunction
-ln1065:
+ln1012:
 add esi,ebp
 sub edi,byte 50
 js near execexit
@@ -66820,42 +66523,59 @@ add edx,esi
 sub edx,ebp
 add esi,byte 2
 call readmemoryword
-jcxz ln1066
-movzx ecx,cx
+test cx,cx
+jz near zex1013
 mov eax,[__dreg+4]
+shl ecx,16
+cmp eax,ecx
+jae short ov1013
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1066
-nodo1066:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+4],edx
-sub edi,141
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1013:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1013
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1013:
+dec al
+jnz short .detloop1013
+xor ebx,ebx
+sub edi,byte 84
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1066:
+ov1013:
 mov ax,1
-sub edi,141
+sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1067
+zex1013:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1068
+je short ln1014
 call basefunction
-ln1068:
+ln1014:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -66869,42 +66589,59 @@ add edx,esi
 sub edx,ebp
 sub edx,byte 2
 call readmemoryword
-jcxz ln1069
-movzx ecx,cx
+test cx,cx
+jz near zex1015
 mov eax,[__dreg+4]
+shl ecx,16
+cmp eax,ecx
+jae short ov1015
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1069
-nodo1069:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+4],edx
-sub edi,143
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1015:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1015
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1015:
+dec al
+jnz short .detloop1015
+xor ebx,ebx
+sub edi,byte 86
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1069:
+ov1015:
 mov ax,1
-sub edi,143
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1070
+zex1015:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1071
+je short ln1016
 call basefunction
-ln1071:
+ln1016:
 add esi,ebp
 sub edi,byte 48
 js near execexit
@@ -66915,42 +66652,59 @@ jmp dword[__jmptbl+ebx*4]
 S2FC:
 mov cx,[esi]
 add esi,byte 2
-jcxz ln1072
-movzx ecx,cx
+test cx,cx
+jz near zex1017
 mov eax,[__dreg+4]
+shl ecx,16
+cmp eax,ecx
+jae short ov1017
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1072
-nodo1072:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+4],edx
-sub edi,137
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1017:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1017
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1017:
+dec al
+jnz short .detloop1017
+xor ebx,ebx
+sub edi,byte 80
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1072:
+ov1017:
 mov ax,1
-sub edi,137
+sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1073
+zex1017:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1074
+je short ln1018
 call basefunction
-ln1074:
+ln1018:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -66969,18 +66723,11 @@ das
 mov [__dreg+4],al
 lahf
 setc [__xflag]
-jnz short ln1075
+jnz short ln1019
 or ch,0BFh
 and ah,ch
-ln1075:
-test al,al
-jns short ln1076
+ln1019:
 xor al,al
-jmp short ln1077
-ln1076:
-test cl,cl
-sets al
-ln1077:
 sub edi,byte 6
 js near execexit
 mov bx,[esi]
@@ -67006,18 +66753,11 @@ das
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1078
+jnz short ln1020
 or ch,0BFh
 and ah,ch
-ln1078:
-test al,al
-jns short ln1079
+ln1020:
 xor al,al
-jmp short ln1080
-ln1079:
-test cl,cl
-sets al
-ln1080:
 mov ecx,ebx
 xor ebx,ebx
 call writememorybyte
@@ -67351,45 +67091,83 @@ jmp dword[__jmptbl+ebx*4]
 S3C0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
-jcxz ln1081
-movsx ecx,cx
+test cx,cx
+jz near zex1021
 mov eax,[__dreg+4]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1021
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1081
-inc ecx
-jnz short ln1081
-nodo1081:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+4],edx
-sub edi,150
+pop ecx
+test cx,cx
+js short .ndivs1021
+test ebx,ebx
+js short .ndivd1021
+add edi,byte 4
+.ndivd1021:
+sub edi,byte 2
+.ndivs1021:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1021
+neg dx
+.dsetloop1021:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1021
+xor ebx,ebx
+sub edi,byte 122
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1081:
+ov1021:
 mov ax,1
-sub edi,150
+sub edi,byte 16
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1082
+zex1021:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1083
+je short ln1022
 call basefunction
-ln1083:
+ln1022:
 add esi,ebp
 sub edi,byte 38
 js near execexit
@@ -67401,45 +67179,83 @@ S3D0:
 and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1084
-movsx ecx,cx
+test cx,cx
+jz near zex1023
 mov eax,[__dreg+4]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1023
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1084
-inc ecx
-jnz short ln1084
-nodo1084:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+4],edx
-sub edi,154
+pop ecx
+test cx,cx
+js short .ndivs1023
+test ebx,ebx
+js short .ndivd1023
+add edi,byte 4
+.ndivd1023:
+sub edi,byte 2
+.ndivs1023:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1023
+neg dx
+.dsetloop1023:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1023
+xor ebx,ebx
+sub edi,byte 126
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1084:
+ov1023:
 mov ax,1
-sub edi,154
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1085
+zex1023:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1086
+je short ln1024
 call basefunction
-ln1086:
+ln1024:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -67453,45 +67269,83 @@ mov edx,[__areg+ebx*4]
 call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
-jcxz ln1087
-movsx ecx,cx
+test cx,cx
+jz near zex1025
 mov eax,[__dreg+4]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1025
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1087
-inc ecx
-jnz short ln1087
-nodo1087:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+4],edx
-sub edi,154
+pop ecx
+test cx,cx
+js short .ndivs1025
+test ebx,ebx
+js short .ndivd1025
+add edi,byte 4
+.ndivd1025:
+sub edi,byte 2
+.ndivs1025:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1025
+neg dx
+.dsetloop1025:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1025
+xor ebx,ebx
+sub edi,byte 126
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1087:
+ov1025:
 mov ax,1
-sub edi,154
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1088
+zex1025:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1089
+je short ln1026
 call basefunction
-ln1089:
+ln1026:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -67505,45 +67359,83 @@ mov edx,[__areg+ebx*4]
 sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
-jcxz ln1090
-movsx ecx,cx
+test cx,cx
+jz near zex1027
 mov eax,[__dreg+4]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1027
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1090
-inc ecx
-jnz short ln1090
-nodo1090:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+4],edx
-sub edi,156
+pop ecx
+test cx,cx
+js short .ndivs1027
+test ebx,ebx
+js short .ndivd1027
+add edi,byte 4
+.ndivd1027:
+sub edi,byte 2
+.ndivs1027:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1027
+neg dx
+.dsetloop1027:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1027
+xor ebx,ebx
+sub edi,128
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1090:
+ov1027:
 mov ax,1
-sub edi,156
+sub edi,byte 22
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1091
+zex1027:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1092
+je short ln1028
 call basefunction
-ln1092:
+ln1028:
 add esi,ebp
 sub edi,byte 44
 js near execexit
@@ -67557,45 +67449,83 @@ movsx edx,word[esi]
 add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1093
-movsx ecx,cx
+test cx,cx
+jz near zex1029
 mov eax,[__dreg+4]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1029
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1093
-inc ecx
-jnz short ln1093
-nodo1093:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+4],edx
-sub edi,158
+pop ecx
+test cx,cx
+js short .ndivs1029
+test ebx,ebx
+js short .ndivd1029
+add edi,byte 4
+.ndivd1029:
+sub edi,byte 2
+.ndivs1029:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1029
+neg dx
+.dsetloop1029:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1029
+xor ebx,ebx
+sub edi,130
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1093:
+ov1029:
 mov ax,1
-sub edi,158
+sub edi,byte 24
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1094
+zex1029:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1095
+je short ln1030
 call basefunction
-ln1095:
+ln1030:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -67608,45 +67538,83 @@ and ebx,byte 7
 call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1096
-movsx ecx,cx
+test cx,cx
+jz near zex1031
 mov eax,[__dreg+4]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1031
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1096
-inc ecx
-jnz short ln1096
-nodo1096:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+4],edx
-sub edi,160
+pop ecx
+test cx,cx
+js short .ndivs1031
+test ebx,ebx
+js short .ndivd1031
+add edi,byte 4
+.ndivd1031:
+sub edi,byte 2
+.ndivs1031:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1031
+neg dx
+.dsetloop1031:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1031
+xor ebx,ebx
+sub edi,132
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1096:
+ov1031:
 mov ax,1
-sub edi,160
+sub edi,byte 26
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1097
+zex1031:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1098
+je short ln1032
 call basefunction
-ln1098:
+ln1032:
 add esi,ebp
 sub edi,byte 48
 js near execexit
@@ -67658,45 +67626,83 @@ S3F8:
 movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
-jcxz ln1099
-movsx ecx,cx
+test cx,cx
+jz near zex1033
 mov eax,[__dreg+4]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1033
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1099
-inc ecx
-jnz short ln1099
-nodo1099:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+4],edx
-sub edi,158
+pop ecx
+test cx,cx
+js short .ndivs1033
+test ebx,ebx
+js short .ndivd1033
+add edi,byte 4
+.ndivd1033:
+sub edi,byte 2
+.ndivs1033:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1033
+neg dx
+.dsetloop1033:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1033
+xor ebx,ebx
+sub edi,130
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1099:
+ov1033:
 mov ax,1
-sub edi,158
+sub edi,byte 24
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1100
+zex1033:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1101
+je short ln1034
 call basefunction
-ln1101:
+ln1034:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -67709,45 +67715,83 @@ mov edx,[esi]
 add esi,byte 4
 rol edx,16
 call readmemoryword
-jcxz ln1102
-movsx ecx,cx
+test cx,cx
+jz near zex1035
 mov eax,[__dreg+4]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1035
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1102
-inc ecx
-jnz short ln1102
-nodo1102:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+4],edx
-sub edi,162
+pop ecx
+test cx,cx
+js short .ndivs1035
+test ebx,ebx
+js short .ndivd1035
+add edi,byte 4
+.ndivd1035:
+sub edi,byte 2
+.ndivs1035:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1035
+neg dx
+.dsetloop1035:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1035
+xor ebx,ebx
+sub edi,134
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1102:
+ov1035:
 mov ax,1
-sub edi,162
+sub edi,byte 28
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1103
+zex1035:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1104
+je short ln1036
 call basefunction
-ln1104:
+ln1036:
 add esi,ebp
 sub edi,byte 50
 js near execexit
@@ -67761,45 +67805,83 @@ add edx,esi
 sub edx,ebp
 add esi,byte 2
 call readmemoryword
-jcxz ln1105
-movsx ecx,cx
+test cx,cx
+jz near zex1037
 mov eax,[__dreg+4]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1037
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1105
-inc ecx
-jnz short ln1105
-nodo1105:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+4],edx
-sub edi,158
+pop ecx
+test cx,cx
+js short .ndivs1037
+test ebx,ebx
+js short .ndivd1037
+add edi,byte 4
+.ndivd1037:
+sub edi,byte 2
+.ndivs1037:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1037
+neg dx
+.dsetloop1037:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1037
+xor ebx,ebx
+sub edi,130
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1105:
+ov1037:
 mov ax,1
-sub edi,158
+sub edi,byte 24
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1106
+zex1037:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1107
+je short ln1038
 call basefunction
-ln1107:
+ln1038:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -67813,45 +67895,83 @@ add edx,esi
 sub edx,ebp
 sub edx,byte 2
 call readmemoryword
-jcxz ln1108
-movsx ecx,cx
+test cx,cx
+jz near zex1039
 mov eax,[__dreg+4]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1039
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1108
-inc ecx
-jnz short ln1108
-nodo1108:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+4],edx
-sub edi,160
+pop ecx
+test cx,cx
+js short .ndivs1039
+test ebx,ebx
+js short .ndivd1039
+add edi,byte 4
+.ndivd1039:
+sub edi,byte 2
+.ndivs1039:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1039
+neg dx
+.dsetloop1039:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1039
+xor ebx,ebx
+sub edi,132
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1108:
+ov1039:
 mov ax,1
-sub edi,160
+sub edi,byte 26
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1109
+zex1039:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1110
+je short ln1040
 call basefunction
-ln1110:
+ln1040:
 add esi,ebp
 sub edi,byte 48
 js near execexit
@@ -67862,45 +67982,83 @@ jmp dword[__jmptbl+ebx*4]
 S3FC:
 mov cx,[esi]
 add esi,byte 2
-jcxz ln1111
-movsx ecx,cx
+test cx,cx
+jz near zex1041
 mov eax,[__dreg+4]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1041
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1111
-inc ecx
-jnz short ln1111
-nodo1111:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+4],edx
-sub edi,154
+pop ecx
+test cx,cx
+js short .ndivs1041
+test ebx,ebx
+js short .ndivd1041
+add edi,byte 4
+.ndivd1041:
+sub edi,byte 2
+.ndivs1041:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1041
+neg dx
+.dsetloop1041:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1041
+xor ebx,ebx
+sub edi,byte 126
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1111:
+ov1041:
 mov ax,1
-sub edi,154
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1112
+zex1041:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1113
+je short ln1042
 call basefunction
-ln1113:
+ln1042:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -68373,42 +68531,59 @@ jmp dword[__jmptbl+ebx*4]
 S4C0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
-jcxz ln1114
-movzx ecx,cx
+test cx,cx
+jz near zex1043
 mov eax,[__dreg+8]
+shl ecx,16
+cmp eax,ecx
+jae short ov1043
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1114
-nodo1114:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+8],edx
-sub edi,133
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1043:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1043
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1043:
+dec al
+jnz short .detloop1043
+xor ebx,ebx
+sub edi,byte 76
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1114:
+ov1043:
 mov ax,1
-sub edi,133
+sub edi,byte 10
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1115
+zex1043:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1116
+je short ln1044
 call basefunction
-ln1116:
+ln1044:
 add esi,ebp
 sub edi,byte 38
 js near execexit
@@ -68420,42 +68595,59 @@ S4D0:
 and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1117
-movzx ecx,cx
+test cx,cx
+jz near zex1045
 mov eax,[__dreg+8]
+shl ecx,16
+cmp eax,ecx
+jae short ov1045
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1117
-nodo1117:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+8],edx
-sub edi,137
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1045:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1045
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1045:
+dec al
+jnz short .detloop1045
+xor ebx,ebx
+sub edi,byte 80
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1117:
+ov1045:
 mov ax,1
-sub edi,137
+sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1118
+zex1045:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1119
+je short ln1046
 call basefunction
-ln1119:
+ln1046:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -68469,42 +68661,59 @@ mov edx,[__areg+ebx*4]
 call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
-jcxz ln1120
-movzx ecx,cx
+test cx,cx
+jz near zex1047
 mov eax,[__dreg+8]
+shl ecx,16
+cmp eax,ecx
+jae short ov1047
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1120
-nodo1120:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+8],edx
-sub edi,137
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1047:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1047
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1047:
+dec al
+jnz short .detloop1047
+xor ebx,ebx
+sub edi,byte 80
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1120:
+ov1047:
 mov ax,1
-sub edi,137
+sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1121
+zex1047:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1122
+je short ln1048
 call basefunction
-ln1122:
+ln1048:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -68518,42 +68727,59 @@ mov edx,[__areg+ebx*4]
 sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
-jcxz ln1123
-movzx ecx,cx
+test cx,cx
+jz near zex1049
 mov eax,[__dreg+8]
+shl ecx,16
+cmp eax,ecx
+jae short ov1049
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1123
-nodo1123:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+8],edx
-sub edi,139
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1049:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1049
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1049:
+dec al
+jnz short .detloop1049
+xor ebx,ebx
+sub edi,byte 82
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1123:
+ov1049:
 mov ax,1
-sub edi,139
+sub edi,byte 16
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1124
+zex1049:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1125
+je short ln1050
 call basefunction
-ln1125:
+ln1050:
 add esi,ebp
 sub edi,byte 44
 js near execexit
@@ -68567,42 +68793,59 @@ movsx edx,word[esi]
 add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1126
-movzx ecx,cx
+test cx,cx
+jz near zex1051
 mov eax,[__dreg+8]
+shl ecx,16
+cmp eax,ecx
+jae short ov1051
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1126
-nodo1126:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+8],edx
-sub edi,141
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1051:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1051
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1051:
+dec al
+jnz short .detloop1051
+xor ebx,ebx
+sub edi,byte 84
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1126:
+ov1051:
 mov ax,1
-sub edi,141
+sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1127
+zex1051:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1128
+je short ln1052
 call basefunction
-ln1128:
+ln1052:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -68615,42 +68858,59 @@ and ebx,byte 7
 call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1129
-movzx ecx,cx
+test cx,cx
+jz near zex1053
 mov eax,[__dreg+8]
+shl ecx,16
+cmp eax,ecx
+jae short ov1053
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1129
-nodo1129:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+8],edx
-sub edi,143
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1053:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1053
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1053:
+dec al
+jnz short .detloop1053
+xor ebx,ebx
+sub edi,byte 86
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1129:
+ov1053:
 mov ax,1
-sub edi,143
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1130
+zex1053:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1131
+je short ln1054
 call basefunction
-ln1131:
+ln1054:
 add esi,ebp
 sub edi,byte 48
 js near execexit
@@ -68662,42 +68922,59 @@ S4F8:
 movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
-jcxz ln1132
-movzx ecx,cx
+test cx,cx
+jz near zex1055
 mov eax,[__dreg+8]
+shl ecx,16
+cmp eax,ecx
+jae short ov1055
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1132
-nodo1132:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+8],edx
-sub edi,141
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1055:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1055
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1055:
+dec al
+jnz short .detloop1055
+xor ebx,ebx
+sub edi,byte 84
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1132:
+ov1055:
 mov ax,1
-sub edi,141
+sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1133
+zex1055:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1134
+je short ln1056
 call basefunction
-ln1134:
+ln1056:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -68710,42 +68987,59 @@ mov edx,[esi]
 add esi,byte 4
 rol edx,16
 call readmemoryword
-jcxz ln1135
-movzx ecx,cx
+test cx,cx
+jz near zex1057
 mov eax,[__dreg+8]
+shl ecx,16
+cmp eax,ecx
+jae short ov1057
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1135
-nodo1135:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+8],edx
-sub edi,145
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1057:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1057
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1057:
+dec al
+jnz short .detloop1057
+xor ebx,ebx
+sub edi,byte 88
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1135:
+ov1057:
 mov ax,1
-sub edi,145
+sub edi,byte 22
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1136
+zex1057:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1137
+je short ln1058
 call basefunction
-ln1137:
+ln1058:
 add esi,ebp
 sub edi,byte 50
 js near execexit
@@ -68759,42 +69053,59 @@ add edx,esi
 sub edx,ebp
 add esi,byte 2
 call readmemoryword
-jcxz ln1138
-movzx ecx,cx
+test cx,cx
+jz near zex1059
 mov eax,[__dreg+8]
+shl ecx,16
+cmp eax,ecx
+jae short ov1059
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1138
-nodo1138:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+8],edx
-sub edi,141
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1059:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1059
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1059:
+dec al
+jnz short .detloop1059
+xor ebx,ebx
+sub edi,byte 84
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1138:
+ov1059:
 mov ax,1
-sub edi,141
+sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1139
+zex1059:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1140
+je short ln1060
 call basefunction
-ln1140:
+ln1060:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -68808,42 +69119,59 @@ add edx,esi
 sub edx,ebp
 sub edx,byte 2
 call readmemoryword
-jcxz ln1141
-movzx ecx,cx
+test cx,cx
+jz near zex1061
 mov eax,[__dreg+8]
+shl ecx,16
+cmp eax,ecx
+jae short ov1061
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1141
-nodo1141:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+8],edx
-sub edi,143
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1061:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1061
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1061:
+dec al
+jnz short .detloop1061
+xor ebx,ebx
+sub edi,byte 86
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1141:
+ov1061:
 mov ax,1
-sub edi,143
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1142
+zex1061:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1143
+je short ln1062
 call basefunction
-ln1143:
+ln1062:
 add esi,ebp
 sub edi,byte 48
 js near execexit
@@ -68854,42 +69182,59 @@ jmp dword[__jmptbl+ebx*4]
 S4FC:
 mov cx,[esi]
 add esi,byte 2
-jcxz ln1144
-movzx ecx,cx
+test cx,cx
+jz near zex1063
 mov eax,[__dreg+8]
+shl ecx,16
+cmp eax,ecx
+jae short ov1063
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1144
-nodo1144:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+8],edx
-sub edi,137
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1063:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1063
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1063:
+dec al
+jnz short .detloop1063
+xor ebx,ebx
+sub edi,byte 80
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1144:
+ov1063:
 mov ax,1
-sub edi,137
+sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1145
+zex1063:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1146
+je short ln1064
 call basefunction
-ln1146:
+ln1064:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -68908,18 +69253,11 @@ das
 mov [__dreg+8],al
 lahf
 setc [__xflag]
-jnz short ln1147
+jnz short ln1065
 or ch,0BFh
 and ah,ch
-ln1147:
-test al,al
-jns short ln1148
+ln1065:
 xor al,al
-jmp short ln1149
-ln1148:
-test cl,cl
-sets al
-ln1149:
 sub edi,byte 6
 js near execexit
 mov bx,[esi]
@@ -68945,18 +69283,11 @@ das
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1150
+jnz short ln1066
 or ch,0BFh
 and ah,ch
-ln1150:
-test al,al
-jns short ln1151
+ln1066:
 xor al,al
-jmp short ln1152
-ln1151:
-test cl,cl
-sets al
-ln1152:
 mov ecx,ebx
 xor ebx,ebx
 call writememorybyte
@@ -69290,45 +69621,83 @@ jmp dword[__jmptbl+ebx*4]
 S5C0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
-jcxz ln1153
-movsx ecx,cx
+test cx,cx
+jz near zex1067
 mov eax,[__dreg+8]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1067
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1153
-inc ecx
-jnz short ln1153
-nodo1153:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+8],edx
-sub edi,150
+pop ecx
+test cx,cx
+js short .ndivs1067
+test ebx,ebx
+js short .ndivd1067
+add edi,byte 4
+.ndivd1067:
+sub edi,byte 2
+.ndivs1067:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1067
+neg dx
+.dsetloop1067:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1067
+xor ebx,ebx
+sub edi,byte 122
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1153:
+ov1067:
 mov ax,1
-sub edi,150
+sub edi,byte 16
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1154
+zex1067:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1155
+je short ln1068
 call basefunction
-ln1155:
+ln1068:
 add esi,ebp
 sub edi,byte 38
 js near execexit
@@ -69340,45 +69709,83 @@ S5D0:
 and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1156
-movsx ecx,cx
+test cx,cx
+jz near zex1069
 mov eax,[__dreg+8]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1069
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1156
-inc ecx
-jnz short ln1156
-nodo1156:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+8],edx
-sub edi,154
+pop ecx
+test cx,cx
+js short .ndivs1069
+test ebx,ebx
+js short .ndivd1069
+add edi,byte 4
+.ndivd1069:
+sub edi,byte 2
+.ndivs1069:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1069
+neg dx
+.dsetloop1069:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1069
+xor ebx,ebx
+sub edi,byte 126
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1156:
+ov1069:
 mov ax,1
-sub edi,154
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1157
+zex1069:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1158
+je short ln1070
 call basefunction
-ln1158:
+ln1070:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -69392,45 +69799,83 @@ mov edx,[__areg+ebx*4]
 call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
-jcxz ln1159
-movsx ecx,cx
+test cx,cx
+jz near zex1071
 mov eax,[__dreg+8]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1071
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1159
-inc ecx
-jnz short ln1159
-nodo1159:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+8],edx
-sub edi,154
+pop ecx
+test cx,cx
+js short .ndivs1071
+test ebx,ebx
+js short .ndivd1071
+add edi,byte 4
+.ndivd1071:
+sub edi,byte 2
+.ndivs1071:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1071
+neg dx
+.dsetloop1071:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1071
+xor ebx,ebx
+sub edi,byte 126
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1159:
+ov1071:
 mov ax,1
-sub edi,154
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1160
+zex1071:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1161
+je short ln1072
 call basefunction
-ln1161:
+ln1072:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -69444,45 +69889,83 @@ mov edx,[__areg+ebx*4]
 sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
-jcxz ln1162
-movsx ecx,cx
+test cx,cx
+jz near zex1073
 mov eax,[__dreg+8]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1073
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1162
-inc ecx
-jnz short ln1162
-nodo1162:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+8],edx
-sub edi,156
+pop ecx
+test cx,cx
+js short .ndivs1073
+test ebx,ebx
+js short .ndivd1073
+add edi,byte 4
+.ndivd1073:
+sub edi,byte 2
+.ndivs1073:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1073
+neg dx
+.dsetloop1073:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1073
+xor ebx,ebx
+sub edi,128
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1162:
+ov1073:
 mov ax,1
-sub edi,156
+sub edi,byte 22
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1163
+zex1073:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1164
+je short ln1074
 call basefunction
-ln1164:
+ln1074:
 add esi,ebp
 sub edi,byte 44
 js near execexit
@@ -69496,45 +69979,83 @@ movsx edx,word[esi]
 add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1165
-movsx ecx,cx
+test cx,cx
+jz near zex1075
 mov eax,[__dreg+8]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1075
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1165
-inc ecx
-jnz short ln1165
-nodo1165:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+8],edx
-sub edi,158
+pop ecx
+test cx,cx
+js short .ndivs1075
+test ebx,ebx
+js short .ndivd1075
+add edi,byte 4
+.ndivd1075:
+sub edi,byte 2
+.ndivs1075:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1075
+neg dx
+.dsetloop1075:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1075
+xor ebx,ebx
+sub edi,130
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1165:
+ov1075:
 mov ax,1
-sub edi,158
+sub edi,byte 24
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1166
+zex1075:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1167
+je short ln1076
 call basefunction
-ln1167:
+ln1076:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -69547,45 +70068,83 @@ and ebx,byte 7
 call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1168
-movsx ecx,cx
+test cx,cx
+jz near zex1077
 mov eax,[__dreg+8]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1077
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1168
-inc ecx
-jnz short ln1168
-nodo1168:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+8],edx
-sub edi,160
+pop ecx
+test cx,cx
+js short .ndivs1077
+test ebx,ebx
+js short .ndivd1077
+add edi,byte 4
+.ndivd1077:
+sub edi,byte 2
+.ndivs1077:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1077
+neg dx
+.dsetloop1077:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1077
+xor ebx,ebx
+sub edi,132
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1168:
+ov1077:
 mov ax,1
-sub edi,160
+sub edi,byte 26
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1169
+zex1077:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1170
+je short ln1078
 call basefunction
-ln1170:
+ln1078:
 add esi,ebp
 sub edi,byte 48
 js near execexit
@@ -69597,45 +70156,83 @@ S5F8:
 movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
-jcxz ln1171
-movsx ecx,cx
+test cx,cx
+jz near zex1079
 mov eax,[__dreg+8]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1079
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1171
-inc ecx
-jnz short ln1171
-nodo1171:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+8],edx
-sub edi,158
+pop ecx
+test cx,cx
+js short .ndivs1079
+test ebx,ebx
+js short .ndivd1079
+add edi,byte 4
+.ndivd1079:
+sub edi,byte 2
+.ndivs1079:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1079
+neg dx
+.dsetloop1079:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1079
+xor ebx,ebx
+sub edi,130
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1171:
+ov1079:
 mov ax,1
-sub edi,158
+sub edi,byte 24
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1172
+zex1079:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1173
+je short ln1080
 call basefunction
-ln1173:
+ln1080:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -69648,45 +70245,83 @@ mov edx,[esi]
 add esi,byte 4
 rol edx,16
 call readmemoryword
-jcxz ln1174
-movsx ecx,cx
+test cx,cx
+jz near zex1081
 mov eax,[__dreg+8]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1081
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1174
-inc ecx
-jnz short ln1174
-nodo1174:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+8],edx
-sub edi,162
+pop ecx
+test cx,cx
+js short .ndivs1081
+test ebx,ebx
+js short .ndivd1081
+add edi,byte 4
+.ndivd1081:
+sub edi,byte 2
+.ndivs1081:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1081
+neg dx
+.dsetloop1081:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1081
+xor ebx,ebx
+sub edi,134
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1174:
+ov1081:
 mov ax,1
-sub edi,162
+sub edi,byte 28
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1175
+zex1081:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1176
+je short ln1082
 call basefunction
-ln1176:
+ln1082:
 add esi,ebp
 sub edi,byte 50
 js near execexit
@@ -69700,45 +70335,83 @@ add edx,esi
 sub edx,ebp
 add esi,byte 2
 call readmemoryword
-jcxz ln1177
-movsx ecx,cx
+test cx,cx
+jz near zex1083
 mov eax,[__dreg+8]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1083
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1177
-inc ecx
-jnz short ln1177
-nodo1177:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+8],edx
-sub edi,158
+pop ecx
+test cx,cx
+js short .ndivs1083
+test ebx,ebx
+js short .ndivd1083
+add edi,byte 4
+.ndivd1083:
+sub edi,byte 2
+.ndivs1083:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1083
+neg dx
+.dsetloop1083:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1083
+xor ebx,ebx
+sub edi,130
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1177:
+ov1083:
 mov ax,1
-sub edi,158
+sub edi,byte 24
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1178
+zex1083:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1179
+je short ln1084
 call basefunction
-ln1179:
+ln1084:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -69752,45 +70425,83 @@ add edx,esi
 sub edx,ebp
 sub edx,byte 2
 call readmemoryword
-jcxz ln1180
-movsx ecx,cx
+test cx,cx
+jz near zex1085
 mov eax,[__dreg+8]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1085
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1180
-inc ecx
-jnz short ln1180
-nodo1180:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+8],edx
-sub edi,160
+pop ecx
+test cx,cx
+js short .ndivs1085
+test ebx,ebx
+js short .ndivd1085
+add edi,byte 4
+.ndivd1085:
+sub edi,byte 2
+.ndivs1085:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1085
+neg dx
+.dsetloop1085:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1085
+xor ebx,ebx
+sub edi,132
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1180:
+ov1085:
 mov ax,1
-sub edi,160
+sub edi,byte 26
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1181
+zex1085:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1182
+je short ln1086
 call basefunction
-ln1182:
+ln1086:
 add esi,ebp
 sub edi,byte 48
 js near execexit
@@ -69801,45 +70512,83 @@ jmp dword[__jmptbl+ebx*4]
 S5FC:
 mov cx,[esi]
 add esi,byte 2
-jcxz ln1183
-movsx ecx,cx
+test cx,cx
+jz near zex1087
 mov eax,[__dreg+8]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1087
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1183
-inc ecx
-jnz short ln1183
-nodo1183:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+8],edx
-sub edi,154
+pop ecx
+test cx,cx
+js short .ndivs1087
+test ebx,ebx
+js short .ndivd1087
+add edi,byte 4
+.ndivd1087:
+sub edi,byte 2
+.ndivs1087:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1087
+neg dx
+.dsetloop1087:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1087
+xor ebx,ebx
+sub edi,byte 126
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1183:
+ov1087:
 mov ax,1
-sub edi,154
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1184
+zex1087:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1185
+je short ln1088
 call basefunction
-ln1185:
+ln1088:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -70312,42 +71061,59 @@ jmp dword[__jmptbl+ebx*4]
 S6C0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
-jcxz ln1186
-movzx ecx,cx
+test cx,cx
+jz near zex1089
 mov eax,[__dreg+12]
+shl ecx,16
+cmp eax,ecx
+jae short ov1089
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1186
-nodo1186:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+12],edx
-sub edi,133
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1089:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1089
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1089:
+dec al
+jnz short .detloop1089
+xor ebx,ebx
+sub edi,byte 76
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1186:
+ov1089:
 mov ax,1
-sub edi,133
+sub edi,byte 10
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1187
+zex1089:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1188
+je short ln1090
 call basefunction
-ln1188:
+ln1090:
 add esi,ebp
 sub edi,byte 38
 js near execexit
@@ -70359,42 +71125,59 @@ S6D0:
 and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1189
-movzx ecx,cx
+test cx,cx
+jz near zex1091
 mov eax,[__dreg+12]
+shl ecx,16
+cmp eax,ecx
+jae short ov1091
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1189
-nodo1189:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+12],edx
-sub edi,137
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1091:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1091
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1091:
+dec al
+jnz short .detloop1091
+xor ebx,ebx
+sub edi,byte 80
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1189:
+ov1091:
 mov ax,1
-sub edi,137
+sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1190
+zex1091:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1191
+je short ln1092
 call basefunction
-ln1191:
+ln1092:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -70408,42 +71191,59 @@ mov edx,[__areg+ebx*4]
 call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
-jcxz ln1192
-movzx ecx,cx
+test cx,cx
+jz near zex1093
 mov eax,[__dreg+12]
+shl ecx,16
+cmp eax,ecx
+jae short ov1093
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1192
-nodo1192:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+12],edx
-sub edi,137
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1093:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1093
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1093:
+dec al
+jnz short .detloop1093
+xor ebx,ebx
+sub edi,byte 80
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1192:
+ov1093:
 mov ax,1
-sub edi,137
+sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1193
+zex1093:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1194
+je short ln1094
 call basefunction
-ln1194:
+ln1094:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -70457,42 +71257,59 @@ mov edx,[__areg+ebx*4]
 sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
-jcxz ln1195
-movzx ecx,cx
+test cx,cx
+jz near zex1095
 mov eax,[__dreg+12]
+shl ecx,16
+cmp eax,ecx
+jae short ov1095
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1195
-nodo1195:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+12],edx
-sub edi,139
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1095:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1095
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1095:
+dec al
+jnz short .detloop1095
+xor ebx,ebx
+sub edi,byte 82
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1195:
+ov1095:
 mov ax,1
-sub edi,139
+sub edi,byte 16
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1196
+zex1095:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1197
+je short ln1096
 call basefunction
-ln1197:
+ln1096:
 add esi,ebp
 sub edi,byte 44
 js near execexit
@@ -70506,42 +71323,59 @@ movsx edx,word[esi]
 add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1198
-movzx ecx,cx
+test cx,cx
+jz near zex1097
 mov eax,[__dreg+12]
+shl ecx,16
+cmp eax,ecx
+jae short ov1097
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1198
-nodo1198:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+12],edx
-sub edi,141
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1097:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1097
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1097:
+dec al
+jnz short .detloop1097
+xor ebx,ebx
+sub edi,byte 84
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1198:
+ov1097:
 mov ax,1
-sub edi,141
+sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1199
+zex1097:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1200
+je short ln1098
 call basefunction
-ln1200:
+ln1098:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -70554,42 +71388,59 @@ and ebx,byte 7
 call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1201
-movzx ecx,cx
+test cx,cx
+jz near zex1099
 mov eax,[__dreg+12]
+shl ecx,16
+cmp eax,ecx
+jae short ov1099
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1201
-nodo1201:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+12],edx
-sub edi,143
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1099:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1099
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1099:
+dec al
+jnz short .detloop1099
+xor ebx,ebx
+sub edi,byte 86
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1201:
+ov1099:
 mov ax,1
-sub edi,143
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1202
+zex1099:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1203
+je short ln1100
 call basefunction
-ln1203:
+ln1100:
 add esi,ebp
 sub edi,byte 48
 js near execexit
@@ -70601,42 +71452,59 @@ S6F8:
 movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
-jcxz ln1204
-movzx ecx,cx
+test cx,cx
+jz near zex1101
 mov eax,[__dreg+12]
+shl ecx,16
+cmp eax,ecx
+jae short ov1101
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1204
-nodo1204:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+12],edx
-sub edi,141
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1101:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1101
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1101:
+dec al
+jnz short .detloop1101
+xor ebx,ebx
+sub edi,byte 84
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1204:
+ov1101:
 mov ax,1
-sub edi,141
+sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1205
+zex1101:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1206
+je short ln1102
 call basefunction
-ln1206:
+ln1102:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -70649,42 +71517,59 @@ mov edx,[esi]
 add esi,byte 4
 rol edx,16
 call readmemoryword
-jcxz ln1207
-movzx ecx,cx
+test cx,cx
+jz near zex1103
 mov eax,[__dreg+12]
+shl ecx,16
+cmp eax,ecx
+jae short ov1103
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1207
-nodo1207:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+12],edx
-sub edi,145
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1103:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1103
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1103:
+dec al
+jnz short .detloop1103
+xor ebx,ebx
+sub edi,byte 88
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1207:
+ov1103:
 mov ax,1
-sub edi,145
+sub edi,byte 22
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1208
+zex1103:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1209
+je short ln1104
 call basefunction
-ln1209:
+ln1104:
 add esi,ebp
 sub edi,byte 50
 js near execexit
@@ -70698,42 +71583,59 @@ add edx,esi
 sub edx,ebp
 add esi,byte 2
 call readmemoryword
-jcxz ln1210
-movzx ecx,cx
+test cx,cx
+jz near zex1105
 mov eax,[__dreg+12]
+shl ecx,16
+cmp eax,ecx
+jae short ov1105
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1210
-nodo1210:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+12],edx
-sub edi,141
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1105:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1105
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1105:
+dec al
+jnz short .detloop1105
+xor ebx,ebx
+sub edi,byte 84
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1210:
+ov1105:
 mov ax,1
-sub edi,141
+sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1211
+zex1105:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1212
+je short ln1106
 call basefunction
-ln1212:
+ln1106:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -70747,42 +71649,59 @@ add edx,esi
 sub edx,ebp
 sub edx,byte 2
 call readmemoryword
-jcxz ln1213
-movzx ecx,cx
+test cx,cx
+jz near zex1107
 mov eax,[__dreg+12]
+shl ecx,16
+cmp eax,ecx
+jae short ov1107
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1213
-nodo1213:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+12],edx
-sub edi,143
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1107:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1107
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1107:
+dec al
+jnz short .detloop1107
+xor ebx,ebx
+sub edi,byte 86
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1213:
+ov1107:
 mov ax,1
-sub edi,143
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1214
+zex1107:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1215
+je short ln1108
 call basefunction
-ln1215:
+ln1108:
 add esi,ebp
 sub edi,byte 48
 js near execexit
@@ -70793,42 +71712,59 @@ jmp dword[__jmptbl+ebx*4]
 S6FC:
 mov cx,[esi]
 add esi,byte 2
-jcxz ln1216
-movzx ecx,cx
+test cx,cx
+jz near zex1109
 mov eax,[__dreg+12]
+shl ecx,16
+cmp eax,ecx
+jae short ov1109
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1216
-nodo1216:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+12],edx
-sub edi,137
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1109:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1109
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1109:
+dec al
+jnz short .detloop1109
+xor ebx,ebx
+sub edi,byte 80
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1216:
+ov1109:
 mov ax,1
-sub edi,137
+sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1217
+zex1109:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1218
+je short ln1110
 call basefunction
-ln1218:
+ln1110:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -70847,18 +71783,11 @@ das
 mov [__dreg+12],al
 lahf
 setc [__xflag]
-jnz short ln1219
+jnz short ln1111
 or ch,0BFh
 and ah,ch
-ln1219:
-test al,al
-jns short ln1220
+ln1111:
 xor al,al
-jmp short ln1221
-ln1220:
-test cl,cl
-sets al
-ln1221:
 sub edi,byte 6
 js near execexit
 mov bx,[esi]
@@ -70884,18 +71813,11 @@ das
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1222
+jnz short ln1112
 or ch,0BFh
 and ah,ch
-ln1222:
-test al,al
-jns short ln1223
+ln1112:
 xor al,al
-jmp short ln1224
-ln1223:
-test cl,cl
-sets al
-ln1224:
 mov ecx,ebx
 xor ebx,ebx
 call writememorybyte
@@ -71229,45 +72151,83 @@ jmp dword[__jmptbl+ebx*4]
 S7C0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
-jcxz ln1225
-movsx ecx,cx
+test cx,cx
+jz near zex1113
 mov eax,[__dreg+12]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1113
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1225
-inc ecx
-jnz short ln1225
-nodo1225:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+12],edx
-sub edi,150
+pop ecx
+test cx,cx
+js short .ndivs1113
+test ebx,ebx
+js short .ndivd1113
+add edi,byte 4
+.ndivd1113:
+sub edi,byte 2
+.ndivs1113:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1113
+neg dx
+.dsetloop1113:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1113
+xor ebx,ebx
+sub edi,byte 122
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1225:
+ov1113:
 mov ax,1
-sub edi,150
+sub edi,byte 16
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1226
+zex1113:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1227
+je short ln1114
 call basefunction
-ln1227:
+ln1114:
 add esi,ebp
 sub edi,byte 38
 js near execexit
@@ -71279,45 +72239,83 @@ S7D0:
 and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1228
-movsx ecx,cx
+test cx,cx
+jz near zex1115
 mov eax,[__dreg+12]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1115
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1228
-inc ecx
-jnz short ln1228
-nodo1228:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+12],edx
-sub edi,154
+pop ecx
+test cx,cx
+js short .ndivs1115
+test ebx,ebx
+js short .ndivd1115
+add edi,byte 4
+.ndivd1115:
+sub edi,byte 2
+.ndivs1115:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1115
+neg dx
+.dsetloop1115:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1115
+xor ebx,ebx
+sub edi,byte 126
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1228:
+ov1115:
 mov ax,1
-sub edi,154
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1229
+zex1115:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1230
+je short ln1116
 call basefunction
-ln1230:
+ln1116:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -71331,45 +72329,83 @@ mov edx,[__areg+ebx*4]
 call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
-jcxz ln1231
-movsx ecx,cx
+test cx,cx
+jz near zex1117
 mov eax,[__dreg+12]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1117
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1231
-inc ecx
-jnz short ln1231
-nodo1231:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+12],edx
-sub edi,154
+pop ecx
+test cx,cx
+js short .ndivs1117
+test ebx,ebx
+js short .ndivd1117
+add edi,byte 4
+.ndivd1117:
+sub edi,byte 2
+.ndivs1117:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1117
+neg dx
+.dsetloop1117:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1117
+xor ebx,ebx
+sub edi,byte 126
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1231:
+ov1117:
 mov ax,1
-sub edi,154
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1232
+zex1117:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1233
+je short ln1118
 call basefunction
-ln1233:
+ln1118:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -71383,45 +72419,83 @@ mov edx,[__areg+ebx*4]
 sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
-jcxz ln1234
-movsx ecx,cx
+test cx,cx
+jz near zex1119
 mov eax,[__dreg+12]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1119
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1234
-inc ecx
-jnz short ln1234
-nodo1234:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+12],edx
-sub edi,156
+pop ecx
+test cx,cx
+js short .ndivs1119
+test ebx,ebx
+js short .ndivd1119
+add edi,byte 4
+.ndivd1119:
+sub edi,byte 2
+.ndivs1119:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1119
+neg dx
+.dsetloop1119:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1119
+xor ebx,ebx
+sub edi,128
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1234:
+ov1119:
 mov ax,1
-sub edi,156
+sub edi,byte 22
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1235
+zex1119:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1236
+je short ln1120
 call basefunction
-ln1236:
+ln1120:
 add esi,ebp
 sub edi,byte 44
 js near execexit
@@ -71435,45 +72509,83 @@ movsx edx,word[esi]
 add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1237
-movsx ecx,cx
+test cx,cx
+jz near zex1121
 mov eax,[__dreg+12]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1121
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1237
-inc ecx
-jnz short ln1237
-nodo1237:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+12],edx
-sub edi,158
+pop ecx
+test cx,cx
+js short .ndivs1121
+test ebx,ebx
+js short .ndivd1121
+add edi,byte 4
+.ndivd1121:
+sub edi,byte 2
+.ndivs1121:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1121
+neg dx
+.dsetloop1121:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1121
+xor ebx,ebx
+sub edi,130
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1237:
+ov1121:
 mov ax,1
-sub edi,158
+sub edi,byte 24
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1238
+zex1121:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1239
+je short ln1122
 call basefunction
-ln1239:
+ln1122:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -71486,45 +72598,83 @@ and ebx,byte 7
 call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1240
-movsx ecx,cx
+test cx,cx
+jz near zex1123
 mov eax,[__dreg+12]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1123
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1240
-inc ecx
-jnz short ln1240
-nodo1240:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+12],edx
-sub edi,160
+pop ecx
+test cx,cx
+js short .ndivs1123
+test ebx,ebx
+js short .ndivd1123
+add edi,byte 4
+.ndivd1123:
+sub edi,byte 2
+.ndivs1123:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1123
+neg dx
+.dsetloop1123:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1123
+xor ebx,ebx
+sub edi,132
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1240:
+ov1123:
 mov ax,1
-sub edi,160
+sub edi,byte 26
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1241
+zex1123:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1242
+je short ln1124
 call basefunction
-ln1242:
+ln1124:
 add esi,ebp
 sub edi,byte 48
 js near execexit
@@ -71536,45 +72686,83 @@ S7F8:
 movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
-jcxz ln1243
-movsx ecx,cx
+test cx,cx
+jz near zex1125
 mov eax,[__dreg+12]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1125
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1243
-inc ecx
-jnz short ln1243
-nodo1243:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+12],edx
-sub edi,158
+pop ecx
+test cx,cx
+js short .ndivs1125
+test ebx,ebx
+js short .ndivd1125
+add edi,byte 4
+.ndivd1125:
+sub edi,byte 2
+.ndivs1125:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1125
+neg dx
+.dsetloop1125:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1125
+xor ebx,ebx
+sub edi,130
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1243:
+ov1125:
 mov ax,1
-sub edi,158
+sub edi,byte 24
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1244
+zex1125:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1245
+je short ln1126
 call basefunction
-ln1245:
+ln1126:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -71587,45 +72775,83 @@ mov edx,[esi]
 add esi,byte 4
 rol edx,16
 call readmemoryword
-jcxz ln1246
-movsx ecx,cx
+test cx,cx
+jz near zex1127
 mov eax,[__dreg+12]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1127
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1246
-inc ecx
-jnz short ln1246
-nodo1246:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+12],edx
-sub edi,162
+pop ecx
+test cx,cx
+js short .ndivs1127
+test ebx,ebx
+js short .ndivd1127
+add edi,byte 4
+.ndivd1127:
+sub edi,byte 2
+.ndivs1127:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1127
+neg dx
+.dsetloop1127:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1127
+xor ebx,ebx
+sub edi,134
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1246:
+ov1127:
 mov ax,1
-sub edi,162
+sub edi,byte 28
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1247
+zex1127:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1248
+je short ln1128
 call basefunction
-ln1248:
+ln1128:
 add esi,ebp
 sub edi,byte 50
 js near execexit
@@ -71639,45 +72865,83 @@ add edx,esi
 sub edx,ebp
 add esi,byte 2
 call readmemoryword
-jcxz ln1249
-movsx ecx,cx
+test cx,cx
+jz near zex1129
 mov eax,[__dreg+12]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1129
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1249
-inc ecx
-jnz short ln1249
-nodo1249:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+12],edx
-sub edi,158
+pop ecx
+test cx,cx
+js short .ndivs1129
+test ebx,ebx
+js short .ndivd1129
+add edi,byte 4
+.ndivd1129:
+sub edi,byte 2
+.ndivs1129:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1129
+neg dx
+.dsetloop1129:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1129
+xor ebx,ebx
+sub edi,130
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1249:
+ov1129:
 mov ax,1
-sub edi,158
+sub edi,byte 24
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1250
+zex1129:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1251
+je short ln1130
 call basefunction
-ln1251:
+ln1130:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -71691,45 +72955,83 @@ add edx,esi
 sub edx,ebp
 sub edx,byte 2
 call readmemoryword
-jcxz ln1252
-movsx ecx,cx
+test cx,cx
+jz near zex1131
 mov eax,[__dreg+12]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1131
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1252
-inc ecx
-jnz short ln1252
-nodo1252:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+12],edx
-sub edi,160
+pop ecx
+test cx,cx
+js short .ndivs1131
+test ebx,ebx
+js short .ndivd1131
+add edi,byte 4
+.ndivd1131:
+sub edi,byte 2
+.ndivs1131:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1131
+neg dx
+.dsetloop1131:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1131
+xor ebx,ebx
+sub edi,132
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1252:
+ov1131:
 mov ax,1
-sub edi,160
+sub edi,byte 26
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1253
+zex1131:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1254
+je short ln1132
 call basefunction
-ln1254:
+ln1132:
 add esi,ebp
 sub edi,byte 48
 js near execexit
@@ -71740,45 +73042,83 @@ jmp dword[__jmptbl+ebx*4]
 S7FC:
 mov cx,[esi]
 add esi,byte 2
-jcxz ln1255
-movsx ecx,cx
+test cx,cx
+jz near zex1133
 mov eax,[__dreg+12]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1133
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1255
-inc ecx
-jnz short ln1255
-nodo1255:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+12],edx
-sub edi,154
+pop ecx
+test cx,cx
+js short .ndivs1133
+test ebx,ebx
+js short .ndivd1133
+add edi,byte 4
+.ndivd1133:
+sub edi,byte 2
+.ndivs1133:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1133
+neg dx
+.dsetloop1133:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1133
+xor ebx,ebx
+sub edi,byte 126
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1255:
+ov1133:
 mov ax,1
-sub edi,154
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1256
+zex1133:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1257
+je short ln1134
 call basefunction
-ln1257:
+ln1134:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -72251,42 +73591,59 @@ jmp dword[__jmptbl+ebx*4]
 S8C0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
-jcxz ln1258
-movzx ecx,cx
+test cx,cx
+jz near zex1135
 mov eax,[__dreg+16]
+shl ecx,16
+cmp eax,ecx
+jae short ov1135
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1258
-nodo1258:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+16],edx
-sub edi,133
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1135:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1135
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1135:
+dec al
+jnz short .detloop1135
+xor ebx,ebx
+sub edi,byte 76
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1258:
+ov1135:
 mov ax,1
-sub edi,133
+sub edi,byte 10
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1259
+zex1135:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1260
+je short ln1136
 call basefunction
-ln1260:
+ln1136:
 add esi,ebp
 sub edi,byte 38
 js near execexit
@@ -72298,42 +73655,59 @@ S8D0:
 and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1261
-movzx ecx,cx
+test cx,cx
+jz near zex1137
 mov eax,[__dreg+16]
+shl ecx,16
+cmp eax,ecx
+jae short ov1137
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1261
-nodo1261:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+16],edx
-sub edi,137
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1137:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1137
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1137:
+dec al
+jnz short .detloop1137
+xor ebx,ebx
+sub edi,byte 80
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1261:
+ov1137:
 mov ax,1
-sub edi,137
+sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1262
+zex1137:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1263
+je short ln1138
 call basefunction
-ln1263:
+ln1138:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -72347,42 +73721,59 @@ mov edx,[__areg+ebx*4]
 call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
-jcxz ln1264
-movzx ecx,cx
+test cx,cx
+jz near zex1139
 mov eax,[__dreg+16]
+shl ecx,16
+cmp eax,ecx
+jae short ov1139
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1264
-nodo1264:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+16],edx
-sub edi,137
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1139:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1139
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1139:
+dec al
+jnz short .detloop1139
+xor ebx,ebx
+sub edi,byte 80
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1264:
+ov1139:
 mov ax,1
-sub edi,137
+sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1265
+zex1139:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1266
+je short ln1140
 call basefunction
-ln1266:
+ln1140:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -72396,42 +73787,59 @@ mov edx,[__areg+ebx*4]
 sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
-jcxz ln1267
-movzx ecx,cx
+test cx,cx
+jz near zex1141
 mov eax,[__dreg+16]
+shl ecx,16
+cmp eax,ecx
+jae short ov1141
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1267
-nodo1267:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+16],edx
-sub edi,139
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1141:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1141
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1141:
+dec al
+jnz short .detloop1141
+xor ebx,ebx
+sub edi,byte 82
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1267:
+ov1141:
 mov ax,1
-sub edi,139
+sub edi,byte 16
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1268
+zex1141:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1269
+je short ln1142
 call basefunction
-ln1269:
+ln1142:
 add esi,ebp
 sub edi,byte 44
 js near execexit
@@ -72445,42 +73853,59 @@ movsx edx,word[esi]
 add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1270
-movzx ecx,cx
+test cx,cx
+jz near zex1143
 mov eax,[__dreg+16]
+shl ecx,16
+cmp eax,ecx
+jae short ov1143
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1270
-nodo1270:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+16],edx
-sub edi,141
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1143:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1143
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1143:
+dec al
+jnz short .detloop1143
+xor ebx,ebx
+sub edi,byte 84
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1270:
+ov1143:
 mov ax,1
-sub edi,141
+sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1271
+zex1143:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1272
+je short ln1144
 call basefunction
-ln1272:
+ln1144:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -72493,42 +73918,59 @@ and ebx,byte 7
 call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1273
-movzx ecx,cx
+test cx,cx
+jz near zex1145
 mov eax,[__dreg+16]
+shl ecx,16
+cmp eax,ecx
+jae short ov1145
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1273
-nodo1273:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+16],edx
-sub edi,143
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1145:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1145
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1145:
+dec al
+jnz short .detloop1145
+xor ebx,ebx
+sub edi,byte 86
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1273:
+ov1145:
 mov ax,1
-sub edi,143
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1274
+zex1145:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1275
+je short ln1146
 call basefunction
-ln1275:
+ln1146:
 add esi,ebp
 sub edi,byte 48
 js near execexit
@@ -72540,42 +73982,59 @@ S8F8:
 movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
-jcxz ln1276
-movzx ecx,cx
+test cx,cx
+jz near zex1147
 mov eax,[__dreg+16]
+shl ecx,16
+cmp eax,ecx
+jae short ov1147
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1276
-nodo1276:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+16],edx
-sub edi,141
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1147:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1147
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1147:
+dec al
+jnz short .detloop1147
+xor ebx,ebx
+sub edi,byte 84
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1276:
+ov1147:
 mov ax,1
-sub edi,141
+sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1277
+zex1147:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1278
+je short ln1148
 call basefunction
-ln1278:
+ln1148:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -72588,42 +74047,59 @@ mov edx,[esi]
 add esi,byte 4
 rol edx,16
 call readmemoryword
-jcxz ln1279
-movzx ecx,cx
+test cx,cx
+jz near zex1149
 mov eax,[__dreg+16]
+shl ecx,16
+cmp eax,ecx
+jae short ov1149
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1279
-nodo1279:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+16],edx
-sub edi,145
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1149:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1149
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1149:
+dec al
+jnz short .detloop1149
+xor ebx,ebx
+sub edi,byte 88
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1279:
+ov1149:
 mov ax,1
-sub edi,145
+sub edi,byte 22
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1280
+zex1149:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1281
+je short ln1150
 call basefunction
-ln1281:
+ln1150:
 add esi,ebp
 sub edi,byte 50
 js near execexit
@@ -72637,42 +74113,59 @@ add edx,esi
 sub edx,ebp
 add esi,byte 2
 call readmemoryword
-jcxz ln1282
-movzx ecx,cx
+test cx,cx
+jz near zex1151
 mov eax,[__dreg+16]
+shl ecx,16
+cmp eax,ecx
+jae short ov1151
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1282
-nodo1282:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+16],edx
-sub edi,141
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1151:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1151
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1151:
+dec al
+jnz short .detloop1151
+xor ebx,ebx
+sub edi,byte 84
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1282:
+ov1151:
 mov ax,1
-sub edi,141
+sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1283
+zex1151:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1284
+je short ln1152
 call basefunction
-ln1284:
+ln1152:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -72686,42 +74179,59 @@ add edx,esi
 sub edx,ebp
 sub edx,byte 2
 call readmemoryword
-jcxz ln1285
-movzx ecx,cx
+test cx,cx
+jz near zex1153
 mov eax,[__dreg+16]
+shl ecx,16
+cmp eax,ecx
+jae short ov1153
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1285
-nodo1285:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+16],edx
-sub edi,143
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1153:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1153
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1153:
+dec al
+jnz short .detloop1153
+xor ebx,ebx
+sub edi,byte 86
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1285:
+ov1153:
 mov ax,1
-sub edi,143
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1286
+zex1153:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1287
+je short ln1154
 call basefunction
-ln1287:
+ln1154:
 add esi,ebp
 sub edi,byte 48
 js near execexit
@@ -72732,42 +74242,59 @@ jmp dword[__jmptbl+ebx*4]
 S8FC:
 mov cx,[esi]
 add esi,byte 2
-jcxz ln1288
-movzx ecx,cx
+test cx,cx
+jz near zex1155
 mov eax,[__dreg+16]
+shl ecx,16
+cmp eax,ecx
+jae short ov1155
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1288
-nodo1288:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+16],edx
-sub edi,137
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1155:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1155
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1155:
+dec al
+jnz short .detloop1155
+xor ebx,ebx
+sub edi,byte 80
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1288:
+ov1155:
 mov ax,1
-sub edi,137
+sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1289
+zex1155:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1290
+je short ln1156
 call basefunction
-ln1290:
+ln1156:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -72786,18 +74313,11 @@ das
 mov [__dreg+16],al
 lahf
 setc [__xflag]
-jnz short ln1291
+jnz short ln1157
 or ch,0BFh
 and ah,ch
-ln1291:
-test al,al
-jns short ln1292
+ln1157:
 xor al,al
-jmp short ln1293
-ln1292:
-test cl,cl
-sets al
-ln1293:
 sub edi,byte 6
 js near execexit
 mov bx,[esi]
@@ -72823,18 +74343,11 @@ das
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1294
+jnz short ln1158
 or ch,0BFh
 and ah,ch
-ln1294:
-test al,al
-jns short ln1295
+ln1158:
 xor al,al
-jmp short ln1296
-ln1295:
-test cl,cl
-sets al
-ln1296:
 mov ecx,ebx
 xor ebx,ebx
 call writememorybyte
@@ -73168,45 +74681,83 @@ jmp dword[__jmptbl+ebx*4]
 S9C0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
-jcxz ln1297
-movsx ecx,cx
+test cx,cx
+jz near zex1159
 mov eax,[__dreg+16]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1159
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1297
-inc ecx
-jnz short ln1297
-nodo1297:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+16],edx
-sub edi,150
+pop ecx
+test cx,cx
+js short .ndivs1159
+test ebx,ebx
+js short .ndivd1159
+add edi,byte 4
+.ndivd1159:
+sub edi,byte 2
+.ndivs1159:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1159
+neg dx
+.dsetloop1159:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1159
+xor ebx,ebx
+sub edi,byte 122
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1297:
+ov1159:
 mov ax,1
-sub edi,150
+sub edi,byte 16
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1298
+zex1159:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1299
+je short ln1160
 call basefunction
-ln1299:
+ln1160:
 add esi,ebp
 sub edi,byte 38
 js near execexit
@@ -73218,45 +74769,83 @@ S9D0:
 and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1300
-movsx ecx,cx
+test cx,cx
+jz near zex1161
 mov eax,[__dreg+16]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1161
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1300
-inc ecx
-jnz short ln1300
-nodo1300:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+16],edx
-sub edi,154
+pop ecx
+test cx,cx
+js short .ndivs1161
+test ebx,ebx
+js short .ndivd1161
+add edi,byte 4
+.ndivd1161:
+sub edi,byte 2
+.ndivs1161:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1161
+neg dx
+.dsetloop1161:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1161
+xor ebx,ebx
+sub edi,byte 126
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1300:
+ov1161:
 mov ax,1
-sub edi,154
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1301
+zex1161:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1302
+je short ln1162
 call basefunction
-ln1302:
+ln1162:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -73270,45 +74859,83 @@ mov edx,[__areg+ebx*4]
 call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
-jcxz ln1303
-movsx ecx,cx
+test cx,cx
+jz near zex1163
 mov eax,[__dreg+16]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1163
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1303
-inc ecx
-jnz short ln1303
-nodo1303:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+16],edx
-sub edi,154
+pop ecx
+test cx,cx
+js short .ndivs1163
+test ebx,ebx
+js short .ndivd1163
+add edi,byte 4
+.ndivd1163:
+sub edi,byte 2
+.ndivs1163:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1163
+neg dx
+.dsetloop1163:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1163
+xor ebx,ebx
+sub edi,byte 126
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1303:
+ov1163:
 mov ax,1
-sub edi,154
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1304
+zex1163:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1305
+je short ln1164
 call basefunction
-ln1305:
+ln1164:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -73322,45 +74949,83 @@ mov edx,[__areg+ebx*4]
 sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
-jcxz ln1306
-movsx ecx,cx
+test cx,cx
+jz near zex1165
 mov eax,[__dreg+16]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1165
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1306
-inc ecx
-jnz short ln1306
-nodo1306:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+16],edx
-sub edi,156
+pop ecx
+test cx,cx
+js short .ndivs1165
+test ebx,ebx
+js short .ndivd1165
+add edi,byte 4
+.ndivd1165:
+sub edi,byte 2
+.ndivs1165:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1165
+neg dx
+.dsetloop1165:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1165
+xor ebx,ebx
+sub edi,128
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1306:
+ov1165:
 mov ax,1
-sub edi,156
+sub edi,byte 22
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1307
+zex1165:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1308
+je short ln1166
 call basefunction
-ln1308:
+ln1166:
 add esi,ebp
 sub edi,byte 44
 js near execexit
@@ -73374,45 +75039,83 @@ movsx edx,word[esi]
 add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1309
-movsx ecx,cx
+test cx,cx
+jz near zex1167
 mov eax,[__dreg+16]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1167
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1309
-inc ecx
-jnz short ln1309
-nodo1309:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+16],edx
-sub edi,158
+pop ecx
+test cx,cx
+js short .ndivs1167
+test ebx,ebx
+js short .ndivd1167
+add edi,byte 4
+.ndivd1167:
+sub edi,byte 2
+.ndivs1167:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1167
+neg dx
+.dsetloop1167:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1167
+xor ebx,ebx
+sub edi,130
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1309:
+ov1167:
 mov ax,1
-sub edi,158
+sub edi,byte 24
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1310
+zex1167:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1311
+je short ln1168
 call basefunction
-ln1311:
+ln1168:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -73425,45 +75128,83 @@ and ebx,byte 7
 call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1312
-movsx ecx,cx
+test cx,cx
+jz near zex1169
 mov eax,[__dreg+16]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1169
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1312
-inc ecx
-jnz short ln1312
-nodo1312:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+16],edx
-sub edi,160
+pop ecx
+test cx,cx
+js short .ndivs1169
+test ebx,ebx
+js short .ndivd1169
+add edi,byte 4
+.ndivd1169:
+sub edi,byte 2
+.ndivs1169:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1169
+neg dx
+.dsetloop1169:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1169
+xor ebx,ebx
+sub edi,132
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1312:
+ov1169:
 mov ax,1
-sub edi,160
+sub edi,byte 26
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1313
+zex1169:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1314
+je short ln1170
 call basefunction
-ln1314:
+ln1170:
 add esi,ebp
 sub edi,byte 48
 js near execexit
@@ -73475,45 +75216,83 @@ S9F8:
 movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
-jcxz ln1315
-movsx ecx,cx
+test cx,cx
+jz near zex1171
 mov eax,[__dreg+16]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1171
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1315
-inc ecx
-jnz short ln1315
-nodo1315:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+16],edx
-sub edi,158
+pop ecx
+test cx,cx
+js short .ndivs1171
+test ebx,ebx
+js short .ndivd1171
+add edi,byte 4
+.ndivd1171:
+sub edi,byte 2
+.ndivs1171:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1171
+neg dx
+.dsetloop1171:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1171
+xor ebx,ebx
+sub edi,130
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1315:
+ov1171:
 mov ax,1
-sub edi,158
+sub edi,byte 24
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1316
+zex1171:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1317
+je short ln1172
 call basefunction
-ln1317:
+ln1172:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -73526,45 +75305,83 @@ mov edx,[esi]
 add esi,byte 4
 rol edx,16
 call readmemoryword
-jcxz ln1318
-movsx ecx,cx
+test cx,cx
+jz near zex1173
 mov eax,[__dreg+16]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1173
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1318
-inc ecx
-jnz short ln1318
-nodo1318:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+16],edx
-sub edi,162
+pop ecx
+test cx,cx
+js short .ndivs1173
+test ebx,ebx
+js short .ndivd1173
+add edi,byte 4
+.ndivd1173:
+sub edi,byte 2
+.ndivs1173:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1173
+neg dx
+.dsetloop1173:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1173
+xor ebx,ebx
+sub edi,134
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1318:
+ov1173:
 mov ax,1
-sub edi,162
+sub edi,byte 28
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1319
+zex1173:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1320
+je short ln1174
 call basefunction
-ln1320:
+ln1174:
 add esi,ebp
 sub edi,byte 50
 js near execexit
@@ -73578,45 +75395,83 @@ add edx,esi
 sub edx,ebp
 add esi,byte 2
 call readmemoryword
-jcxz ln1321
-movsx ecx,cx
+test cx,cx
+jz near zex1175
 mov eax,[__dreg+16]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1175
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1321
-inc ecx
-jnz short ln1321
-nodo1321:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+16],edx
-sub edi,158
+pop ecx
+test cx,cx
+js short .ndivs1175
+test ebx,ebx
+js short .ndivd1175
+add edi,byte 4
+.ndivd1175:
+sub edi,byte 2
+.ndivs1175:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1175
+neg dx
+.dsetloop1175:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1175
+xor ebx,ebx
+sub edi,130
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1321:
+ov1175:
 mov ax,1
-sub edi,158
+sub edi,byte 24
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1322
+zex1175:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1323
+je short ln1176
 call basefunction
-ln1323:
+ln1176:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -73630,45 +75485,83 @@ add edx,esi
 sub edx,ebp
 sub edx,byte 2
 call readmemoryword
-jcxz ln1324
-movsx ecx,cx
+test cx,cx
+jz near zex1177
 mov eax,[__dreg+16]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1177
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1324
-inc ecx
-jnz short ln1324
-nodo1324:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+16],edx
-sub edi,160
+pop ecx
+test cx,cx
+js short .ndivs1177
+test ebx,ebx
+js short .ndivd1177
+add edi,byte 4
+.ndivd1177:
+sub edi,byte 2
+.ndivs1177:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1177
+neg dx
+.dsetloop1177:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1177
+xor ebx,ebx
+sub edi,132
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1324:
+ov1177:
 mov ax,1
-sub edi,160
+sub edi,byte 26
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1325
+zex1177:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1326
+je short ln1178
 call basefunction
-ln1326:
+ln1178:
 add esi,ebp
 sub edi,byte 48
 js near execexit
@@ -73679,45 +75572,83 @@ jmp dword[__jmptbl+ebx*4]
 S9FC:
 mov cx,[esi]
 add esi,byte 2
-jcxz ln1327
-movsx ecx,cx
+test cx,cx
+jz near zex1179
 mov eax,[__dreg+16]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1179
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1327
-inc ecx
-jnz short ln1327
-nodo1327:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+16],edx
-sub edi,154
+pop ecx
+test cx,cx
+js short .ndivs1179
+test ebx,ebx
+js short .ndivd1179
+add edi,byte 4
+.ndivd1179:
+sub edi,byte 2
+.ndivs1179:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1179
+neg dx
+.dsetloop1179:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1179
+xor ebx,ebx
+sub edi,byte 126
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1327:
+ov1179:
 mov ax,1
-sub edi,154
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1328
+zex1179:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1329
+je short ln1180
 call basefunction
-ln1329:
+ln1180:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -74190,42 +76121,59 @@ jmp dword[__jmptbl+ebx*4]
 SAC0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
-jcxz ln1330
-movzx ecx,cx
+test cx,cx
+jz near zex1181
 mov eax,[__dreg+20]
+shl ecx,16
+cmp eax,ecx
+jae short ov1181
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1330
-nodo1330:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+20],edx
-sub edi,133
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1181:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1181
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1181:
+dec al
+jnz short .detloop1181
+xor ebx,ebx
+sub edi,byte 76
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1330:
+ov1181:
 mov ax,1
-sub edi,133
+sub edi,byte 10
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1331
+zex1181:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1332
+je short ln1182
 call basefunction
-ln1332:
+ln1182:
 add esi,ebp
 sub edi,byte 38
 js near execexit
@@ -74237,42 +76185,59 @@ SAD0:
 and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1333
-movzx ecx,cx
+test cx,cx
+jz near zex1183
 mov eax,[__dreg+20]
+shl ecx,16
+cmp eax,ecx
+jae short ov1183
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1333
-nodo1333:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+20],edx
-sub edi,137
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1183:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1183
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1183:
+dec al
+jnz short .detloop1183
+xor ebx,ebx
+sub edi,byte 80
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1333:
+ov1183:
 mov ax,1
-sub edi,137
+sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1334
+zex1183:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1335
+je short ln1184
 call basefunction
-ln1335:
+ln1184:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -74286,42 +76251,59 @@ mov edx,[__areg+ebx*4]
 call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
-jcxz ln1336
-movzx ecx,cx
+test cx,cx
+jz near zex1185
 mov eax,[__dreg+20]
+shl ecx,16
+cmp eax,ecx
+jae short ov1185
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1336
-nodo1336:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+20],edx
-sub edi,137
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1185:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1185
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1185:
+dec al
+jnz short .detloop1185
+xor ebx,ebx
+sub edi,byte 80
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1336:
+ov1185:
 mov ax,1
-sub edi,137
+sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1337
+zex1185:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1338
+je short ln1186
 call basefunction
-ln1338:
+ln1186:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -74335,42 +76317,59 @@ mov edx,[__areg+ebx*4]
 sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
-jcxz ln1339
-movzx ecx,cx
+test cx,cx
+jz near zex1187
 mov eax,[__dreg+20]
+shl ecx,16
+cmp eax,ecx
+jae short ov1187
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1339
-nodo1339:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+20],edx
-sub edi,139
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1187:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1187
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1187:
+dec al
+jnz short .detloop1187
+xor ebx,ebx
+sub edi,byte 82
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1339:
+ov1187:
 mov ax,1
-sub edi,139
+sub edi,byte 16
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1340
+zex1187:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1341
+je short ln1188
 call basefunction
-ln1341:
+ln1188:
 add esi,ebp
 sub edi,byte 44
 js near execexit
@@ -74384,42 +76383,59 @@ movsx edx,word[esi]
 add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1342
-movzx ecx,cx
+test cx,cx
+jz near zex1189
 mov eax,[__dreg+20]
+shl ecx,16
+cmp eax,ecx
+jae short ov1189
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1342
-nodo1342:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+20],edx
-sub edi,141
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1189:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1189
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1189:
+dec al
+jnz short .detloop1189
+xor ebx,ebx
+sub edi,byte 84
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1342:
+ov1189:
 mov ax,1
-sub edi,141
+sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1343
+zex1189:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1344
+je short ln1190
 call basefunction
-ln1344:
+ln1190:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -74432,42 +76448,59 @@ and ebx,byte 7
 call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1345
-movzx ecx,cx
+test cx,cx
+jz near zex1191
 mov eax,[__dreg+20]
+shl ecx,16
+cmp eax,ecx
+jae short ov1191
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1345
-nodo1345:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+20],edx
-sub edi,143
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1191:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1191
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1191:
+dec al
+jnz short .detloop1191
+xor ebx,ebx
+sub edi,byte 86
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1345:
+ov1191:
 mov ax,1
-sub edi,143
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1346
+zex1191:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1347
+je short ln1192
 call basefunction
-ln1347:
+ln1192:
 add esi,ebp
 sub edi,byte 48
 js near execexit
@@ -74479,42 +76512,59 @@ SAF8:
 movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
-jcxz ln1348
-movzx ecx,cx
+test cx,cx
+jz near zex1193
 mov eax,[__dreg+20]
+shl ecx,16
+cmp eax,ecx
+jae short ov1193
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1348
-nodo1348:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+20],edx
-sub edi,141
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1193:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1193
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1193:
+dec al
+jnz short .detloop1193
+xor ebx,ebx
+sub edi,byte 84
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1348:
+ov1193:
 mov ax,1
-sub edi,141
+sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1349
+zex1193:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1350
+je short ln1194
 call basefunction
-ln1350:
+ln1194:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -74527,42 +76577,59 @@ mov edx,[esi]
 add esi,byte 4
 rol edx,16
 call readmemoryword
-jcxz ln1351
-movzx ecx,cx
+test cx,cx
+jz near zex1195
 mov eax,[__dreg+20]
+shl ecx,16
+cmp eax,ecx
+jae short ov1195
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1351
-nodo1351:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+20],edx
-sub edi,145
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1195:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1195
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1195:
+dec al
+jnz short .detloop1195
+xor ebx,ebx
+sub edi,byte 88
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1351:
+ov1195:
 mov ax,1
-sub edi,145
+sub edi,byte 22
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1352
+zex1195:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1353
+je short ln1196
 call basefunction
-ln1353:
+ln1196:
 add esi,ebp
 sub edi,byte 50
 js near execexit
@@ -74576,42 +76643,59 @@ add edx,esi
 sub edx,ebp
 add esi,byte 2
 call readmemoryword
-jcxz ln1354
-movzx ecx,cx
+test cx,cx
+jz near zex1197
 mov eax,[__dreg+20]
+shl ecx,16
+cmp eax,ecx
+jae short ov1197
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1354
-nodo1354:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+20],edx
-sub edi,141
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1197:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1197
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1197:
+dec al
+jnz short .detloop1197
+xor ebx,ebx
+sub edi,byte 84
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1354:
+ov1197:
 mov ax,1
-sub edi,141
+sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1355
+zex1197:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1356
+je short ln1198
 call basefunction
-ln1356:
+ln1198:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -74625,42 +76709,59 @@ add edx,esi
 sub edx,ebp
 sub edx,byte 2
 call readmemoryword
-jcxz ln1357
-movzx ecx,cx
+test cx,cx
+jz near zex1199
 mov eax,[__dreg+20]
+shl ecx,16
+cmp eax,ecx
+jae short ov1199
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1357
-nodo1357:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+20],edx
-sub edi,143
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1199:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1199
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1199:
+dec al
+jnz short .detloop1199
+xor ebx,ebx
+sub edi,byte 86
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1357:
+ov1199:
 mov ax,1
-sub edi,143
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1358
+zex1199:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1359
+je short ln1200
 call basefunction
-ln1359:
+ln1200:
 add esi,ebp
 sub edi,byte 48
 js near execexit
@@ -74671,42 +76772,59 @@ jmp dword[__jmptbl+ebx*4]
 SAFC:
 mov cx,[esi]
 add esi,byte 2
-jcxz ln1360
-movzx ecx,cx
+test cx,cx
+jz near zex1201
 mov eax,[__dreg+20]
+shl ecx,16
+cmp eax,ecx
+jae short ov1201
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1360
-nodo1360:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+20],edx
-sub edi,137
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1201:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1201
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1201:
+dec al
+jnz short .detloop1201
+xor ebx,ebx
+sub edi,byte 80
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1360:
+ov1201:
 mov ax,1
-sub edi,137
+sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1361
+zex1201:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1362
+je short ln1202
 call basefunction
-ln1362:
+ln1202:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -74725,18 +76843,11 @@ das
 mov [__dreg+20],al
 lahf
 setc [__xflag]
-jnz short ln1363
+jnz short ln1203
 or ch,0BFh
 and ah,ch
-ln1363:
-test al,al
-jns short ln1364
+ln1203:
 xor al,al
-jmp short ln1365
-ln1364:
-test cl,cl
-sets al
-ln1365:
 sub edi,byte 6
 js near execexit
 mov bx,[esi]
@@ -74762,18 +76873,11 @@ das
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1366
+jnz short ln1204
 or ch,0BFh
 and ah,ch
-ln1366:
-test al,al
-jns short ln1367
+ln1204:
 xor al,al
-jmp short ln1368
-ln1367:
-test cl,cl
-sets al
-ln1368:
 mov ecx,ebx
 xor ebx,ebx
 call writememorybyte
@@ -75107,45 +77211,83 @@ jmp dword[__jmptbl+ebx*4]
 SBC0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
-jcxz ln1369
-movsx ecx,cx
+test cx,cx
+jz near zex1205
 mov eax,[__dreg+20]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1205
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1369
-inc ecx
-jnz short ln1369
-nodo1369:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+20],edx
-sub edi,150
+pop ecx
+test cx,cx
+js short .ndivs1205
+test ebx,ebx
+js short .ndivd1205
+add edi,byte 4
+.ndivd1205:
+sub edi,byte 2
+.ndivs1205:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1205
+neg dx
+.dsetloop1205:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1205
+xor ebx,ebx
+sub edi,byte 122
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1369:
+ov1205:
 mov ax,1
-sub edi,150
+sub edi,byte 16
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1370
+zex1205:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1371
+je short ln1206
 call basefunction
-ln1371:
+ln1206:
 add esi,ebp
 sub edi,byte 38
 js near execexit
@@ -75157,45 +77299,83 @@ SBD0:
 and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1372
-movsx ecx,cx
+test cx,cx
+jz near zex1207
 mov eax,[__dreg+20]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1207
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1372
-inc ecx
-jnz short ln1372
-nodo1372:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+20],edx
-sub edi,154
+pop ecx
+test cx,cx
+js short .ndivs1207
+test ebx,ebx
+js short .ndivd1207
+add edi,byte 4
+.ndivd1207:
+sub edi,byte 2
+.ndivs1207:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1207
+neg dx
+.dsetloop1207:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1207
+xor ebx,ebx
+sub edi,byte 126
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1372:
+ov1207:
 mov ax,1
-sub edi,154
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1373
+zex1207:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1374
+je short ln1208
 call basefunction
-ln1374:
+ln1208:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -75209,45 +77389,83 @@ mov edx,[__areg+ebx*4]
 call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
-jcxz ln1375
-movsx ecx,cx
+test cx,cx
+jz near zex1209
 mov eax,[__dreg+20]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1209
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1375
-inc ecx
-jnz short ln1375
-nodo1375:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+20],edx
-sub edi,154
+pop ecx
+test cx,cx
+js short .ndivs1209
+test ebx,ebx
+js short .ndivd1209
+add edi,byte 4
+.ndivd1209:
+sub edi,byte 2
+.ndivs1209:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1209
+neg dx
+.dsetloop1209:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1209
+xor ebx,ebx
+sub edi,byte 126
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1375:
+ov1209:
 mov ax,1
-sub edi,154
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1376
+zex1209:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1377
+je short ln1210
 call basefunction
-ln1377:
+ln1210:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -75261,45 +77479,83 @@ mov edx,[__areg+ebx*4]
 sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
-jcxz ln1378
-movsx ecx,cx
+test cx,cx
+jz near zex1211
 mov eax,[__dreg+20]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1211
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1378
-inc ecx
-jnz short ln1378
-nodo1378:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+20],edx
-sub edi,156
+pop ecx
+test cx,cx
+js short .ndivs1211
+test ebx,ebx
+js short .ndivd1211
+add edi,byte 4
+.ndivd1211:
+sub edi,byte 2
+.ndivs1211:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1211
+neg dx
+.dsetloop1211:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1211
+xor ebx,ebx
+sub edi,128
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1378:
+ov1211:
 mov ax,1
-sub edi,156
+sub edi,byte 22
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1379
+zex1211:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1380
+je short ln1212
 call basefunction
-ln1380:
+ln1212:
 add esi,ebp
 sub edi,byte 44
 js near execexit
@@ -75313,45 +77569,83 @@ movsx edx,word[esi]
 add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1381
-movsx ecx,cx
+test cx,cx
+jz near zex1213
 mov eax,[__dreg+20]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1213
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1381
-inc ecx
-jnz short ln1381
-nodo1381:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+20],edx
-sub edi,158
+pop ecx
+test cx,cx
+js short .ndivs1213
+test ebx,ebx
+js short .ndivd1213
+add edi,byte 4
+.ndivd1213:
+sub edi,byte 2
+.ndivs1213:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1213
+neg dx
+.dsetloop1213:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1213
+xor ebx,ebx
+sub edi,130
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1381:
+ov1213:
 mov ax,1
-sub edi,158
+sub edi,byte 24
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1382
+zex1213:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1383
+je short ln1214
 call basefunction
-ln1383:
+ln1214:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -75364,45 +77658,83 @@ and ebx,byte 7
 call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1384
-movsx ecx,cx
+test cx,cx
+jz near zex1215
 mov eax,[__dreg+20]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1215
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1384
-inc ecx
-jnz short ln1384
-nodo1384:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+20],edx
-sub edi,160
+pop ecx
+test cx,cx
+js short .ndivs1215
+test ebx,ebx
+js short .ndivd1215
+add edi,byte 4
+.ndivd1215:
+sub edi,byte 2
+.ndivs1215:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1215
+neg dx
+.dsetloop1215:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1215
+xor ebx,ebx
+sub edi,132
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1384:
+ov1215:
 mov ax,1
-sub edi,160
+sub edi,byte 26
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1385
+zex1215:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1386
+je short ln1216
 call basefunction
-ln1386:
+ln1216:
 add esi,ebp
 sub edi,byte 48
 js near execexit
@@ -75414,45 +77746,83 @@ SBF8:
 movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
-jcxz ln1387
-movsx ecx,cx
+test cx,cx
+jz near zex1217
 mov eax,[__dreg+20]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1217
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1387
-inc ecx
-jnz short ln1387
-nodo1387:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+20],edx
-sub edi,158
+pop ecx
+test cx,cx
+js short .ndivs1217
+test ebx,ebx
+js short .ndivd1217
+add edi,byte 4
+.ndivd1217:
+sub edi,byte 2
+.ndivs1217:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1217
+neg dx
+.dsetloop1217:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1217
+xor ebx,ebx
+sub edi,130
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1387:
+ov1217:
 mov ax,1
-sub edi,158
+sub edi,byte 24
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1388
+zex1217:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1389
+je short ln1218
 call basefunction
-ln1389:
+ln1218:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -75465,45 +77835,83 @@ mov edx,[esi]
 add esi,byte 4
 rol edx,16
 call readmemoryword
-jcxz ln1390
-movsx ecx,cx
+test cx,cx
+jz near zex1219
 mov eax,[__dreg+20]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1219
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1390
-inc ecx
-jnz short ln1390
-nodo1390:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+20],edx
-sub edi,162
+pop ecx
+test cx,cx
+js short .ndivs1219
+test ebx,ebx
+js short .ndivd1219
+add edi,byte 4
+.ndivd1219:
+sub edi,byte 2
+.ndivs1219:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1219
+neg dx
+.dsetloop1219:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1219
+xor ebx,ebx
+sub edi,134
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1390:
+ov1219:
 mov ax,1
-sub edi,162
+sub edi,byte 28
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1391
+zex1219:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1392
+je short ln1220
 call basefunction
-ln1392:
+ln1220:
 add esi,ebp
 sub edi,byte 50
 js near execexit
@@ -75517,45 +77925,83 @@ add edx,esi
 sub edx,ebp
 add esi,byte 2
 call readmemoryword
-jcxz ln1393
-movsx ecx,cx
+test cx,cx
+jz near zex1221
 mov eax,[__dreg+20]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1221
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1393
-inc ecx
-jnz short ln1393
-nodo1393:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+20],edx
-sub edi,158
+pop ecx
+test cx,cx
+js short .ndivs1221
+test ebx,ebx
+js short .ndivd1221
+add edi,byte 4
+.ndivd1221:
+sub edi,byte 2
+.ndivs1221:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1221
+neg dx
+.dsetloop1221:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1221
+xor ebx,ebx
+sub edi,130
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1393:
+ov1221:
 mov ax,1
-sub edi,158
+sub edi,byte 24
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1394
+zex1221:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1395
+je short ln1222
 call basefunction
-ln1395:
+ln1222:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -75569,45 +78015,83 @@ add edx,esi
 sub edx,ebp
 sub edx,byte 2
 call readmemoryword
-jcxz ln1396
-movsx ecx,cx
+test cx,cx
+jz near zex1223
 mov eax,[__dreg+20]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1223
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1396
-inc ecx
-jnz short ln1396
-nodo1396:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+20],edx
-sub edi,160
+pop ecx
+test cx,cx
+js short .ndivs1223
+test ebx,ebx
+js short .ndivd1223
+add edi,byte 4
+.ndivd1223:
+sub edi,byte 2
+.ndivs1223:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1223
+neg dx
+.dsetloop1223:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1223
+xor ebx,ebx
+sub edi,132
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1396:
+ov1223:
 mov ax,1
-sub edi,160
+sub edi,byte 26
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1397
+zex1223:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1398
+je short ln1224
 call basefunction
-ln1398:
+ln1224:
 add esi,ebp
 sub edi,byte 48
 js near execexit
@@ -75618,45 +78102,83 @@ jmp dword[__jmptbl+ebx*4]
 SBFC:
 mov cx,[esi]
 add esi,byte 2
-jcxz ln1399
-movsx ecx,cx
+test cx,cx
+jz near zex1225
 mov eax,[__dreg+20]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1225
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1399
-inc ecx
-jnz short ln1399
-nodo1399:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+20],edx
-sub edi,154
+pop ecx
+test cx,cx
+js short .ndivs1225
+test ebx,ebx
+js short .ndivd1225
+add edi,byte 4
+.ndivd1225:
+sub edi,byte 2
+.ndivs1225:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1225
+neg dx
+.dsetloop1225:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1225
+xor ebx,ebx
+sub edi,byte 126
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1399:
+ov1225:
 mov ax,1
-sub edi,154
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1400
+zex1225:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1401
+je short ln1226
 call basefunction
-ln1401:
+ln1226:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -76129,42 +78651,59 @@ jmp dword[__jmptbl+ebx*4]
 SCC0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
-jcxz ln1402
-movzx ecx,cx
+test cx,cx
+jz near zex1227
 mov eax,[__dreg+24]
+shl ecx,16
+cmp eax,ecx
+jae short ov1227
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1402
-nodo1402:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+24],edx
-sub edi,133
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1227:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1227
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1227:
+dec al
+jnz short .detloop1227
+xor ebx,ebx
+sub edi,byte 76
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1402:
+ov1227:
 mov ax,1
-sub edi,133
+sub edi,byte 10
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1403
+zex1227:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1404
+je short ln1228
 call basefunction
-ln1404:
+ln1228:
 add esi,ebp
 sub edi,byte 38
 js near execexit
@@ -76176,42 +78715,59 @@ SCD0:
 and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1405
-movzx ecx,cx
+test cx,cx
+jz near zex1229
 mov eax,[__dreg+24]
+shl ecx,16
+cmp eax,ecx
+jae short ov1229
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1405
-nodo1405:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+24],edx
-sub edi,137
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1229:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1229
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1229:
+dec al
+jnz short .detloop1229
+xor ebx,ebx
+sub edi,byte 80
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1405:
+ov1229:
 mov ax,1
-sub edi,137
+sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1406
+zex1229:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1407
+je short ln1230
 call basefunction
-ln1407:
+ln1230:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -76225,42 +78781,59 @@ mov edx,[__areg+ebx*4]
 call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
-jcxz ln1408
-movzx ecx,cx
+test cx,cx
+jz near zex1231
 mov eax,[__dreg+24]
+shl ecx,16
+cmp eax,ecx
+jae short ov1231
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1408
-nodo1408:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+24],edx
-sub edi,137
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1231:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1231
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1231:
+dec al
+jnz short .detloop1231
+xor ebx,ebx
+sub edi,byte 80
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1408:
+ov1231:
 mov ax,1
-sub edi,137
+sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1409
+zex1231:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1410
+je short ln1232
 call basefunction
-ln1410:
+ln1232:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -76274,42 +78847,59 @@ mov edx,[__areg+ebx*4]
 sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
-jcxz ln1411
-movzx ecx,cx
+test cx,cx
+jz near zex1233
 mov eax,[__dreg+24]
+shl ecx,16
+cmp eax,ecx
+jae short ov1233
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1411
-nodo1411:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+24],edx
-sub edi,139
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1233:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1233
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1233:
+dec al
+jnz short .detloop1233
+xor ebx,ebx
+sub edi,byte 82
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1411:
+ov1233:
 mov ax,1
-sub edi,139
+sub edi,byte 16
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1412
+zex1233:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1413
+je short ln1234
 call basefunction
-ln1413:
+ln1234:
 add esi,ebp
 sub edi,byte 44
 js near execexit
@@ -76323,42 +78913,59 @@ movsx edx,word[esi]
 add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1414
-movzx ecx,cx
+test cx,cx
+jz near zex1235
 mov eax,[__dreg+24]
+shl ecx,16
+cmp eax,ecx
+jae short ov1235
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1414
-nodo1414:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+24],edx
-sub edi,141
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1235:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1235
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1235:
+dec al
+jnz short .detloop1235
+xor ebx,ebx
+sub edi,byte 84
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1414:
+ov1235:
 mov ax,1
-sub edi,141
+sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1415
+zex1235:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1416
+je short ln1236
 call basefunction
-ln1416:
+ln1236:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -76371,42 +78978,59 @@ and ebx,byte 7
 call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1417
-movzx ecx,cx
+test cx,cx
+jz near zex1237
 mov eax,[__dreg+24]
+shl ecx,16
+cmp eax,ecx
+jae short ov1237
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1417
-nodo1417:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+24],edx
-sub edi,143
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1237:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1237
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1237:
+dec al
+jnz short .detloop1237
+xor ebx,ebx
+sub edi,byte 86
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1417:
+ov1237:
 mov ax,1
-sub edi,143
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1418
+zex1237:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1419
+je short ln1238
 call basefunction
-ln1419:
+ln1238:
 add esi,ebp
 sub edi,byte 48
 js near execexit
@@ -76418,42 +79042,59 @@ SCF8:
 movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
-jcxz ln1420
-movzx ecx,cx
+test cx,cx
+jz near zex1239
 mov eax,[__dreg+24]
+shl ecx,16
+cmp eax,ecx
+jae short ov1239
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1420
-nodo1420:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+24],edx
-sub edi,141
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1239:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1239
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1239:
+dec al
+jnz short .detloop1239
+xor ebx,ebx
+sub edi,byte 84
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1420:
+ov1239:
 mov ax,1
-sub edi,141
+sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1421
+zex1239:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1422
+je short ln1240
 call basefunction
-ln1422:
+ln1240:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -76466,42 +79107,59 @@ mov edx,[esi]
 add esi,byte 4
 rol edx,16
 call readmemoryword
-jcxz ln1423
-movzx ecx,cx
+test cx,cx
+jz near zex1241
 mov eax,[__dreg+24]
+shl ecx,16
+cmp eax,ecx
+jae short ov1241
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1423
-nodo1423:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+24],edx
-sub edi,145
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1241:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1241
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1241:
+dec al
+jnz short .detloop1241
+xor ebx,ebx
+sub edi,byte 88
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1423:
+ov1241:
 mov ax,1
-sub edi,145
+sub edi,byte 22
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1424
+zex1241:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1425
+je short ln1242
 call basefunction
-ln1425:
+ln1242:
 add esi,ebp
 sub edi,byte 50
 js near execexit
@@ -76515,42 +79173,59 @@ add edx,esi
 sub edx,ebp
 add esi,byte 2
 call readmemoryword
-jcxz ln1426
-movzx ecx,cx
+test cx,cx
+jz near zex1243
 mov eax,[__dreg+24]
+shl ecx,16
+cmp eax,ecx
+jae short ov1243
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1426
-nodo1426:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+24],edx
-sub edi,141
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1243:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1243
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1243:
+dec al
+jnz short .detloop1243
+xor ebx,ebx
+sub edi,byte 84
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1426:
+ov1243:
 mov ax,1
-sub edi,141
+sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1427
+zex1243:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1428
+je short ln1244
 call basefunction
-ln1428:
+ln1244:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -76564,42 +79239,59 @@ add edx,esi
 sub edx,ebp
 sub edx,byte 2
 call readmemoryword
-jcxz ln1429
-movzx ecx,cx
+test cx,cx
+jz near zex1245
 mov eax,[__dreg+24]
+shl ecx,16
+cmp eax,ecx
+jae short ov1245
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1429
-nodo1429:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+24],edx
-sub edi,143
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1245:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1245
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1245:
+dec al
+jnz short .detloop1245
+xor ebx,ebx
+sub edi,byte 86
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1429:
+ov1245:
 mov ax,1
-sub edi,143
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1430
+zex1245:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1431
+je short ln1246
 call basefunction
-ln1431:
+ln1246:
 add esi,ebp
 sub edi,byte 48
 js near execexit
@@ -76610,42 +79302,59 @@ jmp dword[__jmptbl+ebx*4]
 SCFC:
 mov cx,[esi]
 add esi,byte 2
-jcxz ln1432
-movzx ecx,cx
+test cx,cx
+jz near zex1247
 mov eax,[__dreg+24]
+shl ecx,16
+cmp eax,ecx
+jae short ov1247
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1432
-nodo1432:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+24],edx
-sub edi,137
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1247:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1247
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1247:
+dec al
+jnz short .detloop1247
+xor ebx,ebx
+sub edi,byte 80
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1432:
+ov1247:
 mov ax,1
-sub edi,137
+sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1433
+zex1247:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1434
+je short ln1248
 call basefunction
-ln1434:
+ln1248:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -76664,18 +79373,11 @@ das
 mov [__dreg+24],al
 lahf
 setc [__xflag]
-jnz short ln1435
+jnz short ln1249
 or ch,0BFh
 and ah,ch
-ln1435:
-test al,al
-jns short ln1436
+ln1249:
 xor al,al
-jmp short ln1437
-ln1436:
-test cl,cl
-sets al
-ln1437:
 sub edi,byte 6
 js near execexit
 mov bx,[esi]
@@ -76701,18 +79403,11 @@ das
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1438
+jnz short ln1250
 or ch,0BFh
 and ah,ch
-ln1438:
-test al,al
-jns short ln1439
+ln1250:
 xor al,al
-jmp short ln1440
-ln1439:
-test cl,cl
-sets al
-ln1440:
 mov ecx,ebx
 xor ebx,ebx
 call writememorybyte
@@ -77046,45 +79741,83 @@ jmp dword[__jmptbl+ebx*4]
 SDC0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
-jcxz ln1441
-movsx ecx,cx
+test cx,cx
+jz near zex1251
 mov eax,[__dreg+24]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1251
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1441
-inc ecx
-jnz short ln1441
-nodo1441:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+24],edx
-sub edi,150
+pop ecx
+test cx,cx
+js short .ndivs1251
+test ebx,ebx
+js short .ndivd1251
+add edi,byte 4
+.ndivd1251:
+sub edi,byte 2
+.ndivs1251:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1251
+neg dx
+.dsetloop1251:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1251
+xor ebx,ebx
+sub edi,byte 122
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1441:
+ov1251:
 mov ax,1
-sub edi,150
+sub edi,byte 16
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1442
+zex1251:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1443
+je short ln1252
 call basefunction
-ln1443:
+ln1252:
 add esi,ebp
 sub edi,byte 38
 js near execexit
@@ -77096,45 +79829,83 @@ SDD0:
 and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1444
-movsx ecx,cx
+test cx,cx
+jz near zex1253
 mov eax,[__dreg+24]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1253
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1444
-inc ecx
-jnz short ln1444
-nodo1444:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+24],edx
-sub edi,154
+pop ecx
+test cx,cx
+js short .ndivs1253
+test ebx,ebx
+js short .ndivd1253
+add edi,byte 4
+.ndivd1253:
+sub edi,byte 2
+.ndivs1253:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1253
+neg dx
+.dsetloop1253:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1253
+xor ebx,ebx
+sub edi,byte 126
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1444:
+ov1253:
 mov ax,1
-sub edi,154
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1445
+zex1253:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1446
+je short ln1254
 call basefunction
-ln1446:
+ln1254:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -77148,45 +79919,83 @@ mov edx,[__areg+ebx*4]
 call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
-jcxz ln1447
-movsx ecx,cx
+test cx,cx
+jz near zex1255
 mov eax,[__dreg+24]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1255
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1447
-inc ecx
-jnz short ln1447
-nodo1447:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+24],edx
-sub edi,154
+pop ecx
+test cx,cx
+js short .ndivs1255
+test ebx,ebx
+js short .ndivd1255
+add edi,byte 4
+.ndivd1255:
+sub edi,byte 2
+.ndivs1255:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1255
+neg dx
+.dsetloop1255:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1255
+xor ebx,ebx
+sub edi,byte 126
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1447:
+ov1255:
 mov ax,1
-sub edi,154
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1448
+zex1255:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1449
+je short ln1256
 call basefunction
-ln1449:
+ln1256:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -77200,45 +80009,83 @@ mov edx,[__areg+ebx*4]
 sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
-jcxz ln1450
-movsx ecx,cx
+test cx,cx
+jz near zex1257
 mov eax,[__dreg+24]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1257
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1450
-inc ecx
-jnz short ln1450
-nodo1450:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+24],edx
-sub edi,156
+pop ecx
+test cx,cx
+js short .ndivs1257
+test ebx,ebx
+js short .ndivd1257
+add edi,byte 4
+.ndivd1257:
+sub edi,byte 2
+.ndivs1257:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1257
+neg dx
+.dsetloop1257:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1257
+xor ebx,ebx
+sub edi,128
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1450:
+ov1257:
 mov ax,1
-sub edi,156
+sub edi,byte 22
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1451
+zex1257:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1452
+je short ln1258
 call basefunction
-ln1452:
+ln1258:
 add esi,ebp
 sub edi,byte 44
 js near execexit
@@ -77252,45 +80099,83 @@ movsx edx,word[esi]
 add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1453
-movsx ecx,cx
+test cx,cx
+jz near zex1259
 mov eax,[__dreg+24]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1259
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1453
-inc ecx
-jnz short ln1453
-nodo1453:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+24],edx
-sub edi,158
+pop ecx
+test cx,cx
+js short .ndivs1259
+test ebx,ebx
+js short .ndivd1259
+add edi,byte 4
+.ndivd1259:
+sub edi,byte 2
+.ndivs1259:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1259
+neg dx
+.dsetloop1259:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1259
+xor ebx,ebx
+sub edi,130
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1453:
+ov1259:
 mov ax,1
-sub edi,158
+sub edi,byte 24
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1454
+zex1259:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1455
+je short ln1260
 call basefunction
-ln1455:
+ln1260:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -77303,45 +80188,83 @@ and ebx,byte 7
 call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1456
-movsx ecx,cx
+test cx,cx
+jz near zex1261
 mov eax,[__dreg+24]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1261
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1456
-inc ecx
-jnz short ln1456
-nodo1456:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+24],edx
-sub edi,160
+pop ecx
+test cx,cx
+js short .ndivs1261
+test ebx,ebx
+js short .ndivd1261
+add edi,byte 4
+.ndivd1261:
+sub edi,byte 2
+.ndivs1261:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1261
+neg dx
+.dsetloop1261:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1261
+xor ebx,ebx
+sub edi,132
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1456:
+ov1261:
 mov ax,1
-sub edi,160
+sub edi,byte 26
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1457
+zex1261:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1458
+je short ln1262
 call basefunction
-ln1458:
+ln1262:
 add esi,ebp
 sub edi,byte 48
 js near execexit
@@ -77353,45 +80276,83 @@ SDF8:
 movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
-jcxz ln1459
-movsx ecx,cx
+test cx,cx
+jz near zex1263
 mov eax,[__dreg+24]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1263
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1459
-inc ecx
-jnz short ln1459
-nodo1459:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+24],edx
-sub edi,158
+pop ecx
+test cx,cx
+js short .ndivs1263
+test ebx,ebx
+js short .ndivd1263
+add edi,byte 4
+.ndivd1263:
+sub edi,byte 2
+.ndivs1263:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1263
+neg dx
+.dsetloop1263:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1263
+xor ebx,ebx
+sub edi,130
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1459:
+ov1263:
 mov ax,1
-sub edi,158
+sub edi,byte 24
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1460
+zex1263:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1461
+je short ln1264
 call basefunction
-ln1461:
+ln1264:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -77404,45 +80365,83 @@ mov edx,[esi]
 add esi,byte 4
 rol edx,16
 call readmemoryword
-jcxz ln1462
-movsx ecx,cx
+test cx,cx
+jz near zex1265
 mov eax,[__dreg+24]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1265
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1462
-inc ecx
-jnz short ln1462
-nodo1462:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+24],edx
-sub edi,162
+pop ecx
+test cx,cx
+js short .ndivs1265
+test ebx,ebx
+js short .ndivd1265
+add edi,byte 4
+.ndivd1265:
+sub edi,byte 2
+.ndivs1265:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1265
+neg dx
+.dsetloop1265:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1265
+xor ebx,ebx
+sub edi,134
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1462:
+ov1265:
 mov ax,1
-sub edi,162
+sub edi,byte 28
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1463
+zex1265:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1464
+je short ln1266
 call basefunction
-ln1464:
+ln1266:
 add esi,ebp
 sub edi,byte 50
 js near execexit
@@ -77456,45 +80455,83 @@ add edx,esi
 sub edx,ebp
 add esi,byte 2
 call readmemoryword
-jcxz ln1465
-movsx ecx,cx
+test cx,cx
+jz near zex1267
 mov eax,[__dreg+24]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1267
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1465
-inc ecx
-jnz short ln1465
-nodo1465:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+24],edx
-sub edi,158
+pop ecx
+test cx,cx
+js short .ndivs1267
+test ebx,ebx
+js short .ndivd1267
+add edi,byte 4
+.ndivd1267:
+sub edi,byte 2
+.ndivs1267:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1267
+neg dx
+.dsetloop1267:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1267
+xor ebx,ebx
+sub edi,130
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1465:
+ov1267:
 mov ax,1
-sub edi,158
+sub edi,byte 24
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1466
+zex1267:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1467
+je short ln1268
 call basefunction
-ln1467:
+ln1268:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -77508,45 +80545,83 @@ add edx,esi
 sub edx,ebp
 sub edx,byte 2
 call readmemoryword
-jcxz ln1468
-movsx ecx,cx
+test cx,cx
+jz near zex1269
 mov eax,[__dreg+24]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1269
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1468
-inc ecx
-jnz short ln1468
-nodo1468:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+24],edx
-sub edi,160
+pop ecx
+test cx,cx
+js short .ndivs1269
+test ebx,ebx
+js short .ndivd1269
+add edi,byte 4
+.ndivd1269:
+sub edi,byte 2
+.ndivs1269:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1269
+neg dx
+.dsetloop1269:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1269
+xor ebx,ebx
+sub edi,132
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1468:
+ov1269:
 mov ax,1
-sub edi,160
+sub edi,byte 26
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1469
+zex1269:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1470
+je short ln1270
 call basefunction
-ln1470:
+ln1270:
 add esi,ebp
 sub edi,byte 48
 js near execexit
@@ -77557,45 +80632,83 @@ jmp dword[__jmptbl+ebx*4]
 SDFC:
 mov cx,[esi]
 add esi,byte 2
-jcxz ln1471
-movsx ecx,cx
+test cx,cx
+jz near zex1271
 mov eax,[__dreg+24]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1271
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1471
-inc ecx
-jnz short ln1471
-nodo1471:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+24],edx
-sub edi,154
+pop ecx
+test cx,cx
+js short .ndivs1271
+test ebx,ebx
+js short .ndivd1271
+add edi,byte 4
+.ndivd1271:
+sub edi,byte 2
+.ndivs1271:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1271
+neg dx
+.dsetloop1271:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1271
+xor ebx,ebx
+sub edi,byte 126
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1471:
+ov1271:
 mov ax,1
-sub edi,154
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1472
+zex1271:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1473
+je short ln1272
 call basefunction
-ln1473:
+ln1272:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -78068,42 +81181,59 @@ jmp dword[__jmptbl+ebx*4]
 SEC0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
-jcxz ln1474
-movzx ecx,cx
+test cx,cx
+jz near zex1273
 mov eax,[__dreg+28]
+shl ecx,16
+cmp eax,ecx
+jae short ov1273
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1474
-nodo1474:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+28],edx
-sub edi,133
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1273:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1273
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1273:
+dec al
+jnz short .detloop1273
+xor ebx,ebx
+sub edi,byte 76
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1474:
+ov1273:
 mov ax,1
-sub edi,133
+sub edi,byte 10
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1475
+zex1273:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1476
+je short ln1274
 call basefunction
-ln1476:
+ln1274:
 add esi,ebp
 sub edi,byte 38
 js near execexit
@@ -78115,42 +81245,59 @@ SED0:
 and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1477
-movzx ecx,cx
+test cx,cx
+jz near zex1275
 mov eax,[__dreg+28]
+shl ecx,16
+cmp eax,ecx
+jae short ov1275
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1477
-nodo1477:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+28],edx
-sub edi,137
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1275:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1275
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1275:
+dec al
+jnz short .detloop1275
+xor ebx,ebx
+sub edi,byte 80
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1477:
+ov1275:
 mov ax,1
-sub edi,137
+sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1478
+zex1275:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1479
+je short ln1276
 call basefunction
-ln1479:
+ln1276:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -78164,42 +81311,59 @@ mov edx,[__areg+ebx*4]
 call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
-jcxz ln1480
-movzx ecx,cx
+test cx,cx
+jz near zex1277
 mov eax,[__dreg+28]
+shl ecx,16
+cmp eax,ecx
+jae short ov1277
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1480
-nodo1480:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+28],edx
-sub edi,137
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1277:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1277
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1277:
+dec al
+jnz short .detloop1277
+xor ebx,ebx
+sub edi,byte 80
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1480:
+ov1277:
 mov ax,1
-sub edi,137
+sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1481
+zex1277:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1482
+je short ln1278
 call basefunction
-ln1482:
+ln1278:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -78213,42 +81377,59 @@ mov edx,[__areg+ebx*4]
 sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
-jcxz ln1483
-movzx ecx,cx
+test cx,cx
+jz near zex1279
 mov eax,[__dreg+28]
+shl ecx,16
+cmp eax,ecx
+jae short ov1279
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1483
-nodo1483:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+28],edx
-sub edi,139
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1279:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1279
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1279:
+dec al
+jnz short .detloop1279
+xor ebx,ebx
+sub edi,byte 82
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1483:
+ov1279:
 mov ax,1
-sub edi,139
+sub edi,byte 16
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1484
+zex1279:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1485
+je short ln1280
 call basefunction
-ln1485:
+ln1280:
 add esi,ebp
 sub edi,byte 44
 js near execexit
@@ -78262,42 +81443,59 @@ movsx edx,word[esi]
 add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1486
-movzx ecx,cx
+test cx,cx
+jz near zex1281
 mov eax,[__dreg+28]
+shl ecx,16
+cmp eax,ecx
+jae short ov1281
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1486
-nodo1486:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+28],edx
-sub edi,141
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1281:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1281
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1281:
+dec al
+jnz short .detloop1281
+xor ebx,ebx
+sub edi,byte 84
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1486:
+ov1281:
 mov ax,1
-sub edi,141
+sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1487
+zex1281:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1488
+je short ln1282
 call basefunction
-ln1488:
+ln1282:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -78310,42 +81508,59 @@ and ebx,byte 7
 call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1489
-movzx ecx,cx
+test cx,cx
+jz near zex1283
 mov eax,[__dreg+28]
+shl ecx,16
+cmp eax,ecx
+jae short ov1283
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1489
-nodo1489:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+28],edx
-sub edi,143
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1283:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1283
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1283:
+dec al
+jnz short .detloop1283
+xor ebx,ebx
+sub edi,byte 86
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1489:
+ov1283:
 mov ax,1
-sub edi,143
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1490
+zex1283:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1491
+je short ln1284
 call basefunction
-ln1491:
+ln1284:
 add esi,ebp
 sub edi,byte 48
 js near execexit
@@ -78357,42 +81572,59 @@ SEF8:
 movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
-jcxz ln1492
-movzx ecx,cx
+test cx,cx
+jz near zex1285
 mov eax,[__dreg+28]
+shl ecx,16
+cmp eax,ecx
+jae short ov1285
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1492
-nodo1492:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+28],edx
-sub edi,141
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1285:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1285
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1285:
+dec al
+jnz short .detloop1285
+xor ebx,ebx
+sub edi,byte 84
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1492:
+ov1285:
 mov ax,1
-sub edi,141
+sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1493
+zex1285:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1494
+je short ln1286
 call basefunction
-ln1494:
+ln1286:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -78405,42 +81637,59 @@ mov edx,[esi]
 add esi,byte 4
 rol edx,16
 call readmemoryword
-jcxz ln1495
-movzx ecx,cx
+test cx,cx
+jz near zex1287
 mov eax,[__dreg+28]
+shl ecx,16
+cmp eax,ecx
+jae short ov1287
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1495
-nodo1495:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+28],edx
-sub edi,145
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1287:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1287
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1287:
+dec al
+jnz short .detloop1287
+xor ebx,ebx
+sub edi,byte 88
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1495:
+ov1287:
 mov ax,1
-sub edi,145
+sub edi,byte 22
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1496
+zex1287:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1497
+je short ln1288
 call basefunction
-ln1497:
+ln1288:
 add esi,ebp
 sub edi,byte 50
 js near execexit
@@ -78454,42 +81703,59 @@ add edx,esi
 sub edx,ebp
 add esi,byte 2
 call readmemoryword
-jcxz ln1498
-movzx ecx,cx
+test cx,cx
+jz near zex1289
 mov eax,[__dreg+28]
+shl ecx,16
+cmp eax,ecx
+jae short ov1289
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1498
-nodo1498:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+28],edx
-sub edi,141
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1289:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1289
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1289:
+dec al
+jnz short .detloop1289
+xor ebx,ebx
+sub edi,byte 84
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1498:
+ov1289:
 mov ax,1
-sub edi,141
+sub edi,byte 18
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1499
+zex1289:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1500
+je short ln1290
 call basefunction
-ln1500:
+ln1290:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -78503,42 +81769,59 @@ add edx,esi
 sub edx,ebp
 sub edx,byte 2
 call readmemoryword
-jcxz ln1501
-movzx ecx,cx
+test cx,cx
+jz near zex1291
 mov eax,[__dreg+28]
+shl ecx,16
+cmp eax,ecx
+jae short ov1291
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1501
-nodo1501:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+28],edx
-sub edi,143
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1291:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1291
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1291:
+dec al
+jnz short .detloop1291
+xor ebx,ebx
+sub edi,byte 86
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1501:
+ov1291:
 mov ax,1
-sub edi,143
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1502
+zex1291:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1503
+je short ln1292
 call basefunction
-ln1503:
+ln1292:
 add esi,ebp
 sub edi,byte 48
 js near execexit
@@ -78549,42 +81832,59 @@ jmp dword[__jmptbl+ebx*4]
 SEFC:
 mov cx,[esi]
 add esi,byte 2
-jcxz ln1504
-movzx ecx,cx
+test cx,cx
+jz near zex1293
 mov eax,[__dreg+28]
+shl ecx,16
+cmp eax,ecx
+jae short ov1293
+shr ecx,16
 xor edx,edx
+push ecx
+mov ebx,eax
 div ecx
-test eax,0FFFF0000h
-jnz short ln1504
-nodo1504:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+28],edx
-sub edi,137
+mov al,15
+pop ecx
+shl ecx,16
+.detloop1293:
+shl ebx,1
+sub edi,byte 4
+cmp ebx,ecx
+jb short .nsbhd1293
+sub ebx,ecx
+add edi,byte 2
+.nsbhd1293:
+dec al
+jnz short .detloop1293
+xor ebx,ebx
+sub edi,byte 80
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1504:
+ov1293:
 mov ax,1
-sub edi,137
+sub edi,byte 14
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1505
+zex1293:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1506
+je short ln1294
 call basefunction
-ln1506:
+ln1294:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -78603,18 +81903,11 @@ das
 mov [__dreg+28],al
 lahf
 setc [__xflag]
-jnz short ln1507
+jnz short ln1295
 or ch,0BFh
 and ah,ch
-ln1507:
-test al,al
-jns short ln1508
+ln1295:
 xor al,al
-jmp short ln1509
-ln1508:
-test cl,cl
-sets al
-ln1509:
 sub edi,byte 6
 js near execexit
 mov bx,[esi]
@@ -78640,18 +81933,11 @@ das
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1510
+jnz short ln1296
 or ch,0BFh
 and ah,ch
-ln1510:
-test al,al
-jns short ln1511
+ln1296:
 xor al,al
-jmp short ln1512
-ln1511:
-test cl,cl
-sets al
-ln1512:
 mov ecx,ebx
 xor ebx,ebx
 call writememorybyte
@@ -78985,45 +82271,83 @@ jmp dword[__jmptbl+ebx*4]
 SFC0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
-jcxz ln1513
-movsx ecx,cx
+test cx,cx
+jz near zex1297
 mov eax,[__dreg+28]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1297
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1513
-inc ecx
-jnz short ln1513
-nodo1513:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+28],edx
-sub edi,150
+pop ecx
+test cx,cx
+js short .ndivs1297
+test ebx,ebx
+js short .ndivd1297
+add edi,byte 4
+.ndivd1297:
+sub edi,byte 2
+.ndivs1297:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1297
+neg dx
+.dsetloop1297:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1297
+xor ebx,ebx
+sub edi,byte 122
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1513:
+ov1297:
 mov ax,1
-sub edi,150
+sub edi,byte 16
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1514
+zex1297:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1515
+je short ln1298
 call basefunction
-ln1515:
+ln1298:
 add esi,ebp
 sub edi,byte 38
 js near execexit
@@ -79035,45 +82359,83 @@ SFD0:
 and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1516
-movsx ecx,cx
+test cx,cx
+jz near zex1299
 mov eax,[__dreg+28]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1299
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1516
-inc ecx
-jnz short ln1516
-nodo1516:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+28],edx
-sub edi,154
+pop ecx
+test cx,cx
+js short .ndivs1299
+test ebx,ebx
+js short .ndivd1299
+add edi,byte 4
+.ndivd1299:
+sub edi,byte 2
+.ndivs1299:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1299
+neg dx
+.dsetloop1299:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1299
+xor ebx,ebx
+sub edi,byte 126
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1516:
+ov1299:
 mov ax,1
-sub edi,154
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1517
+zex1299:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1518
+je short ln1300
 call basefunction
-ln1518:
+ln1300:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -79087,45 +82449,83 @@ mov edx,[__areg+ebx*4]
 call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
-jcxz ln1519
-movsx ecx,cx
+test cx,cx
+jz near zex1301
 mov eax,[__dreg+28]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1301
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1519
-inc ecx
-jnz short ln1519
-nodo1519:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+28],edx
-sub edi,154
+pop ecx
+test cx,cx
+js short .ndivs1301
+test ebx,ebx
+js short .ndivd1301
+add edi,byte 4
+.ndivd1301:
+sub edi,byte 2
+.ndivs1301:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1301
+neg dx
+.dsetloop1301:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1301
+xor ebx,ebx
+sub edi,byte 126
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1519:
+ov1301:
 mov ax,1
-sub edi,154
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1520
+zex1301:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1521
+je short ln1302
 call basefunction
-ln1521:
+ln1302:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -79139,45 +82539,83 @@ mov edx,[__areg+ebx*4]
 sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
-jcxz ln1522
-movsx ecx,cx
+test cx,cx
+jz near zex1303
 mov eax,[__dreg+28]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1303
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1522
-inc ecx
-jnz short ln1522
-nodo1522:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+28],edx
-sub edi,156
+pop ecx
+test cx,cx
+js short .ndivs1303
+test ebx,ebx
+js short .ndivd1303
+add edi,byte 4
+.ndivd1303:
+sub edi,byte 2
+.ndivs1303:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1303
+neg dx
+.dsetloop1303:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1303
+xor ebx,ebx
+sub edi,128
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1522:
+ov1303:
 mov ax,1
-sub edi,156
+sub edi,byte 22
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1523
+zex1303:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1524
+je short ln1304
 call basefunction
-ln1524:
+ln1304:
 add esi,ebp
 sub edi,byte 44
 js near execexit
@@ -79191,45 +82629,83 @@ movsx edx,word[esi]
 add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1525
-movsx ecx,cx
+test cx,cx
+jz near zex1305
 mov eax,[__dreg+28]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1305
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1525
-inc ecx
-jnz short ln1525
-nodo1525:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+28],edx
-sub edi,158
+pop ecx
+test cx,cx
+js short .ndivs1305
+test ebx,ebx
+js short .ndivd1305
+add edi,byte 4
+.ndivd1305:
+sub edi,byte 2
+.ndivs1305:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1305
+neg dx
+.dsetloop1305:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1305
+xor ebx,ebx
+sub edi,130
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1525:
+ov1305:
 mov ax,1
-sub edi,158
+sub edi,byte 24
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1526
+zex1305:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1527
+je short ln1306
 call basefunction
-ln1527:
+ln1306:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -79242,45 +82718,83 @@ and ebx,byte 7
 call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
-jcxz ln1528
-movsx ecx,cx
+test cx,cx
+jz near zex1307
 mov eax,[__dreg+28]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1307
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1528
-inc ecx
-jnz short ln1528
-nodo1528:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+28],edx
-sub edi,160
+pop ecx
+test cx,cx
+js short .ndivs1307
+test ebx,ebx
+js short .ndivd1307
+add edi,byte 4
+.ndivd1307:
+sub edi,byte 2
+.ndivs1307:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1307
+neg dx
+.dsetloop1307:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1307
+xor ebx,ebx
+sub edi,132
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1528:
+ov1307:
 mov ax,1
-sub edi,160
+sub edi,byte 26
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1529
+zex1307:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1530
+je short ln1308
 call basefunction
-ln1530:
+ln1308:
 add esi,ebp
 sub edi,byte 48
 js near execexit
@@ -79292,45 +82806,83 @@ SFF8:
 movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
-jcxz ln1531
-movsx ecx,cx
+test cx,cx
+jz near zex1309
 mov eax,[__dreg+28]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1309
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1531
-inc ecx
-jnz short ln1531
-nodo1531:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+28],edx
-sub edi,158
+pop ecx
+test cx,cx
+js short .ndivs1309
+test ebx,ebx
+js short .ndivd1309
+add edi,byte 4
+.ndivd1309:
+sub edi,byte 2
+.ndivs1309:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1309
+neg dx
+.dsetloop1309:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1309
+xor ebx,ebx
+sub edi,130
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1531:
+ov1309:
 mov ax,1
-sub edi,158
+sub edi,byte 24
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1532
+zex1309:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1533
+je short ln1310
 call basefunction
-ln1533:
+ln1310:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -79343,45 +82895,83 @@ mov edx,[esi]
 add esi,byte 4
 rol edx,16
 call readmemoryword
-jcxz ln1534
-movsx ecx,cx
+test cx,cx
+jz near zex1311
 mov eax,[__dreg+28]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1311
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1534
-inc ecx
-jnz short ln1534
-nodo1534:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+28],edx
-sub edi,162
+pop ecx
+test cx,cx
+js short .ndivs1311
+test ebx,ebx
+js short .ndivd1311
+add edi,byte 4
+.ndivd1311:
+sub edi,byte 2
+.ndivs1311:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1311
+neg dx
+.dsetloop1311:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1311
+xor ebx,ebx
+sub edi,134
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1534:
+ov1311:
 mov ax,1
-sub edi,162
+sub edi,byte 28
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1535
+zex1311:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1536
+je short ln1312
 call basefunction
-ln1536:
+ln1312:
 add esi,ebp
 sub edi,byte 50
 js near execexit
@@ -79395,45 +82985,83 @@ add edx,esi
 sub edx,ebp
 add esi,byte 2
 call readmemoryword
-jcxz ln1537
-movsx ecx,cx
+test cx,cx
+jz near zex1313
 mov eax,[__dreg+28]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1313
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1537
-inc ecx
-jnz short ln1537
-nodo1537:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+28],edx
-sub edi,158
+pop ecx
+test cx,cx
+js short .ndivs1313
+test ebx,ebx
+js short .ndivd1313
+add edi,byte 4
+.ndivd1313:
+sub edi,byte 2
+.ndivs1313:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1313
+neg dx
+.dsetloop1313:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1313
+xor ebx,ebx
+sub edi,130
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1537:
+ov1313:
 mov ax,1
-sub edi,158
+sub edi,byte 24
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1538
+zex1313:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1539
+je short ln1314
 call basefunction
-ln1539:
+ln1314:
 add esi,ebp
 sub edi,byte 46
 js near execexit
@@ -79447,45 +83075,83 @@ add edx,esi
 sub edx,ebp
 sub edx,byte 2
 call readmemoryword
-jcxz ln1540
-movsx ecx,cx
+test cx,cx
+jz near zex1315
 mov eax,[__dreg+28]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1315
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1540
-inc ecx
-jnz short ln1540
-nodo1540:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+28],edx
-sub edi,160
+pop ecx
+test cx,cx
+js short .ndivs1315
+test ebx,ebx
+js short .ndivd1315
+add edi,byte 4
+.ndivd1315:
+sub edi,byte 2
+.ndivs1315:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1315
+neg dx
+.dsetloop1315:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1315
+xor ebx,ebx
+sub edi,132
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1540:
+ov1315:
 mov ax,1
-sub edi,160
+sub edi,byte 26
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1541
+zex1315:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1542
+je short ln1316
 call basefunction
-ln1542:
+ln1316:
 add esi,ebp
 sub edi,byte 48
 js near execexit
@@ -79496,45 +83162,83 @@ jmp dword[__jmptbl+ebx*4]
 SFFC:
 mov cx,[esi]
 add esi,byte 2
-jcxz ln1543
-movsx ecx,cx
+test cx,cx
+jz near zex1317
 mov eax,[__dreg+28]
+shl ecx,16
+mov edx,ecx
+cmp eax,edx
+setbe bl
+neg edx
+cmp eax,edx
+setbe bh
+xor bl,bh
+jnz short ov1317
+sar ecx,16
 cdq
+xor ebx,ebx
+test eax,eax
+sets bl
+shl bl,1
+sub edi,ebx
+push ecx
+mov ebx,eax
 idiv ecx
-mov ecx,eax
-sar cx,15
-jecxz nodo1543
-inc ecx
-jnz short ln1543
-nodo1543:
 shl edx,16
 mov dx,ax
 test dx,dx
 lahf
 xor al,al
 mov [__dreg+28],edx
-sub edi,154
+pop ecx
+test cx,cx
+js short .ndivs1317
+test ebx,ebx
+js short .ndivd1317
+add edi,byte 4
+.ndivd1317:
+sub edi,byte 2
+.ndivs1317:
+mov al,15
+test cx,cx
+sets cl
+test ebx,ebx
+sets ch
+xor ebx,ebx
+xor cl,ch
+jz short .dsetloop1317
+neg dx
+.dsetloop1317:
+test dx,dx
+setns bl
+shl bl,1
+sub edi,ebx
+shl edx,1
+dec al
+jnz short .dsetloop1317
+xor ebx,ebx
+sub edi,byte 126
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1543:
+ov1317:
 mov ax,1
-sub edi,154
+sub edi,byte 20
 js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1544
+zex1317:
 mov edx,14h
 call group_2_exception
 and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1545
+je short ln1318
 call basefunction
-ln1545:
+ln1318:
 add esi,ebp
 sub edi,byte 42
 js near execexit
@@ -80222,10 +83926,10 @@ sbb al,[__dreg+ebx*4]
 mov [__dreg+0],al
 lahf
 setc [__xflag]
-jnz short ln1546
+jnz short ln1319
 or ch,0BFh
 and ah,ch
-ln1546:
+ln1319:
 seto al
 sub edi,byte 4
 js near execexit
@@ -80250,10 +83954,10 @@ sbb al,bl
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1547
+jnz short ln1320
 or ch,0BFh
 and ah,ch
-ln1547:
+ln1320:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -80389,10 +84093,10 @@ sbb ax,[__dreg+ebx*4]
 mov [__dreg+0],ax
 lahf
 setc [__xflag]
-jnz short ln1548
+jnz short ln1321
 or ch,0BFh
 and ah,ch
-ln1548:
+ln1321:
 seto al
 sub edi,byte 4
 js near execexit
@@ -80416,10 +84120,10 @@ sbb ax,bx
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1549
+jnz short ln1322
 or ch,0BFh
 and ah,ch
-ln1549:
+ln1322:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -80553,10 +84257,10 @@ sbb eax,[__dreg+ebx*4]
 mov [__dreg+0],eax
 lahf
 setc [__xflag]
-jnz short ln1550
+jnz short ln1323
 or ch,0BFh
 and ah,ch
-ln1550:
+ln1323:
 seto al
 sub edi,byte 8
 js near execexit
@@ -80580,10 +84284,10 @@ sbb eax,ebx
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1551
+jnz short ln1324
 or ch,0BFh
 and ah,ch
-ln1551:
+ln1324:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -81530,10 +85234,10 @@ sbb al,[__dreg+ebx*4]
 mov [__dreg+4],al
 lahf
 setc [__xflag]
-jnz short ln1552
+jnz short ln1325
 or ch,0BFh
 and ah,ch
-ln1552:
+ln1325:
 seto al
 sub edi,byte 4
 js near execexit
@@ -81558,10 +85262,10 @@ sbb al,bl
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1553
+jnz short ln1326
 or ch,0BFh
 and ah,ch
-ln1553:
+ln1326:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -81697,10 +85401,10 @@ sbb ax,[__dreg+ebx*4]
 mov [__dreg+4],ax
 lahf
 setc [__xflag]
-jnz short ln1554
+jnz short ln1327
 or ch,0BFh
 and ah,ch
-ln1554:
+ln1327:
 seto al
 sub edi,byte 4
 js near execexit
@@ -81724,10 +85428,10 @@ sbb ax,bx
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1555
+jnz short ln1328
 or ch,0BFh
 and ah,ch
-ln1555:
+ln1328:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -81861,10 +85565,10 @@ sbb eax,[__dreg+ebx*4]
 mov [__dreg+4],eax
 lahf
 setc [__xflag]
-jnz short ln1556
+jnz short ln1329
 or ch,0BFh
 and ah,ch
-ln1556:
+ln1329:
 seto al
 sub edi,byte 8
 js near execexit
@@ -81888,10 +85592,10 @@ sbb eax,ebx
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1557
+jnz short ln1330
 or ch,0BFh
 and ah,ch
-ln1557:
+ln1330:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -82838,10 +86542,10 @@ sbb al,[__dreg+ebx*4]
 mov [__dreg+8],al
 lahf
 setc [__xflag]
-jnz short ln1558
+jnz short ln1331
 or ch,0BFh
 and ah,ch
-ln1558:
+ln1331:
 seto al
 sub edi,byte 4
 js near execexit
@@ -82866,10 +86570,10 @@ sbb al,bl
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1559
+jnz short ln1332
 or ch,0BFh
 and ah,ch
-ln1559:
+ln1332:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -83005,10 +86709,10 @@ sbb ax,[__dreg+ebx*4]
 mov [__dreg+8],ax
 lahf
 setc [__xflag]
-jnz short ln1560
+jnz short ln1333
 or ch,0BFh
 and ah,ch
-ln1560:
+ln1333:
 seto al
 sub edi,byte 4
 js near execexit
@@ -83032,10 +86736,10 @@ sbb ax,bx
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1561
+jnz short ln1334
 or ch,0BFh
 and ah,ch
-ln1561:
+ln1334:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -83169,10 +86873,10 @@ sbb eax,[__dreg+ebx*4]
 mov [__dreg+8],eax
 lahf
 setc [__xflag]
-jnz short ln1562
+jnz short ln1335
 or ch,0BFh
 and ah,ch
-ln1562:
+ln1335:
 seto al
 sub edi,byte 8
 js near execexit
@@ -83196,10 +86900,10 @@ sbb eax,ebx
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1563
+jnz short ln1336
 or ch,0BFh
 and ah,ch
-ln1563:
+ln1336:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -84146,10 +87850,10 @@ sbb al,[__dreg+ebx*4]
 mov [__dreg+12],al
 lahf
 setc [__xflag]
-jnz short ln1564
+jnz short ln1337
 or ch,0BFh
 and ah,ch
-ln1564:
+ln1337:
 seto al
 sub edi,byte 4
 js near execexit
@@ -84174,10 +87878,10 @@ sbb al,bl
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1565
+jnz short ln1338
 or ch,0BFh
 and ah,ch
-ln1565:
+ln1338:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -84313,10 +88017,10 @@ sbb ax,[__dreg+ebx*4]
 mov [__dreg+12],ax
 lahf
 setc [__xflag]
-jnz short ln1566
+jnz short ln1339
 or ch,0BFh
 and ah,ch
-ln1566:
+ln1339:
 seto al
 sub edi,byte 4
 js near execexit
@@ -84340,10 +88044,10 @@ sbb ax,bx
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1567
+jnz short ln1340
 or ch,0BFh
 and ah,ch
-ln1567:
+ln1340:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -84477,10 +88181,10 @@ sbb eax,[__dreg+ebx*4]
 mov [__dreg+12],eax
 lahf
 setc [__xflag]
-jnz short ln1568
+jnz short ln1341
 or ch,0BFh
 and ah,ch
-ln1568:
+ln1341:
 seto al
 sub edi,byte 8
 js near execexit
@@ -84504,10 +88208,10 @@ sbb eax,ebx
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1569
+jnz short ln1342
 or ch,0BFh
 and ah,ch
-ln1569:
+ln1342:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -85454,10 +89158,10 @@ sbb al,[__dreg+ebx*4]
 mov [__dreg+16],al
 lahf
 setc [__xflag]
-jnz short ln1570
+jnz short ln1343
 or ch,0BFh
 and ah,ch
-ln1570:
+ln1343:
 seto al
 sub edi,byte 4
 js near execexit
@@ -85482,10 +89186,10 @@ sbb al,bl
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1571
+jnz short ln1344
 or ch,0BFh
 and ah,ch
-ln1571:
+ln1344:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -85621,10 +89325,10 @@ sbb ax,[__dreg+ebx*4]
 mov [__dreg+16],ax
 lahf
 setc [__xflag]
-jnz short ln1572
+jnz short ln1345
 or ch,0BFh
 and ah,ch
-ln1572:
+ln1345:
 seto al
 sub edi,byte 4
 js near execexit
@@ -85648,10 +89352,10 @@ sbb ax,bx
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1573
+jnz short ln1346
 or ch,0BFh
 and ah,ch
-ln1573:
+ln1346:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -85785,10 +89489,10 @@ sbb eax,[__dreg+ebx*4]
 mov [__dreg+16],eax
 lahf
 setc [__xflag]
-jnz short ln1574
+jnz short ln1347
 or ch,0BFh
 and ah,ch
-ln1574:
+ln1347:
 seto al
 sub edi,byte 8
 js near execexit
@@ -85812,10 +89516,10 @@ sbb eax,ebx
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1575
+jnz short ln1348
 or ch,0BFh
 and ah,ch
-ln1575:
+ln1348:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -86762,10 +90466,10 @@ sbb al,[__dreg+ebx*4]
 mov [__dreg+20],al
 lahf
 setc [__xflag]
-jnz short ln1576
+jnz short ln1349
 or ch,0BFh
 and ah,ch
-ln1576:
+ln1349:
 seto al
 sub edi,byte 4
 js near execexit
@@ -86790,10 +90494,10 @@ sbb al,bl
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1577
+jnz short ln1350
 or ch,0BFh
 and ah,ch
-ln1577:
+ln1350:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -86929,10 +90633,10 @@ sbb ax,[__dreg+ebx*4]
 mov [__dreg+20],ax
 lahf
 setc [__xflag]
-jnz short ln1578
+jnz short ln1351
 or ch,0BFh
 and ah,ch
-ln1578:
+ln1351:
 seto al
 sub edi,byte 4
 js near execexit
@@ -86956,10 +90660,10 @@ sbb ax,bx
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1579
+jnz short ln1352
 or ch,0BFh
 and ah,ch
-ln1579:
+ln1352:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -87093,10 +90797,10 @@ sbb eax,[__dreg+ebx*4]
 mov [__dreg+20],eax
 lahf
 setc [__xflag]
-jnz short ln1580
+jnz short ln1353
 or ch,0BFh
 and ah,ch
-ln1580:
+ln1353:
 seto al
 sub edi,byte 8
 js near execexit
@@ -87120,10 +90824,10 @@ sbb eax,ebx
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1581
+jnz short ln1354
 or ch,0BFh
 and ah,ch
-ln1581:
+ln1354:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -88070,10 +91774,10 @@ sbb al,[__dreg+ebx*4]
 mov [__dreg+24],al
 lahf
 setc [__xflag]
-jnz short ln1582
+jnz short ln1355
 or ch,0BFh
 and ah,ch
-ln1582:
+ln1355:
 seto al
 sub edi,byte 4
 js near execexit
@@ -88098,10 +91802,10 @@ sbb al,bl
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1583
+jnz short ln1356
 or ch,0BFh
 and ah,ch
-ln1583:
+ln1356:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -88237,10 +91941,10 @@ sbb ax,[__dreg+ebx*4]
 mov [__dreg+24],ax
 lahf
 setc [__xflag]
-jnz short ln1584
+jnz short ln1357
 or ch,0BFh
 and ah,ch
-ln1584:
+ln1357:
 seto al
 sub edi,byte 4
 js near execexit
@@ -88264,10 +91968,10 @@ sbb ax,bx
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1585
+jnz short ln1358
 or ch,0BFh
 and ah,ch
-ln1585:
+ln1358:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -88401,10 +92105,10 @@ sbb eax,[__dreg+ebx*4]
 mov [__dreg+24],eax
 lahf
 setc [__xflag]
-jnz short ln1586
+jnz short ln1359
 or ch,0BFh
 and ah,ch
-ln1586:
+ln1359:
 seto al
 sub edi,byte 8
 js near execexit
@@ -88428,10 +92132,10 @@ sbb eax,ebx
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1587
+jnz short ln1360
 or ch,0BFh
 and ah,ch
-ln1587:
+ln1360:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -89378,10 +93082,10 @@ sbb al,[__dreg+ebx*4]
 mov [__dreg+28],al
 lahf
 setc [__xflag]
-jnz short ln1588
+jnz short ln1361
 or ch,0BFh
 and ah,ch
-ln1588:
+ln1361:
 seto al
 sub edi,byte 4
 js near execexit
@@ -89406,10 +93110,10 @@ sbb al,bl
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1589
+jnz short ln1362
 or ch,0BFh
 and ah,ch
-ln1589:
+ln1362:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -89545,10 +93249,10 @@ sbb ax,[__dreg+ebx*4]
 mov [__dreg+28],ax
 lahf
 setc [__xflag]
-jnz short ln1590
+jnz short ln1363
 or ch,0BFh
 and ah,ch
-ln1590:
+ln1363:
 seto al
 sub edi,byte 4
 js near execexit
@@ -89572,10 +93276,10 @@ sbb ax,bx
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1591
+jnz short ln1364
 or ch,0BFh
 and ah,ch
-ln1591:
+ln1364:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -89709,10 +93413,10 @@ sbb eax,[__dreg+ebx*4]
 mov [__dreg+28],eax
 lahf
 setc [__xflag]
-jnz short ln1592
+jnz short ln1365
 or ch,0BFh
 and ah,ch
-ln1592:
+ln1365:
 seto al
 sub edi,byte 8
 js near execexit
@@ -89736,10 +93440,10 @@ sbb eax,ebx
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1593
+jnz short ln1366
 or ch,0BFh
 and ah,ch
-ln1593:
+ln1366:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -90014,9 +93718,9 @@ and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln1594
+je short ln1367
 call basefunction
-ln1594:
+ln1367:
 add esi,ebp
 sub edi,byte 34
 js near execexit
@@ -100458,7 +104162,16 @@ W0C0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -100477,7 +104190,16 @@ and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -100498,7 +104220,16 @@ call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -100519,7 +104250,16 @@ sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -100540,7 +104280,16 @@ add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -100560,7 +104309,16 @@ call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -100579,7 +104337,16 @@ movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -100599,7 +104366,16 @@ add esi,byte 4
 rol edx,16
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -100620,7 +104396,16 @@ sub edx,ebp
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -100641,7 +104426,16 @@ sub edx,ebp
 sub edx,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -100659,7 +104453,16 @@ W0FC:
 mov cx,[esi]
 add esi,byte 2
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -100684,15 +104487,11 @@ daa
 mov [__dreg+0],al
 lahf
 setc [__xflag]
-jnz short ln1595
+jnz short ln1368
 or ch,0BFh
 and ah,ch
-ln1595:
-shr al,7
-test cl,cl
-jns short ln1596
+ln1368:
 xor al,al
-ln1596:
 sub edi,byte 6
 js near execexit
 mov bx,[esi]
@@ -100718,15 +104517,11 @@ daa
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1597
+jnz short ln1369
 or ch,0BFh
 and ah,ch
-ln1597:
-shr al,7
-test cl,cl
-jns short ln1598
+ln1369:
 xor al,al
-ln1598:
 mov ecx,ebx
 xor ebx,ebx
 call writememorybyte
@@ -101097,7 +104892,19 @@ W1C0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -101116,7 +104923,19 @@ and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -101137,7 +104956,19 @@ call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -101158,7 +104989,19 @@ sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -101179,7 +105022,19 @@ add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -101199,7 +105054,19 @@ call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -101218,7 +105085,19 @@ movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -101238,7 +105117,19 @@ add esi,byte 4
 rol edx,16
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -101259,7 +105150,19 @@ sub edx,ebp
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -101280,7 +105183,19 @@ sub edx,ebp
 sub edx,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -101298,7 +105213,19 @@ W1FC:
 mov cx,[esi]
 add esi,byte 2
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+0]
 shl edx,16
 and eax,0FFFFh
@@ -101778,7 +105705,16 @@ W2C0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -101797,7 +105733,16 @@ and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -101818,7 +105763,16 @@ call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -101839,7 +105793,16 @@ sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -101860,7 +105823,16 @@ add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -101880,7 +105852,16 @@ call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -101899,7 +105880,16 @@ movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -101919,7 +105909,16 @@ add esi,byte 4
 rol edx,16
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -101940,7 +105939,16 @@ sub edx,ebp
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -101961,7 +105969,16 @@ sub edx,ebp
 sub edx,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -101979,7 +105996,16 @@ W2FC:
 mov cx,[esi]
 add esi,byte 2
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -102004,15 +106030,11 @@ daa
 mov [__dreg+4],al
 lahf
 setc [__xflag]
-jnz short ln1599
+jnz short ln1370
 or ch,0BFh
 and ah,ch
-ln1599:
-shr al,7
-test cl,cl
-jns short ln1600
+ln1370:
 xor al,al
-ln1600:
 sub edi,byte 6
 js near execexit
 mov bx,[esi]
@@ -102038,15 +106060,11 @@ daa
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1601
+jnz short ln1371
 or ch,0BFh
 and ah,ch
-ln1601:
-shr al,7
-test cl,cl
-jns short ln1602
+ln1371:
 xor al,al
-ln1602:
 mov ecx,ebx
 xor ebx,ebx
 call writememorybyte
@@ -102417,7 +106435,19 @@ W3C0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -102436,7 +106466,19 @@ and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -102457,7 +106499,19 @@ call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -102478,7 +106532,19 @@ sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -102499,7 +106565,19 @@ add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -102519,7 +106597,19 @@ call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -102538,7 +106628,19 @@ movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -102558,7 +106660,19 @@ add esi,byte 4
 rol edx,16
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -102579,7 +106693,19 @@ sub edx,ebp
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -102600,7 +106726,19 @@ sub edx,ebp
 sub edx,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -102618,7 +106756,19 @@ W3FC:
 mov cx,[esi]
 add esi,byte 2
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+4]
 shl edx,16
 and eax,0FFFFh
@@ -103098,7 +107248,16 @@ W4C0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -103117,7 +107276,16 @@ and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -103138,7 +107306,16 @@ call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -103159,7 +107336,16 @@ sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -103180,7 +107366,16 @@ add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -103200,7 +107395,16 @@ call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -103219,7 +107423,16 @@ movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -103239,7 +107452,16 @@ add esi,byte 4
 rol edx,16
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -103260,7 +107482,16 @@ sub edx,ebp
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -103281,7 +107512,16 @@ sub edx,ebp
 sub edx,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -103299,7 +107539,16 @@ W4FC:
 mov cx,[esi]
 add esi,byte 2
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -103324,15 +107573,11 @@ daa
 mov [__dreg+8],al
 lahf
 setc [__xflag]
-jnz short ln1603
+jnz short ln1372
 or ch,0BFh
 and ah,ch
-ln1603:
-shr al,7
-test cl,cl
-jns short ln1604
+ln1372:
 xor al,al
-ln1604:
 sub edi,byte 6
 js near execexit
 mov bx,[esi]
@@ -103358,15 +107603,11 @@ daa
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1605
+jnz short ln1373
 or ch,0BFh
 and ah,ch
-ln1605:
-shr al,7
-test cl,cl
-jns short ln1606
+ln1373:
 xor al,al
-ln1606:
 mov ecx,ebx
 xor ebx,ebx
 call writememorybyte
@@ -103737,7 +107978,19 @@ W5C0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -103756,7 +108009,19 @@ and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -103777,7 +108042,19 @@ call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -103798,7 +108075,19 @@ sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -103819,7 +108108,19 @@ add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -103839,7 +108140,19 @@ call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -103858,7 +108171,19 @@ movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -103878,7 +108203,19 @@ add esi,byte 4
 rol edx,16
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -103899,7 +108236,19 @@ sub edx,ebp
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -103920,7 +108269,19 @@ sub edx,ebp
 sub edx,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -103938,7 +108299,19 @@ W5FC:
 mov cx,[esi]
 add esi,byte 2
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+8]
 shl edx,16
 and eax,0FFFFh
@@ -104418,7 +108791,16 @@ W6C0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -104437,7 +108819,16 @@ and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -104458,7 +108849,16 @@ call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -104479,7 +108879,16 @@ sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -104500,7 +108909,16 @@ add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -104520,7 +108938,16 @@ call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -104539,7 +108966,16 @@ movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -104559,7 +108995,16 @@ add esi,byte 4
 rol edx,16
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -104580,7 +109025,16 @@ sub edx,ebp
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -104601,7 +109055,16 @@ sub edx,ebp
 sub edx,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -104619,7 +109082,16 @@ W6FC:
 mov cx,[esi]
 add esi,byte 2
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -104644,15 +109116,11 @@ daa
 mov [__dreg+12],al
 lahf
 setc [__xflag]
-jnz short ln1607
+jnz short ln1374
 or ch,0BFh
 and ah,ch
-ln1607:
-shr al,7
-test cl,cl
-jns short ln1608
+ln1374:
 xor al,al
-ln1608:
 sub edi,byte 6
 js near execexit
 mov bx,[esi]
@@ -104678,15 +109146,11 @@ daa
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1609
+jnz short ln1375
 or ch,0BFh
 and ah,ch
-ln1609:
-shr al,7
-test cl,cl
-jns short ln1610
+ln1375:
 xor al,al
-ln1610:
 mov ecx,ebx
 xor ebx,ebx
 call writememorybyte
@@ -105057,7 +109521,19 @@ W7C0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -105076,7 +109552,19 @@ and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -105097,7 +109585,19 @@ call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -105118,7 +109618,19 @@ sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -105139,7 +109651,19 @@ add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -105159,7 +109683,19 @@ call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -105178,7 +109714,19 @@ movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -105198,7 +109746,19 @@ add esi,byte 4
 rol edx,16
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -105219,7 +109779,19 @@ sub edx,ebp
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -105240,7 +109812,19 @@ sub edx,ebp
 sub edx,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -105258,7 +109842,19 @@ W7FC:
 mov cx,[esi]
 add esi,byte 2
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+12]
 shl edx,16
 and eax,0FFFFh
@@ -105738,7 +110334,16 @@ W8C0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -105757,7 +110362,16 @@ and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -105778,7 +110392,16 @@ call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -105799,7 +110422,16 @@ sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -105820,7 +110452,16 @@ add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -105840,7 +110481,16 @@ call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -105859,7 +110509,16 @@ movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -105879,7 +110538,16 @@ add esi,byte 4
 rol edx,16
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -105900,7 +110568,16 @@ sub edx,ebp
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -105921,7 +110598,16 @@ sub edx,ebp
 sub edx,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -105939,7 +110625,16 @@ W8FC:
 mov cx,[esi]
 add esi,byte 2
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -105964,15 +110659,11 @@ daa
 mov [__dreg+16],al
 lahf
 setc [__xflag]
-jnz short ln1611
+jnz short ln1376
 or ch,0BFh
 and ah,ch
-ln1611:
-shr al,7
-test cl,cl
-jns short ln1612
+ln1376:
 xor al,al
-ln1612:
 sub edi,byte 6
 js near execexit
 mov bx,[esi]
@@ -105998,15 +110689,11 @@ daa
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1613
+jnz short ln1377
 or ch,0BFh
 and ah,ch
-ln1613:
-shr al,7
-test cl,cl
-jns short ln1614
+ln1377:
 xor al,al
-ln1614:
 mov ecx,ebx
 xor ebx,ebx
 call writememorybyte
@@ -106377,7 +111064,19 @@ W9C0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -106396,7 +111095,19 @@ and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -106417,7 +111128,19 @@ call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -106438,7 +111161,19 @@ sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -106459,7 +111194,19 @@ add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -106479,7 +111226,19 @@ call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -106498,7 +111257,19 @@ movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -106518,7 +111289,19 @@ add esi,byte 4
 rol edx,16
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -106539,7 +111322,19 @@ sub edx,ebp
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -106560,7 +111355,19 @@ sub edx,ebp
 sub edx,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -106578,7 +111385,19 @@ W9FC:
 mov cx,[esi]
 add esi,byte 2
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+16]
 shl edx,16
 and eax,0FFFFh
@@ -107058,7 +111877,16 @@ WAC0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -107077,7 +111905,16 @@ and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -107098,7 +111935,16 @@ call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -107119,7 +111965,16 @@ sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -107140,7 +111995,16 @@ add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -107160,7 +112024,16 @@ call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -107179,7 +112052,16 @@ movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -107199,7 +112081,16 @@ add esi,byte 4
 rol edx,16
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -107220,7 +112111,16 @@ sub edx,ebp
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -107241,7 +112141,16 @@ sub edx,ebp
 sub edx,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -107259,7 +112168,16 @@ WAFC:
 mov cx,[esi]
 add esi,byte 2
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -107284,15 +112202,11 @@ daa
 mov [__dreg+20],al
 lahf
 setc [__xflag]
-jnz short ln1615
+jnz short ln1378
 or ch,0BFh
 and ah,ch
-ln1615:
-shr al,7
-test cl,cl
-jns short ln1616
+ln1378:
 xor al,al
-ln1616:
 sub edi,byte 6
 js near execexit
 mov bx,[esi]
@@ -107318,15 +112232,11 @@ daa
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1617
+jnz short ln1379
 or ch,0BFh
 and ah,ch
-ln1617:
-shr al,7
-test cl,cl
-jns short ln1618
+ln1379:
 xor al,al
-ln1618:
 mov ecx,ebx
 xor ebx,ebx
 call writememorybyte
@@ -107697,7 +112607,19 @@ WBC0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -107716,7 +112638,19 @@ and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -107737,7 +112671,19 @@ call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -107758,7 +112704,19 @@ sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -107779,7 +112737,19 @@ add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -107799,7 +112769,19 @@ call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -107818,7 +112800,19 @@ movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -107838,7 +112832,19 @@ add esi,byte 4
 rol edx,16
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -107859,7 +112865,19 @@ sub edx,ebp
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -107880,7 +112898,19 @@ sub edx,ebp
 sub edx,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -107898,7 +112928,19 @@ WBFC:
 mov cx,[esi]
 add esi,byte 2
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+20]
 shl edx,16
 and eax,0FFFFh
@@ -108378,7 +113420,16 @@ WCC0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -108397,7 +113448,16 @@ and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -108418,7 +113478,16 @@ call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -108439,7 +113508,16 @@ sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -108460,7 +113538,16 @@ add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -108480,7 +113567,16 @@ call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -108499,7 +113595,16 @@ movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -108519,7 +113624,16 @@ add esi,byte 4
 rol edx,16
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -108540,7 +113654,16 @@ sub edx,ebp
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -108561,7 +113684,16 @@ sub edx,ebp
 sub edx,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -108579,7 +113711,16 @@ WCFC:
 mov cx,[esi]
 add esi,byte 2
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -108604,15 +113745,11 @@ daa
 mov [__dreg+24],al
 lahf
 setc [__xflag]
-jnz short ln1619
+jnz short ln1380
 or ch,0BFh
 and ah,ch
-ln1619:
-shr al,7
-test cl,cl
-jns short ln1620
+ln1380:
 xor al,al
-ln1620:
 sub edi,byte 6
 js near execexit
 mov bx,[esi]
@@ -108638,15 +113775,11 @@ daa
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1621
+jnz short ln1381
 or ch,0BFh
 and ah,ch
-ln1621:
-shr al,7
-test cl,cl
-jns short ln1622
+ln1381:
 xor al,al
-ln1622:
 mov ecx,ebx
 xor ebx,ebx
 call writememorybyte
@@ -109017,7 +114150,19 @@ WDC0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -109036,7 +114181,19 @@ and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -109057,7 +114214,19 @@ call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -109078,7 +114247,19 @@ sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -109099,7 +114280,19 @@ add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -109119,7 +114312,19 @@ call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -109138,7 +114343,19 @@ movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -109158,7 +114375,19 @@ add esi,byte 4
 rol edx,16
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -109179,7 +114408,19 @@ sub edx,ebp
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -109200,7 +114441,19 @@ sub edx,ebp
 sub edx,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -109218,7 +114471,19 @@ WDFC:
 mov cx,[esi]
 add esi,byte 2
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+24]
 shl edx,16
 and eax,0FFFFh
@@ -109698,7 +114963,16 @@ WEC0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -109717,7 +114991,16 @@ and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -109738,7 +115021,16 @@ call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -109759,7 +115051,16 @@ sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -109780,7 +115081,16 @@ add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -109800,7 +115110,16 @@ call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -109819,7 +115138,16 @@ movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -109839,7 +115167,16 @@ add esi,byte 4
 rol edx,16
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -109860,7 +115197,16 @@ sub edx,ebp
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -109881,7 +115227,16 @@ sub edx,ebp
 sub edx,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -109899,7 +115254,16 @@ WEFC:
 mov cx,[esi]
 add esi,byte 2
 mov eax,ecx
-sub edi,16
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 mul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -109924,15 +115288,11 @@ daa
 mov [__dreg+28],al
 lahf
 setc [__xflag]
-jnz short ln1623
+jnz short ln1382
 or ch,0BFh
 and ah,ch
-ln1623:
-shr al,7
-test cl,cl
-jns short ln1624
+ln1382:
 xor al,al
-ln1624:
 sub edi,byte 6
 js near execexit
 mov bx,[esi]
@@ -109958,15 +115318,11 @@ daa
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1625
+jnz short ln1383
 or ch,0BFh
 and ah,ch
-ln1625:
-shr al,7
-test cl,cl
-jns short ln1626
+ln1383:
 xor al,al
-ln1626:
 mov ecx,ebx
 xor ebx,ebx
 call writememorybyte
@@ -110337,7 +115693,19 @@ WFC0:
 and ebx,byte 7
 mov ecx,[__dreg+ebx*4]
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -110356,7 +115724,19 @@ and ebx,byte 7
 mov edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -110377,7 +115757,19 @@ call readmemoryword
 add edx,byte 2
 mov [__areg+ebx*4],edx
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -110398,7 +115790,19 @@ sub edx,byte 2
 call readmemoryword
 mov [__areg+ebx*4],edx
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -110419,7 +115823,19 @@ add esi,byte 2
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -110439,7 +115855,19 @@ call decode_ext
 add edx,[__areg+ebx*4]
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -110458,7 +115886,19 @@ movsx edx,word[esi]
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -110478,7 +115918,19 @@ add esi,byte 4
 rol edx,16
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -110499,7 +115951,19 @@ sub edx,ebp
 add esi,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -110520,7 +115984,19 @@ sub edx,ebp
 sub edx,byte 2
 call readmemoryword
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -110538,7 +116014,19 @@ WFFC:
 mov cx,[esi]
 add esi,byte 2
 mov eax,ecx
-sub edi,8
+mov edx,ecx
+shl edx,1
+xor ecx,edx
+mov dx,cx
+xor bx,bx
+mov bl,cl
+lea ecx,[__cb_table+ebx]
+movzx ecx,byte[ecx]
+mov bl,dh
+lea edx,[__cb_table+ebx]
+add cl,[edx]
+shl cl,1
+sub edi,ecx
 imul word[__dreg+28]
 shl edx,16
 and eax,0FFFFh
@@ -111232,10 +116720,10 @@ adc al,[__dreg+ebx*4]
 mov [__dreg+0],al
 lahf
 setc [__xflag]
-jnz short ln1627
+jnz short ln1384
 or ch,0BFh
 and ah,ch
-ln1627:
+ln1384:
 seto al
 sub edi,byte 4
 js near execexit
@@ -111260,10 +116748,10 @@ adc al,bl
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1628
+jnz short ln1385
 or ch,0BFh
 and ah,ch
-ln1628:
+ln1385:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -111399,10 +116887,10 @@ adc ax,[__dreg+ebx*4]
 mov [__dreg+0],ax
 lahf
 setc [__xflag]
-jnz short ln1629
+jnz short ln1386
 or ch,0BFh
 and ah,ch
-ln1629:
+ln1386:
 seto al
 sub edi,byte 4
 js near execexit
@@ -111426,10 +116914,10 @@ adc ax,bx
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1630
+jnz short ln1387
 or ch,0BFh
 and ah,ch
-ln1630:
+ln1387:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -111563,10 +117051,10 @@ adc eax,[__dreg+ebx*4]
 mov [__dreg+0],eax
 lahf
 setc [__xflag]
-jnz short ln1631
+jnz short ln1388
 or ch,0BFh
 and ah,ch
-ln1631:
+ln1388:
 seto al
 sub edi,byte 8
 js near execexit
@@ -111590,10 +117078,10 @@ adc eax,ebx
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1632
+jnz short ln1389
 or ch,0BFh
 and ah,ch
-ln1632:
+ln1389:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -112540,10 +118028,10 @@ adc al,[__dreg+ebx*4]
 mov [__dreg+4],al
 lahf
 setc [__xflag]
-jnz short ln1633
+jnz short ln1390
 or ch,0BFh
 and ah,ch
-ln1633:
+ln1390:
 seto al
 sub edi,byte 4
 js near execexit
@@ -112568,10 +118056,10 @@ adc al,bl
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1634
+jnz short ln1391
 or ch,0BFh
 and ah,ch
-ln1634:
+ln1391:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -112707,10 +118195,10 @@ adc ax,[__dreg+ebx*4]
 mov [__dreg+4],ax
 lahf
 setc [__xflag]
-jnz short ln1635
+jnz short ln1392
 or ch,0BFh
 and ah,ch
-ln1635:
+ln1392:
 seto al
 sub edi,byte 4
 js near execexit
@@ -112734,10 +118222,10 @@ adc ax,bx
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1636
+jnz short ln1393
 or ch,0BFh
 and ah,ch
-ln1636:
+ln1393:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -112871,10 +118359,10 @@ adc eax,[__dreg+ebx*4]
 mov [__dreg+4],eax
 lahf
 setc [__xflag]
-jnz short ln1637
+jnz short ln1394
 or ch,0BFh
 and ah,ch
-ln1637:
+ln1394:
 seto al
 sub edi,byte 8
 js near execexit
@@ -112898,10 +118386,10 @@ adc eax,ebx
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1638
+jnz short ln1395
 or ch,0BFh
 and ah,ch
-ln1638:
+ln1395:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -113848,10 +119336,10 @@ adc al,[__dreg+ebx*4]
 mov [__dreg+8],al
 lahf
 setc [__xflag]
-jnz short ln1639
+jnz short ln1396
 or ch,0BFh
 and ah,ch
-ln1639:
+ln1396:
 seto al
 sub edi,byte 4
 js near execexit
@@ -113876,10 +119364,10 @@ adc al,bl
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1640
+jnz short ln1397
 or ch,0BFh
 and ah,ch
-ln1640:
+ln1397:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -114015,10 +119503,10 @@ adc ax,[__dreg+ebx*4]
 mov [__dreg+8],ax
 lahf
 setc [__xflag]
-jnz short ln1641
+jnz short ln1398
 or ch,0BFh
 and ah,ch
-ln1641:
+ln1398:
 seto al
 sub edi,byte 4
 js near execexit
@@ -114042,10 +119530,10 @@ adc ax,bx
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1642
+jnz short ln1399
 or ch,0BFh
 and ah,ch
-ln1642:
+ln1399:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -114179,10 +119667,10 @@ adc eax,[__dreg+ebx*4]
 mov [__dreg+8],eax
 lahf
 setc [__xflag]
-jnz short ln1643
+jnz short ln1400
 or ch,0BFh
 and ah,ch
-ln1643:
+ln1400:
 seto al
 sub edi,byte 8
 js near execexit
@@ -114206,10 +119694,10 @@ adc eax,ebx
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1644
+jnz short ln1401
 or ch,0BFh
 and ah,ch
-ln1644:
+ln1401:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -115156,10 +120644,10 @@ adc al,[__dreg+ebx*4]
 mov [__dreg+12],al
 lahf
 setc [__xflag]
-jnz short ln1645
+jnz short ln1402
 or ch,0BFh
 and ah,ch
-ln1645:
+ln1402:
 seto al
 sub edi,byte 4
 js near execexit
@@ -115184,10 +120672,10 @@ adc al,bl
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1646
+jnz short ln1403
 or ch,0BFh
 and ah,ch
-ln1646:
+ln1403:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -115323,10 +120811,10 @@ adc ax,[__dreg+ebx*4]
 mov [__dreg+12],ax
 lahf
 setc [__xflag]
-jnz short ln1647
+jnz short ln1404
 or ch,0BFh
 and ah,ch
-ln1647:
+ln1404:
 seto al
 sub edi,byte 4
 js near execexit
@@ -115350,10 +120838,10 @@ adc ax,bx
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1648
+jnz short ln1405
 or ch,0BFh
 and ah,ch
-ln1648:
+ln1405:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -115487,10 +120975,10 @@ adc eax,[__dreg+ebx*4]
 mov [__dreg+12],eax
 lahf
 setc [__xflag]
-jnz short ln1649
+jnz short ln1406
 or ch,0BFh
 and ah,ch
-ln1649:
+ln1406:
 seto al
 sub edi,byte 8
 js near execexit
@@ -115514,10 +121002,10 @@ adc eax,ebx
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1650
+jnz short ln1407
 or ch,0BFh
 and ah,ch
-ln1650:
+ln1407:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -116464,10 +121952,10 @@ adc al,[__dreg+ebx*4]
 mov [__dreg+16],al
 lahf
 setc [__xflag]
-jnz short ln1651
+jnz short ln1408
 or ch,0BFh
 and ah,ch
-ln1651:
+ln1408:
 seto al
 sub edi,byte 4
 js near execexit
@@ -116492,10 +121980,10 @@ adc al,bl
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1652
+jnz short ln1409
 or ch,0BFh
 and ah,ch
-ln1652:
+ln1409:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -116631,10 +122119,10 @@ adc ax,[__dreg+ebx*4]
 mov [__dreg+16],ax
 lahf
 setc [__xflag]
-jnz short ln1653
+jnz short ln1410
 or ch,0BFh
 and ah,ch
-ln1653:
+ln1410:
 seto al
 sub edi,byte 4
 js near execexit
@@ -116658,10 +122146,10 @@ adc ax,bx
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1654
+jnz short ln1411
 or ch,0BFh
 and ah,ch
-ln1654:
+ln1411:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -116795,10 +122283,10 @@ adc eax,[__dreg+ebx*4]
 mov [__dreg+16],eax
 lahf
 setc [__xflag]
-jnz short ln1655
+jnz short ln1412
 or ch,0BFh
 and ah,ch
-ln1655:
+ln1412:
 seto al
 sub edi,byte 8
 js near execexit
@@ -116822,10 +122310,10 @@ adc eax,ebx
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1656
+jnz short ln1413
 or ch,0BFh
 and ah,ch
-ln1656:
+ln1413:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -117772,10 +123260,10 @@ adc al,[__dreg+ebx*4]
 mov [__dreg+20],al
 lahf
 setc [__xflag]
-jnz short ln1657
+jnz short ln1414
 or ch,0BFh
 and ah,ch
-ln1657:
+ln1414:
 seto al
 sub edi,byte 4
 js near execexit
@@ -117800,10 +123288,10 @@ adc al,bl
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1658
+jnz short ln1415
 or ch,0BFh
 and ah,ch
-ln1658:
+ln1415:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -117939,10 +123427,10 @@ adc ax,[__dreg+ebx*4]
 mov [__dreg+20],ax
 lahf
 setc [__xflag]
-jnz short ln1659
+jnz short ln1416
 or ch,0BFh
 and ah,ch
-ln1659:
+ln1416:
 seto al
 sub edi,byte 4
 js near execexit
@@ -117966,10 +123454,10 @@ adc ax,bx
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1660
+jnz short ln1417
 or ch,0BFh
 and ah,ch
-ln1660:
+ln1417:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -118103,10 +123591,10 @@ adc eax,[__dreg+ebx*4]
 mov [__dreg+20],eax
 lahf
 setc [__xflag]
-jnz short ln1661
+jnz short ln1418
 or ch,0BFh
 and ah,ch
-ln1661:
+ln1418:
 seto al
 sub edi,byte 8
 js near execexit
@@ -118130,10 +123618,10 @@ adc eax,ebx
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1662
+jnz short ln1419
 or ch,0BFh
 and ah,ch
-ln1662:
+ln1419:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -119080,10 +124568,10 @@ adc al,[__dreg+ebx*4]
 mov [__dreg+24],al
 lahf
 setc [__xflag]
-jnz short ln1663
+jnz short ln1420
 or ch,0BFh
 and ah,ch
-ln1663:
+ln1420:
 seto al
 sub edi,byte 4
 js near execexit
@@ -119108,10 +124596,10 @@ adc al,bl
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1664
+jnz short ln1421
 or ch,0BFh
 and ah,ch
-ln1664:
+ln1421:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -119247,10 +124735,10 @@ adc ax,[__dreg+ebx*4]
 mov [__dreg+24],ax
 lahf
 setc [__xflag]
-jnz short ln1665
+jnz short ln1422
 or ch,0BFh
 and ah,ch
-ln1665:
+ln1422:
 seto al
 sub edi,byte 4
 js near execexit
@@ -119274,10 +124762,10 @@ adc ax,bx
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1666
+jnz short ln1423
 or ch,0BFh
 and ah,ch
-ln1666:
+ln1423:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -119411,10 +124899,10 @@ adc eax,[__dreg+ebx*4]
 mov [__dreg+24],eax
 lahf
 setc [__xflag]
-jnz short ln1667
+jnz short ln1424
 or ch,0BFh
 and ah,ch
-ln1667:
+ln1424:
 seto al
 sub edi,byte 8
 js near execexit
@@ -119438,10 +124926,10 @@ adc eax,ebx
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1668
+jnz short ln1425
 or ch,0BFh
 and ah,ch
-ln1668:
+ln1425:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -120388,10 +125876,10 @@ adc al,[__dreg+ebx*4]
 mov [__dreg+28],al
 lahf
 setc [__xflag]
-jnz short ln1669
+jnz short ln1426
 or ch,0BFh
 and ah,ch
-ln1669:
+ln1426:
 seto al
 sub edi,byte 4
 js near execexit
@@ -120416,10 +125904,10 @@ adc al,bl
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1670
+jnz short ln1427
 or ch,0BFh
 and ah,ch
-ln1670:
+ln1427:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -120555,10 +126043,10 @@ adc ax,[__dreg+ebx*4]
 mov [__dreg+28],ax
 lahf
 setc [__xflag]
-jnz short ln1671
+jnz short ln1428
 or ch,0BFh
 and ah,ch
-ln1671:
+ln1428:
 seto al
 sub edi,byte 4
 js near execexit
@@ -120582,10 +126070,10 @@ adc ax,bx
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1672
+jnz short ln1429
 or ch,0BFh
 and ah,ch
-ln1672:
+ln1429:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -120719,10 +126207,10 @@ adc eax,[__dreg+ebx*4]
 mov [__dreg+28],eax
 lahf
 setc [__xflag]
-jnz short ln1673
+jnz short ln1430
 or ch,0BFh
 and ah,ch
-ln1673:
+ln1430:
 seto al
 sub edi,byte 8
 js near execexit
@@ -120746,10 +126234,10 @@ adc eax,ebx
 mov ebx,eax
 lahf
 setc [__xflag]
-jnz short ln1674
+jnz short ln1431
 or ch,0BFh
 and ah,ch
-ln1674:
+ln1431:
 seto al
 mov ecx,ebx
 xor ebx,ebx
@@ -121081,7 +126569,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+0]
 and cl,byte 63
-jnz short ln1675
+jnz short ln1432
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -121091,18 +126579,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1675:
+ln1432:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1676
+jb short ln1433
 sub cl,31
 sar byte[__dreg+ebx*4], 31
-jmp short ln1677
-ln1676:
+sar byte[__dreg+ebx*4], cl
+jmp short ln1434
+ln1433:
 sar byte[__dreg+ebx*4],cl
-ln1677:
+ln1434:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -121116,7 +126605,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+0]
 and cl,byte 63
-jnz short ln1678
+jnz short ln1435
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -121126,18 +126615,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1678:
+ln1435:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1679
+jb short ln1436
 sub cl,31
 shr byte[__dreg+ebx*4], 31
-jmp short ln1680
-ln1679:
+shr byte[__dreg+ebx*4], cl
+jmp short ln1437
+ln1436:
 shr byte[__dreg+ebx*4],cl
-ln1680:
+ln1437:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -121151,7 +126641,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+0]
 and cl,byte 63
-jnz short ln1681
+jnz short ln1438
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -121163,22 +126653,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1681:
+ln1438:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln1682
+jb short ln1439
 sub cl,31
 shr al,1
 rcr dl,31
 rcr dl,cl
-jmp short ln1683
-ln1682:
+jmp short ln1440
+ln1439:
 shr al,1
 rcr dl,cl
-ln1683:
+ln1440:
 adc al,al
 test dl,dl
 lahf
@@ -121197,7 +126687,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+0]
 and cl,byte 63
-jnz short ln1684
+jnz short ln1441
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -121207,20 +126697,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1684:
+ln1441:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln1685
+jb short ln1442
 sub cl,31
 ror dl,31
 ror dl,cl
-jmp short ln1686
-ln1685:
+jmp short ln1443
+ln1442:
 ror dl,cl
-ln1686:
+ln1443:
 adc al,al
 test dl,dl
 lahf
@@ -121298,7 +126788,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+0]
 and cl,byte 63
-jnz short ln1687
+jnz short ln1444
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -121308,18 +126798,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1687:
+ln1444:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1688
+jb short ln1445
 sub cl,31
 sar word[__dreg+ebx*4], 31
-jmp short ln1689
-ln1688:
+sar word[__dreg+ebx*4], cl
+jmp short ln1446
+ln1445:
 sar word[__dreg+ebx*4],cl
-ln1689:
+ln1446:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -121333,7 +126824,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+0]
 and cl,byte 63
-jnz short ln1690
+jnz short ln1447
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -121343,18 +126834,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1690:
+ln1447:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1691
+jb short ln1448
 sub cl,31
 shr word[__dreg+ebx*4], 31
-jmp short ln1692
-ln1691:
+shr word[__dreg+ebx*4], cl
+jmp short ln1449
+ln1448:
 shr word[__dreg+ebx*4],cl
-ln1692:
+ln1449:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -121368,7 +126860,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+0]
 and cl,byte 63
-jnz short ln1693
+jnz short ln1450
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -121380,22 +126872,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1693:
+ln1450:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln1694
+jb short ln1451
 sub cl,31
 shr al,1
 rcr dx,31
 rcr dx,cl
-jmp short ln1695
-ln1694:
+jmp short ln1452
+ln1451:
 shr al,1
 rcr dx,cl
-ln1695:
+ln1452:
 adc al,al
 test dx,dx
 lahf
@@ -121414,7 +126906,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+0]
 and cl,byte 63
-jnz short ln1696
+jnz short ln1453
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -121424,20 +126916,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1696:
+ln1453:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln1697
+jb short ln1454
 sub cl,31
 ror dx,31
 ror dx,cl
-jmp short ln1698
-ln1697:
+jmp short ln1455
+ln1454:
 ror dx,cl
-ln1698:
+ln1455:
 adc al,al
 test dx,dx
 lahf
@@ -121515,7 +127007,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+0]
 and cl,byte 63
-jnz short ln1699
+jnz short ln1456
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -121525,18 +127017,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1699:
+ln1456:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1700
+jb short ln1457
 sub cl,31
 sar dword[__dreg+ebx*4], 31
-jmp short ln1701
-ln1700:
+sar dword[__dreg+ebx*4], cl
+jmp short ln1458
+ln1457:
 sar dword[__dreg+ebx*4],cl
-ln1701:
+ln1458:
 lahf
 setc [__xflag]
 sub edi,byte 8
@@ -121550,7 +127043,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+0]
 and cl,byte 63
-jnz short ln1702
+jnz short ln1459
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -121560,18 +127053,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1702:
+ln1459:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1703
+jb short ln1460
 sub cl,31
 shr dword[__dreg+ebx*4], 31
-jmp short ln1704
-ln1703:
+shr dword[__dreg+ebx*4], cl
+jmp short ln1461
+ln1460:
 shr dword[__dreg+ebx*4],cl
-ln1704:
+ln1461:
 lahf
 setc [__xflag]
 sub edi,byte 8
@@ -121585,7 +127079,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+0]
 and cl,byte 63
-jnz short ln1705
+jnz short ln1462
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -121597,22 +127091,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1705:
+ln1462:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln1706
+jb short ln1463
 sub cl,31
 shr al,1
 rcr edx,31
 rcr edx,cl
-jmp short ln1707
-ln1706:
+jmp short ln1464
+ln1463:
 shr al,1
 rcr edx,cl
-ln1707:
+ln1464:
 adc al,al
 test edx,edx
 lahf
@@ -121631,7 +127125,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+0]
 and cl,byte 63
-jnz short ln1708
+jnz short ln1465
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -121641,20 +127135,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1708:
+ln1465:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln1709
+jb short ln1466
 sub cl,31
 ror edx,31
 ror edx,cl
-jmp short ln1710
-ln1709:
+jmp short ln1467
+ln1466:
 ror edx,cl
-ln1710:
+ln1467:
 adc al,al
 test edx,edx
 lahf
@@ -121871,7 +127365,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+0]
 and cl,byte 63
-jnz short ln1711
+jnz short ln1468
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -121881,18 +127375,18 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1711:
+ln1468:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
-ln1712:
+ln1469:
 add dl,dl
 lahf
 seto ch
 or al,ch
 dec cl
-jnz short ln1712
+jnz short ln1469
 mov [__dreg+ebx*4],dl
 test ah,1
 setnz [__xflag]
@@ -121907,7 +127401,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+0]
 and cl,byte 63
-jnz short ln1713
+jnz short ln1470
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -121917,18 +127411,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1713:
+ln1470:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1714
+jb short ln1471
 sub cl,31
 shl byte[__dreg+ebx*4], 31
-jmp short ln1715
-ln1714:
+shl byte[__dreg+ebx*4], cl
+jmp short ln1472
+ln1471:
 shl byte[__dreg+ebx*4],cl
-ln1715:
+ln1472:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -121942,7 +127437,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+0]
 and cl,byte 63
-jnz short ln1716
+jnz short ln1473
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -121954,22 +127449,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1716:
+ln1473:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln1717
+jb short ln1474
 sub cl,31
 shr al,1
 rcl dl,31
 rcl dl,cl
-jmp short ln1718
-ln1717:
+jmp short ln1475
+ln1474:
 shr al,1
 rcl dl,cl
-ln1718:
+ln1475:
 adc al,al
 test dl,dl
 lahf
@@ -121988,7 +127483,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+0]
 and cl,byte 63
-jnz short ln1719
+jnz short ln1476
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -121998,20 +127493,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1719:
+ln1476:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln1720
+jb short ln1477
 sub cl,31
 rol dl,31
 rol dl,cl
-jmp short ln1721
-ln1720:
+jmp short ln1478
+ln1477:
 rol dl,cl
-ln1721:
+ln1478:
 adc al,al
 test dl,dl
 lahf
@@ -122115,7 +127610,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+0]
 and cl,byte 63
-jnz short ln1722
+jnz short ln1479
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -122125,18 +127620,18 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1722:
+ln1479:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
-ln1723:
+ln1480:
 add dx,dx
 lahf
 seto ch
 or al,ch
 dec cl
-jnz short ln1723
+jnz short ln1480
 mov [__dreg+ebx*4],dx
 test ah,1
 setnz [__xflag]
@@ -122151,7 +127646,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+0]
 and cl,byte 63
-jnz short ln1724
+jnz short ln1481
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -122161,18 +127656,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1724:
+ln1481:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1725
+jb short ln1482
 sub cl,31
 shl word[__dreg+ebx*4], 31
-jmp short ln1726
-ln1725:
+shl word[__dreg+ebx*4], cl
+jmp short ln1483
+ln1482:
 shl word[__dreg+ebx*4],cl
-ln1726:
+ln1483:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -122186,7 +127682,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+0]
 and cl,byte 63
-jnz short ln1727
+jnz short ln1484
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -122198,22 +127694,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1727:
+ln1484:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln1728
+jb short ln1485
 sub cl,31
 shr al,1
 rcl dx,31
 rcl dx,cl
-jmp short ln1729
-ln1728:
+jmp short ln1486
+ln1485:
 shr al,1
 rcl dx,cl
-ln1729:
+ln1486:
 adc al,al
 test dx,dx
 lahf
@@ -122232,7 +127728,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+0]
 and cl,byte 63
-jnz short ln1730
+jnz short ln1487
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -122242,20 +127738,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1730:
+ln1487:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln1731
+jb short ln1488
 sub cl,31
 rol dx,31
 rol dx,cl
-jmp short ln1732
-ln1731:
+jmp short ln1489
+ln1488:
 rol dx,cl
-ln1732:
+ln1489:
 adc al,al
 test dx,dx
 lahf
@@ -122359,7 +127855,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+0]
 and cl,byte 63
-jnz short ln1733
+jnz short ln1490
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -122369,18 +127865,18 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1733:
+ln1490:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
-ln1734:
+ln1491:
 add edx,edx
 lahf
 seto ch
 or al,ch
 dec cl
-jnz short ln1734
+jnz short ln1491
 mov [__dreg+ebx*4],edx
 test ah,1
 setnz [__xflag]
@@ -122395,7 +127891,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+0]
 and cl,byte 63
-jnz short ln1735
+jnz short ln1492
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -122405,18 +127901,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1735:
+ln1492:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1736
+jb short ln1493
 sub cl,31
 shl dword[__dreg+ebx*4], 31
-jmp short ln1737
-ln1736:
+shl dword[__dreg+ebx*4], cl
+jmp short ln1494
+ln1493:
 shl dword[__dreg+ebx*4],cl
-ln1737:
+ln1494:
 lahf
 setc [__xflag]
 sub edi,byte 8
@@ -122430,7 +127927,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+0]
 and cl,byte 63
-jnz short ln1738
+jnz short ln1495
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -122442,22 +127939,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1738:
+ln1495:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln1739
+jb short ln1496
 sub cl,31
 shr al,1
 rcl edx,31
 rcl edx,cl
-jmp short ln1740
-ln1739:
+jmp short ln1497
+ln1496:
 shr al,1
 rcl edx,cl
-ln1740:
+ln1497:
 adc al,al
 test edx,edx
 lahf
@@ -122476,7 +127973,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+0]
 and cl,byte 63
-jnz short ln1741
+jnz short ln1498
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -122486,20 +127983,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1741:
+ln1498:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln1742
+jb short ln1499
 sub cl,31
 rol edx,31
 rol edx,cl
-jmp short ln1743
-ln1742:
+jmp short ln1500
+ln1499:
 rol edx,cl
-ln1743:
+ln1500:
 adc al,al
 test edx,edx
 lahf
@@ -122690,7 +128187,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+4]
 and cl,byte 63
-jnz short ln1744
+jnz short ln1501
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -122700,18 +128197,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1744:
+ln1501:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1745
+jb short ln1502
 sub cl,31
 sar byte[__dreg+ebx*4], 31
-jmp short ln1746
-ln1745:
+sar byte[__dreg+ebx*4], cl
+jmp short ln1503
+ln1502:
 sar byte[__dreg+ebx*4],cl
-ln1746:
+ln1503:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -122725,7 +128223,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+4]
 and cl,byte 63
-jnz short ln1747
+jnz short ln1504
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -122735,18 +128233,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1747:
+ln1504:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1748
+jb short ln1505
 sub cl,31
 shr byte[__dreg+ebx*4], 31
-jmp short ln1749
-ln1748:
+shr byte[__dreg+ebx*4], cl
+jmp short ln1506
+ln1505:
 shr byte[__dreg+ebx*4],cl
-ln1749:
+ln1506:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -122760,7 +128259,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+4]
 and cl,byte 63
-jnz short ln1750
+jnz short ln1507
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -122772,22 +128271,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1750:
+ln1507:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln1751
+jb short ln1508
 sub cl,31
 shr al,1
 rcr dl,31
 rcr dl,cl
-jmp short ln1752
-ln1751:
+jmp short ln1509
+ln1508:
 shr al,1
 rcr dl,cl
-ln1752:
+ln1509:
 adc al,al
 test dl,dl
 lahf
@@ -122806,7 +128305,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+4]
 and cl,byte 63
-jnz short ln1753
+jnz short ln1510
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -122816,20 +128315,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1753:
+ln1510:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln1754
+jb short ln1511
 sub cl,31
 ror dl,31
 ror dl,cl
-jmp short ln1755
-ln1754:
+jmp short ln1512
+ln1511:
 ror dl,cl
-ln1755:
+ln1512:
 adc al,al
 test dl,dl
 lahf
@@ -122907,7 +128406,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+4]
 and cl,byte 63
-jnz short ln1756
+jnz short ln1513
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -122917,18 +128416,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1756:
+ln1513:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1757
+jb short ln1514
 sub cl,31
 sar word[__dreg+ebx*4], 31
-jmp short ln1758
-ln1757:
+sar word[__dreg+ebx*4], cl
+jmp short ln1515
+ln1514:
 sar word[__dreg+ebx*4],cl
-ln1758:
+ln1515:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -122942,7 +128442,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+4]
 and cl,byte 63
-jnz short ln1759
+jnz short ln1516
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -122952,18 +128452,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1759:
+ln1516:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1760
+jb short ln1517
 sub cl,31
 shr word[__dreg+ebx*4], 31
-jmp short ln1761
-ln1760:
+shr word[__dreg+ebx*4], cl
+jmp short ln1518
+ln1517:
 shr word[__dreg+ebx*4],cl
-ln1761:
+ln1518:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -122977,7 +128478,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+4]
 and cl,byte 63
-jnz short ln1762
+jnz short ln1519
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -122989,22 +128490,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1762:
+ln1519:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln1763
+jb short ln1520
 sub cl,31
 shr al,1
 rcr dx,31
 rcr dx,cl
-jmp short ln1764
-ln1763:
+jmp short ln1521
+ln1520:
 shr al,1
 rcr dx,cl
-ln1764:
+ln1521:
 adc al,al
 test dx,dx
 lahf
@@ -123023,7 +128524,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+4]
 and cl,byte 63
-jnz short ln1765
+jnz short ln1522
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -123033,20 +128534,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1765:
+ln1522:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln1766
+jb short ln1523
 sub cl,31
 ror dx,31
 ror dx,cl
-jmp short ln1767
-ln1766:
+jmp short ln1524
+ln1523:
 ror dx,cl
-ln1767:
+ln1524:
 adc al,al
 test dx,dx
 lahf
@@ -123124,7 +128625,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+4]
 and cl,byte 63
-jnz short ln1768
+jnz short ln1525
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -123134,18 +128635,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1768:
+ln1525:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1769
+jb short ln1526
 sub cl,31
 sar dword[__dreg+ebx*4], 31
-jmp short ln1770
-ln1769:
+sar dword[__dreg+ebx*4], cl
+jmp short ln1527
+ln1526:
 sar dword[__dreg+ebx*4],cl
-ln1770:
+ln1527:
 lahf
 setc [__xflag]
 sub edi,byte 8
@@ -123159,7 +128661,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+4]
 and cl,byte 63
-jnz short ln1771
+jnz short ln1528
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -123169,18 +128671,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1771:
+ln1528:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1772
+jb short ln1529
 sub cl,31
 shr dword[__dreg+ebx*4], 31
-jmp short ln1773
-ln1772:
+shr dword[__dreg+ebx*4], cl
+jmp short ln1530
+ln1529:
 shr dword[__dreg+ebx*4],cl
-ln1773:
+ln1530:
 lahf
 setc [__xflag]
 sub edi,byte 8
@@ -123194,7 +128697,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+4]
 and cl,byte 63
-jnz short ln1774
+jnz short ln1531
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -123206,22 +128709,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1774:
+ln1531:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln1775
+jb short ln1532
 sub cl,31
 shr al,1
 rcr edx,31
 rcr edx,cl
-jmp short ln1776
-ln1775:
+jmp short ln1533
+ln1532:
 shr al,1
 rcr edx,cl
-ln1776:
+ln1533:
 adc al,al
 test edx,edx
 lahf
@@ -123240,7 +128743,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+4]
 and cl,byte 63
-jnz short ln1777
+jnz short ln1534
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -123250,20 +128753,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1777:
+ln1534:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln1778
+jb short ln1535
 sub cl,31
 ror edx,31
 ror edx,cl
-jmp short ln1779
-ln1778:
+jmp short ln1536
+ln1535:
 ror edx,cl
-ln1779:
+ln1536:
 adc al,al
 test edx,edx
 lahf
@@ -123454,7 +128957,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+4]
 and cl,byte 63
-jnz short ln1780
+jnz short ln1537
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -123464,18 +128967,18 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1780:
+ln1537:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
-ln1781:
+ln1538:
 add dl,dl
 lahf
 seto ch
 or al,ch
 dec cl
-jnz short ln1781
+jnz short ln1538
 mov [__dreg+ebx*4],dl
 test ah,1
 setnz [__xflag]
@@ -123490,7 +128993,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+4]
 and cl,byte 63
-jnz short ln1782
+jnz short ln1539
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -123500,18 +129003,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1782:
+ln1539:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1783
+jb short ln1540
 sub cl,31
 shl byte[__dreg+ebx*4], 31
-jmp short ln1784
-ln1783:
+shl byte[__dreg+ebx*4], cl
+jmp short ln1541
+ln1540:
 shl byte[__dreg+ebx*4],cl
-ln1784:
+ln1541:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -123525,7 +129029,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+4]
 and cl,byte 63
-jnz short ln1785
+jnz short ln1542
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -123537,22 +129041,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1785:
+ln1542:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln1786
+jb short ln1543
 sub cl,31
 shr al,1
 rcl dl,31
 rcl dl,cl
-jmp short ln1787
-ln1786:
+jmp short ln1544
+ln1543:
 shr al,1
 rcl dl,cl
-ln1787:
+ln1544:
 adc al,al
 test dl,dl
 lahf
@@ -123571,7 +129075,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+4]
 and cl,byte 63
-jnz short ln1788
+jnz short ln1545
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -123581,20 +129085,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1788:
+ln1545:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln1789
+jb short ln1546
 sub cl,31
 rol dl,31
 rol dl,cl
-jmp short ln1790
-ln1789:
+jmp short ln1547
+ln1546:
 rol dl,cl
-ln1790:
+ln1547:
 adc al,al
 test dl,dl
 lahf
@@ -123672,7 +129176,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+4]
 and cl,byte 63
-jnz short ln1791
+jnz short ln1548
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -123682,18 +129186,18 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1791:
+ln1548:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
-ln1792:
+ln1549:
 add dx,dx
 lahf
 seto ch
 or al,ch
 dec cl
-jnz short ln1792
+jnz short ln1549
 mov [__dreg+ebx*4],dx
 test ah,1
 setnz [__xflag]
@@ -123708,7 +129212,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+4]
 and cl,byte 63
-jnz short ln1793
+jnz short ln1550
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -123718,18 +129222,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1793:
+ln1550:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1794
+jb short ln1551
 sub cl,31
 shl word[__dreg+ebx*4], 31
-jmp short ln1795
-ln1794:
+shl word[__dreg+ebx*4], cl
+jmp short ln1552
+ln1551:
 shl word[__dreg+ebx*4],cl
-ln1795:
+ln1552:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -123743,7 +129248,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+4]
 and cl,byte 63
-jnz short ln1796
+jnz short ln1553
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -123755,22 +129260,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1796:
+ln1553:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln1797
+jb short ln1554
 sub cl,31
 shr al,1
 rcl dx,31
 rcl dx,cl
-jmp short ln1798
-ln1797:
+jmp short ln1555
+ln1554:
 shr al,1
 rcl dx,cl
-ln1798:
+ln1555:
 adc al,al
 test dx,dx
 lahf
@@ -123789,7 +129294,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+4]
 and cl,byte 63
-jnz short ln1799
+jnz short ln1556
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -123799,20 +129304,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1799:
+ln1556:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln1800
+jb short ln1557
 sub cl,31
 rol dx,31
 rol dx,cl
-jmp short ln1801
-ln1800:
+jmp short ln1558
+ln1557:
 rol dx,cl
-ln1801:
+ln1558:
 adc al,al
 test dx,dx
 lahf
@@ -123890,7 +129395,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+4]
 and cl,byte 63
-jnz short ln1802
+jnz short ln1559
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -123900,18 +129405,18 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1802:
+ln1559:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
-ln1803:
+ln1560:
 add edx,edx
 lahf
 seto ch
 or al,ch
 dec cl
-jnz short ln1803
+jnz short ln1560
 mov [__dreg+ebx*4],edx
 test ah,1
 setnz [__xflag]
@@ -123926,7 +129431,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+4]
 and cl,byte 63
-jnz short ln1804
+jnz short ln1561
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -123936,18 +129441,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1804:
+ln1561:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1805
+jb short ln1562
 sub cl,31
 shl dword[__dreg+ebx*4], 31
-jmp short ln1806
-ln1805:
+shl dword[__dreg+ebx*4], cl
+jmp short ln1563
+ln1562:
 shl dword[__dreg+ebx*4],cl
-ln1806:
+ln1563:
 lahf
 setc [__xflag]
 sub edi,byte 8
@@ -123961,7 +129467,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+4]
 and cl,byte 63
-jnz short ln1807
+jnz short ln1564
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -123973,22 +129479,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1807:
+ln1564:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln1808
+jb short ln1565
 sub cl,31
 shr al,1
 rcl edx,31
 rcl edx,cl
-jmp short ln1809
-ln1808:
+jmp short ln1566
+ln1565:
 shr al,1
 rcl edx,cl
-ln1809:
+ln1566:
 adc al,al
 test edx,edx
 lahf
@@ -124007,7 +129513,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+4]
 and cl,byte 63
-jnz short ln1810
+jnz short ln1567
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -124017,20 +129523,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1810:
+ln1567:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln1811
+jb short ln1568
 sub cl,31
 rol edx,31
 rol edx,cl
-jmp short ln1812
-ln1811:
+jmp short ln1569
+ln1568:
 rol edx,cl
-ln1812:
+ln1569:
 adc al,al
 test edx,edx
 lahf
@@ -124221,7 +129727,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+8]
 and cl,byte 63
-jnz short ln1813
+jnz short ln1570
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -124231,18 +129737,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1813:
+ln1570:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1814
+jb short ln1571
 sub cl,31
 sar byte[__dreg+ebx*4], 31
-jmp short ln1815
-ln1814:
+sar byte[__dreg+ebx*4], cl
+jmp short ln1572
+ln1571:
 sar byte[__dreg+ebx*4],cl
-ln1815:
+ln1572:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -124256,7 +129763,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+8]
 and cl,byte 63
-jnz short ln1816
+jnz short ln1573
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -124266,18 +129773,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1816:
+ln1573:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1817
+jb short ln1574
 sub cl,31
 shr byte[__dreg+ebx*4], 31
-jmp short ln1818
-ln1817:
+shr byte[__dreg+ebx*4], cl
+jmp short ln1575
+ln1574:
 shr byte[__dreg+ebx*4],cl
-ln1818:
+ln1575:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -124291,7 +129799,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+8]
 and cl,byte 63
-jnz short ln1819
+jnz short ln1576
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -124303,22 +129811,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1819:
+ln1576:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln1820
+jb short ln1577
 sub cl,31
 shr al,1
 rcr dl,31
 rcr dl,cl
-jmp short ln1821
-ln1820:
+jmp short ln1578
+ln1577:
 shr al,1
 rcr dl,cl
-ln1821:
+ln1578:
 adc al,al
 test dl,dl
 lahf
@@ -124337,7 +129845,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+8]
 and cl,byte 63
-jnz short ln1822
+jnz short ln1579
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -124347,20 +129855,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1822:
+ln1579:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln1823
+jb short ln1580
 sub cl,31
 ror dl,31
 ror dl,cl
-jmp short ln1824
-ln1823:
+jmp short ln1581
+ln1580:
 ror dl,cl
-ln1824:
+ln1581:
 adc al,al
 test dl,dl
 lahf
@@ -124438,7 +129946,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+8]
 and cl,byte 63
-jnz short ln1825
+jnz short ln1582
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -124448,18 +129956,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1825:
+ln1582:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1826
+jb short ln1583
 sub cl,31
 sar word[__dreg+ebx*4], 31
-jmp short ln1827
-ln1826:
+sar word[__dreg+ebx*4], cl
+jmp short ln1584
+ln1583:
 sar word[__dreg+ebx*4],cl
-ln1827:
+ln1584:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -124473,7 +129982,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+8]
 and cl,byte 63
-jnz short ln1828
+jnz short ln1585
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -124483,18 +129992,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1828:
+ln1585:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1829
+jb short ln1586
 sub cl,31
 shr word[__dreg+ebx*4], 31
-jmp short ln1830
-ln1829:
+shr word[__dreg+ebx*4], cl
+jmp short ln1587
+ln1586:
 shr word[__dreg+ebx*4],cl
-ln1830:
+ln1587:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -124508,7 +130018,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+8]
 and cl,byte 63
-jnz short ln1831
+jnz short ln1588
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -124520,22 +130030,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1831:
+ln1588:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln1832
+jb short ln1589
 sub cl,31
 shr al,1
 rcr dx,31
 rcr dx,cl
-jmp short ln1833
-ln1832:
+jmp short ln1590
+ln1589:
 shr al,1
 rcr dx,cl
-ln1833:
+ln1590:
 adc al,al
 test dx,dx
 lahf
@@ -124554,7 +130064,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+8]
 and cl,byte 63
-jnz short ln1834
+jnz short ln1591
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -124564,20 +130074,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1834:
+ln1591:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln1835
+jb short ln1592
 sub cl,31
 ror dx,31
 ror dx,cl
-jmp short ln1836
-ln1835:
+jmp short ln1593
+ln1592:
 ror dx,cl
-ln1836:
+ln1593:
 adc al,al
 test dx,dx
 lahf
@@ -124655,7 +130165,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+8]
 and cl,byte 63
-jnz short ln1837
+jnz short ln1594
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -124665,18 +130175,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1837:
+ln1594:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1838
+jb short ln1595
 sub cl,31
 sar dword[__dreg+ebx*4], 31
-jmp short ln1839
-ln1838:
+sar dword[__dreg+ebx*4], cl
+jmp short ln1596
+ln1595:
 sar dword[__dreg+ebx*4],cl
-ln1839:
+ln1596:
 lahf
 setc [__xflag]
 sub edi,byte 8
@@ -124690,7 +130201,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+8]
 and cl,byte 63
-jnz short ln1840
+jnz short ln1597
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -124700,18 +130211,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1840:
+ln1597:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1841
+jb short ln1598
 sub cl,31
 shr dword[__dreg+ebx*4], 31
-jmp short ln1842
-ln1841:
+shr dword[__dreg+ebx*4], cl
+jmp short ln1599
+ln1598:
 shr dword[__dreg+ebx*4],cl
-ln1842:
+ln1599:
 lahf
 setc [__xflag]
 sub edi,byte 8
@@ -124725,7 +130237,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+8]
 and cl,byte 63
-jnz short ln1843
+jnz short ln1600
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -124737,22 +130249,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1843:
+ln1600:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln1844
+jb short ln1601
 sub cl,31
 shr al,1
 rcr edx,31
 rcr edx,cl
-jmp short ln1845
-ln1844:
+jmp short ln1602
+ln1601:
 shr al,1
 rcr edx,cl
-ln1845:
+ln1602:
 adc al,al
 test edx,edx
 lahf
@@ -124771,7 +130283,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+8]
 and cl,byte 63
-jnz short ln1846
+jnz short ln1603
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -124781,20 +130293,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1846:
+ln1603:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln1847
+jb short ln1604
 sub cl,31
 ror edx,31
 ror edx,cl
-jmp short ln1848
-ln1847:
+jmp short ln1605
+ln1604:
 ror edx,cl
-ln1848:
+ln1605:
 adc al,al
 test edx,edx
 lahf
@@ -125028,7 +130540,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+8]
 and cl,byte 63
-jnz short ln1849
+jnz short ln1606
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -125038,18 +130550,18 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1849:
+ln1606:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
-ln1850:
+ln1607:
 add dl,dl
 lahf
 seto ch
 or al,ch
 dec cl
-jnz short ln1850
+jnz short ln1607
 mov [__dreg+ebx*4],dl
 test ah,1
 setnz [__xflag]
@@ -125064,7 +130576,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+8]
 and cl,byte 63
-jnz short ln1851
+jnz short ln1608
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -125074,18 +130586,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1851:
+ln1608:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1852
+jb short ln1609
 sub cl,31
 shl byte[__dreg+ebx*4], 31
-jmp short ln1853
-ln1852:
+shl byte[__dreg+ebx*4], cl
+jmp short ln1610
+ln1609:
 shl byte[__dreg+ebx*4],cl
-ln1853:
+ln1610:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -125099,7 +130612,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+8]
 and cl,byte 63
-jnz short ln1854
+jnz short ln1611
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -125111,22 +130624,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1854:
+ln1611:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln1855
+jb short ln1612
 sub cl,31
 shr al,1
 rcl dl,31
 rcl dl,cl
-jmp short ln1856
-ln1855:
+jmp short ln1613
+ln1612:
 shr al,1
 rcl dl,cl
-ln1856:
+ln1613:
 adc al,al
 test dl,dl
 lahf
@@ -125145,7 +130658,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+8]
 and cl,byte 63
-jnz short ln1857
+jnz short ln1614
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -125155,20 +130668,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1857:
+ln1614:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln1858
+jb short ln1615
 sub cl,31
 rol dl,31
 rol dl,cl
-jmp short ln1859
-ln1858:
+jmp short ln1616
+ln1615:
 rol dl,cl
-ln1859:
+ln1616:
 adc al,al
 test dl,dl
 lahf
@@ -125254,7 +130767,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+8]
 and cl,byte 63
-jnz short ln1860
+jnz short ln1617
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -125264,18 +130777,18 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1860:
+ln1617:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
-ln1861:
+ln1618:
 add dx,dx
 lahf
 seto ch
 or al,ch
 dec cl
-jnz short ln1861
+jnz short ln1618
 mov [__dreg+ebx*4],dx
 test ah,1
 setnz [__xflag]
@@ -125290,7 +130803,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+8]
 and cl,byte 63
-jnz short ln1862
+jnz short ln1619
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -125300,18 +130813,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1862:
+ln1619:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1863
+jb short ln1620
 sub cl,31
 shl word[__dreg+ebx*4], 31
-jmp short ln1864
-ln1863:
+shl word[__dreg+ebx*4], cl
+jmp short ln1621
+ln1620:
 shl word[__dreg+ebx*4],cl
-ln1864:
+ln1621:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -125325,7 +130839,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+8]
 and cl,byte 63
-jnz short ln1865
+jnz short ln1622
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -125337,22 +130851,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1865:
+ln1622:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln1866
+jb short ln1623
 sub cl,31
 shr al,1
 rcl dx,31
 rcl dx,cl
-jmp short ln1867
-ln1866:
+jmp short ln1624
+ln1623:
 shr al,1
 rcl dx,cl
-ln1867:
+ln1624:
 adc al,al
 test dx,dx
 lahf
@@ -125371,7 +130885,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+8]
 and cl,byte 63
-jnz short ln1868
+jnz short ln1625
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -125381,20 +130895,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1868:
+ln1625:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln1869
+jb short ln1626
 sub cl,31
 rol dx,31
 rol dx,cl
-jmp short ln1870
-ln1869:
+jmp short ln1627
+ln1626:
 rol dx,cl
-ln1870:
+ln1627:
 adc al,al
 test dx,dx
 lahf
@@ -125480,7 +130994,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+8]
 and cl,byte 63
-jnz short ln1871
+jnz short ln1628
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -125490,18 +131004,18 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1871:
+ln1628:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
-ln1872:
+ln1629:
 add edx,edx
 lahf
 seto ch
 or al,ch
 dec cl
-jnz short ln1872
+jnz short ln1629
 mov [__dreg+ebx*4],edx
 test ah,1
 setnz [__xflag]
@@ -125516,7 +131030,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+8]
 and cl,byte 63
-jnz short ln1873
+jnz short ln1630
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -125526,18 +131040,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1873:
+ln1630:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1874
+jb short ln1631
 sub cl,31
 shl dword[__dreg+ebx*4], 31
-jmp short ln1875
-ln1874:
+shl dword[__dreg+ebx*4], cl
+jmp short ln1632
+ln1631:
 shl dword[__dreg+ebx*4],cl
-ln1875:
+ln1632:
 lahf
 setc [__xflag]
 sub edi,byte 8
@@ -125551,7 +131066,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+8]
 and cl,byte 63
-jnz short ln1876
+jnz short ln1633
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -125563,22 +131078,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1876:
+ln1633:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln1877
+jb short ln1634
 sub cl,31
 shr al,1
 rcl edx,31
 rcl edx,cl
-jmp short ln1878
-ln1877:
+jmp short ln1635
+ln1634:
 shr al,1
 rcl edx,cl
-ln1878:
+ln1635:
 adc al,al
 test edx,edx
 lahf
@@ -125597,7 +131112,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+8]
 and cl,byte 63
-jnz short ln1879
+jnz short ln1636
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -125607,20 +131122,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1879:
+ln1636:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln1880
+jb short ln1637
 sub cl,31
 rol edx,31
 rol edx,cl
-jmp short ln1881
-ln1880:
+jmp short ln1638
+ln1637:
 rol edx,cl
-ln1881:
+ln1638:
 adc al,al
 test edx,edx
 lahf
@@ -125846,7 +131361,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+12]
 and cl,byte 63
-jnz short ln1882
+jnz short ln1639
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -125856,18 +131371,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1882:
+ln1639:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1883
+jb short ln1640
 sub cl,31
 sar byte[__dreg+ebx*4], 31
-jmp short ln1884
-ln1883:
+sar byte[__dreg+ebx*4], cl
+jmp short ln1641
+ln1640:
 sar byte[__dreg+ebx*4],cl
-ln1884:
+ln1641:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -125881,7 +131397,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+12]
 and cl,byte 63
-jnz short ln1885
+jnz short ln1642
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -125891,18 +131407,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1885:
+ln1642:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1886
+jb short ln1643
 sub cl,31
 shr byte[__dreg+ebx*4], 31
-jmp short ln1887
-ln1886:
+shr byte[__dreg+ebx*4], cl
+jmp short ln1644
+ln1643:
 shr byte[__dreg+ebx*4],cl
-ln1887:
+ln1644:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -125916,7 +131433,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+12]
 and cl,byte 63
-jnz short ln1888
+jnz short ln1645
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -125928,22 +131445,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1888:
+ln1645:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln1889
+jb short ln1646
 sub cl,31
 shr al,1
 rcr dl,31
 rcr dl,cl
-jmp short ln1890
-ln1889:
+jmp short ln1647
+ln1646:
 shr al,1
 rcr dl,cl
-ln1890:
+ln1647:
 adc al,al
 test dl,dl
 lahf
@@ -125962,7 +131479,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+12]
 and cl,byte 63
-jnz short ln1891
+jnz short ln1648
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -125972,20 +131489,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1891:
+ln1648:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln1892
+jb short ln1649
 sub cl,31
 ror dl,31
 ror dl,cl
-jmp short ln1893
-ln1892:
+jmp short ln1650
+ln1649:
 ror dl,cl
-ln1893:
+ln1650:
 adc al,al
 test dl,dl
 lahf
@@ -126063,7 +131580,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+12]
 and cl,byte 63
-jnz short ln1894
+jnz short ln1651
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -126073,18 +131590,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1894:
+ln1651:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1895
+jb short ln1652
 sub cl,31
 sar word[__dreg+ebx*4], 31
-jmp short ln1896
-ln1895:
+sar word[__dreg+ebx*4], cl
+jmp short ln1653
+ln1652:
 sar word[__dreg+ebx*4],cl
-ln1896:
+ln1653:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -126098,7 +131616,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+12]
 and cl,byte 63
-jnz short ln1897
+jnz short ln1654
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -126108,18 +131626,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1897:
+ln1654:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1898
+jb short ln1655
 sub cl,31
 shr word[__dreg+ebx*4], 31
-jmp short ln1899
-ln1898:
+shr word[__dreg+ebx*4], cl
+jmp short ln1656
+ln1655:
 shr word[__dreg+ebx*4],cl
-ln1899:
+ln1656:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -126133,7 +131652,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+12]
 and cl,byte 63
-jnz short ln1900
+jnz short ln1657
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -126145,22 +131664,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1900:
+ln1657:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln1901
+jb short ln1658
 sub cl,31
 shr al,1
 rcr dx,31
 rcr dx,cl
-jmp short ln1902
-ln1901:
+jmp short ln1659
+ln1658:
 shr al,1
 rcr dx,cl
-ln1902:
+ln1659:
 adc al,al
 test dx,dx
 lahf
@@ -126179,7 +131698,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+12]
 and cl,byte 63
-jnz short ln1903
+jnz short ln1660
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -126189,20 +131708,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1903:
+ln1660:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln1904
+jb short ln1661
 sub cl,31
 ror dx,31
 ror dx,cl
-jmp short ln1905
-ln1904:
+jmp short ln1662
+ln1661:
 ror dx,cl
-ln1905:
+ln1662:
 adc al,al
 test dx,dx
 lahf
@@ -126280,7 +131799,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+12]
 and cl,byte 63
-jnz short ln1906
+jnz short ln1663
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -126290,18 +131809,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1906:
+ln1663:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1907
+jb short ln1664
 sub cl,31
 sar dword[__dreg+ebx*4], 31
-jmp short ln1908
-ln1907:
+sar dword[__dreg+ebx*4], cl
+jmp short ln1665
+ln1664:
 sar dword[__dreg+ebx*4],cl
-ln1908:
+ln1665:
 lahf
 setc [__xflag]
 sub edi,byte 8
@@ -126315,7 +131835,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+12]
 and cl,byte 63
-jnz short ln1909
+jnz short ln1666
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -126325,18 +131845,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1909:
+ln1666:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1910
+jb short ln1667
 sub cl,31
 shr dword[__dreg+ebx*4], 31
-jmp short ln1911
-ln1910:
+shr dword[__dreg+ebx*4], cl
+jmp short ln1668
+ln1667:
 shr dword[__dreg+ebx*4],cl
-ln1911:
+ln1668:
 lahf
 setc [__xflag]
 sub edi,byte 8
@@ -126350,7 +131871,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+12]
 and cl,byte 63
-jnz short ln1912
+jnz short ln1669
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -126362,22 +131883,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1912:
+ln1669:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln1913
+jb short ln1670
 sub cl,31
 shr al,1
 rcr edx,31
 rcr edx,cl
-jmp short ln1914
-ln1913:
+jmp short ln1671
+ln1670:
 shr al,1
 rcr edx,cl
-ln1914:
+ln1671:
 adc al,al
 test edx,edx
 lahf
@@ -126396,7 +131917,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+12]
 and cl,byte 63
-jnz short ln1915
+jnz short ln1672
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -126406,20 +131927,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1915:
+ln1672:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln1916
+jb short ln1673
 sub cl,31
 ror edx,31
 ror edx,cl
-jmp short ln1917
-ln1916:
+jmp short ln1674
+ln1673:
 ror edx,cl
-ln1917:
+ln1674:
 adc al,al
 test edx,edx
 lahf
@@ -126642,7 +132163,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+12]
 and cl,byte 63
-jnz short ln1918
+jnz short ln1675
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -126652,18 +132173,18 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1918:
+ln1675:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
-ln1919:
+ln1676:
 add dl,dl
 lahf
 seto ch
 or al,ch
 dec cl
-jnz short ln1919
+jnz short ln1676
 mov [__dreg+ebx*4],dl
 test ah,1
 setnz [__xflag]
@@ -126678,7 +132199,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+12]
 and cl,byte 63
-jnz short ln1920
+jnz short ln1677
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -126688,18 +132209,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1920:
+ln1677:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1921
+jb short ln1678
 sub cl,31
 shl byte[__dreg+ebx*4], 31
-jmp short ln1922
-ln1921:
+shl byte[__dreg+ebx*4], cl
+jmp short ln1679
+ln1678:
 shl byte[__dreg+ebx*4],cl
-ln1922:
+ln1679:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -126713,7 +132235,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+12]
 and cl,byte 63
-jnz short ln1923
+jnz short ln1680
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -126725,22 +132247,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1923:
+ln1680:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln1924
+jb short ln1681
 sub cl,31
 shr al,1
 rcl dl,31
 rcl dl,cl
-jmp short ln1925
-ln1924:
+jmp short ln1682
+ln1681:
 shr al,1
 rcl dl,cl
-ln1925:
+ln1682:
 adc al,al
 test dl,dl
 lahf
@@ -126759,7 +132281,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+12]
 and cl,byte 63
-jnz short ln1926
+jnz short ln1683
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -126769,20 +132291,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1926:
+ln1683:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln1927
+jb short ln1684
 sub cl,31
 rol dl,31
 rol dl,cl
-jmp short ln1928
-ln1927:
+jmp short ln1685
+ln1684:
 rol dl,cl
-ln1928:
+ln1685:
 adc al,al
 test dl,dl
 lahf
@@ -126871,7 +132393,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+12]
 and cl,byte 63
-jnz short ln1929
+jnz short ln1686
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -126881,18 +132403,18 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1929:
+ln1686:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
-ln1930:
+ln1687:
 add dx,dx
 lahf
 seto ch
 or al,ch
 dec cl
-jnz short ln1930
+jnz short ln1687
 mov [__dreg+ebx*4],dx
 test ah,1
 setnz [__xflag]
@@ -126907,7 +132429,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+12]
 and cl,byte 63
-jnz short ln1931
+jnz short ln1688
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -126917,18 +132439,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1931:
+ln1688:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1932
+jb short ln1689
 sub cl,31
 shl word[__dreg+ebx*4], 31
-jmp short ln1933
-ln1932:
+shl word[__dreg+ebx*4], cl
+jmp short ln1690
+ln1689:
 shl word[__dreg+ebx*4],cl
-ln1933:
+ln1690:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -126942,7 +132465,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+12]
 and cl,byte 63
-jnz short ln1934
+jnz short ln1691
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -126954,22 +132477,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1934:
+ln1691:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln1935
+jb short ln1692
 sub cl,31
 shr al,1
 rcl dx,31
 rcl dx,cl
-jmp short ln1936
-ln1935:
+jmp short ln1693
+ln1692:
 shr al,1
 rcl dx,cl
-ln1936:
+ln1693:
 adc al,al
 test dx,dx
 lahf
@@ -126988,7 +132511,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+12]
 and cl,byte 63
-jnz short ln1937
+jnz short ln1694
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -126998,20 +132521,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1937:
+ln1694:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln1938
+jb short ln1695
 sub cl,31
 rol dx,31
 rol dx,cl
-jmp short ln1939
-ln1938:
+jmp short ln1696
+ln1695:
 rol dx,cl
-ln1939:
+ln1696:
 adc al,al
 test dx,dx
 lahf
@@ -127100,7 +132623,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+12]
 and cl,byte 63
-jnz short ln1940
+jnz short ln1697
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -127110,18 +132633,18 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1940:
+ln1697:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
-ln1941:
+ln1698:
 add edx,edx
 lahf
 seto ch
 or al,ch
 dec cl
-jnz short ln1941
+jnz short ln1698
 mov [__dreg+ebx*4],edx
 test ah,1
 setnz [__xflag]
@@ -127136,7 +132659,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+12]
 and cl,byte 63
-jnz short ln1942
+jnz short ln1699
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -127146,18 +132669,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1942:
+ln1699:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1943
+jb short ln1700
 sub cl,31
 shl dword[__dreg+ebx*4], 31
-jmp short ln1944
-ln1943:
+shl dword[__dreg+ebx*4], cl
+jmp short ln1701
+ln1700:
 shl dword[__dreg+ebx*4],cl
-ln1944:
+ln1701:
 lahf
 setc [__xflag]
 sub edi,byte 8
@@ -127171,7 +132695,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+12]
 and cl,byte 63
-jnz short ln1945
+jnz short ln1702
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -127183,22 +132707,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1945:
+ln1702:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln1946
+jb short ln1703
 sub cl,31
 shr al,1
 rcl edx,31
 rcl edx,cl
-jmp short ln1947
-ln1946:
+jmp short ln1704
+ln1703:
 shr al,1
 rcl edx,cl
-ln1947:
+ln1704:
 adc al,al
 test edx,edx
 lahf
@@ -127217,7 +132741,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+12]
 and cl,byte 63
-jnz short ln1948
+jnz short ln1705
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -127227,20 +132751,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1948:
+ln1705:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln1949
+jb short ln1706
 sub cl,31
 rol edx,31
 rol edx,cl
-jmp short ln1950
-ln1949:
+jmp short ln1707
+ln1706:
 rol edx,cl
-ln1950:
+ln1707:
 adc al,al
 test edx,edx
 lahf
@@ -127452,7 +132976,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+16]
 and cl,byte 63
-jnz short ln1951
+jnz short ln1708
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -127462,18 +132986,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1951:
+ln1708:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1952
+jb short ln1709
 sub cl,31
 sar byte[__dreg+ebx*4], 31
-jmp short ln1953
-ln1952:
+sar byte[__dreg+ebx*4], cl
+jmp short ln1710
+ln1709:
 sar byte[__dreg+ebx*4],cl
-ln1953:
+ln1710:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -127487,7 +133012,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+16]
 and cl,byte 63
-jnz short ln1954
+jnz short ln1711
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -127497,18 +133022,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1954:
+ln1711:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1955
+jb short ln1712
 sub cl,31
 shr byte[__dreg+ebx*4], 31
-jmp short ln1956
-ln1955:
+shr byte[__dreg+ebx*4], cl
+jmp short ln1713
+ln1712:
 shr byte[__dreg+ebx*4],cl
-ln1956:
+ln1713:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -127522,7 +133048,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+16]
 and cl,byte 63
-jnz short ln1957
+jnz short ln1714
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -127534,22 +133060,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1957:
+ln1714:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln1958
+jb short ln1715
 sub cl,31
 shr al,1
 rcr dl,31
 rcr dl,cl
-jmp short ln1959
-ln1958:
+jmp short ln1716
+ln1715:
 shr al,1
 rcr dl,cl
-ln1959:
+ln1716:
 adc al,al
 test dl,dl
 lahf
@@ -127568,7 +133094,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+16]
 and cl,byte 63
-jnz short ln1960
+jnz short ln1717
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -127578,20 +133104,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1960:
+ln1717:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln1961
+jb short ln1718
 sub cl,31
 ror dl,31
 ror dl,cl
-jmp short ln1962
-ln1961:
+jmp short ln1719
+ln1718:
 ror dl,cl
-ln1962:
+ln1719:
 adc al,al
 test dl,dl
 lahf
@@ -127669,7 +133195,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+16]
 and cl,byte 63
-jnz short ln1963
+jnz short ln1720
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -127679,18 +133205,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1963:
+ln1720:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1964
+jb short ln1721
 sub cl,31
 sar word[__dreg+ebx*4], 31
-jmp short ln1965
-ln1964:
+sar word[__dreg+ebx*4], cl
+jmp short ln1722
+ln1721:
 sar word[__dreg+ebx*4],cl
-ln1965:
+ln1722:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -127704,7 +133231,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+16]
 and cl,byte 63
-jnz short ln1966
+jnz short ln1723
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -127714,18 +133241,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1966:
+ln1723:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1967
+jb short ln1724
 sub cl,31
 shr word[__dreg+ebx*4], 31
-jmp short ln1968
-ln1967:
+shr word[__dreg+ebx*4], cl
+jmp short ln1725
+ln1724:
 shr word[__dreg+ebx*4],cl
-ln1968:
+ln1725:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -127739,7 +133267,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+16]
 and cl,byte 63
-jnz short ln1969
+jnz short ln1726
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -127751,22 +133279,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1969:
+ln1726:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln1970
+jb short ln1727
 sub cl,31
 shr al,1
 rcr dx,31
 rcr dx,cl
-jmp short ln1971
-ln1970:
+jmp short ln1728
+ln1727:
 shr al,1
 rcr dx,cl
-ln1971:
+ln1728:
 adc al,al
 test dx,dx
 lahf
@@ -127785,7 +133313,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+16]
 and cl,byte 63
-jnz short ln1972
+jnz short ln1729
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -127795,20 +133323,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1972:
+ln1729:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln1973
+jb short ln1730
 sub cl,31
 ror dx,31
 ror dx,cl
-jmp short ln1974
-ln1973:
+jmp short ln1731
+ln1730:
 ror dx,cl
-ln1974:
+ln1731:
 adc al,al
 test dx,dx
 lahf
@@ -127886,7 +133414,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+16]
 and cl,byte 63
-jnz short ln1975
+jnz short ln1732
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -127896,18 +133424,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1975:
+ln1732:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1976
+jb short ln1733
 sub cl,31
 sar dword[__dreg+ebx*4], 31
-jmp short ln1977
-ln1976:
+sar dword[__dreg+ebx*4], cl
+jmp short ln1734
+ln1733:
 sar dword[__dreg+ebx*4],cl
-ln1977:
+ln1734:
 lahf
 setc [__xflag]
 sub edi,byte 8
@@ -127921,7 +133450,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+16]
 and cl,byte 63
-jnz short ln1978
+jnz short ln1735
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -127931,18 +133460,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1978:
+ln1735:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1979
+jb short ln1736
 sub cl,31
 shr dword[__dreg+ebx*4], 31
-jmp short ln1980
-ln1979:
+shr dword[__dreg+ebx*4], cl
+jmp short ln1737
+ln1736:
 shr dword[__dreg+ebx*4],cl
-ln1980:
+ln1737:
 lahf
 setc [__xflag]
 sub edi,byte 8
@@ -127956,7 +133486,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+16]
 and cl,byte 63
-jnz short ln1981
+jnz short ln1738
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -127968,22 +133498,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1981:
+ln1738:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln1982
+jb short ln1739
 sub cl,31
 shr al,1
 rcr edx,31
 rcr edx,cl
-jmp short ln1983
-ln1982:
+jmp short ln1740
+ln1739:
 shr al,1
 rcr edx,cl
-ln1983:
+ln1740:
 adc al,al
 test edx,edx
 lahf
@@ -128002,7 +133532,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+16]
 and cl,byte 63
-jnz short ln1984
+jnz short ln1741
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -128012,20 +133542,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1984:
+ln1741:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln1985
+jb short ln1742
 sub cl,31
 ror edx,31
 ror edx,cl
-jmp short ln1986
-ln1985:
+jmp short ln1743
+ln1742:
 ror edx,cl
-ln1986:
+ln1743:
 adc al,al
 test edx,edx
 lahf
@@ -128117,7 +133647,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+16]
 and cl,byte 63
-jnz short ln1987
+jnz short ln1744
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -128127,18 +133657,18 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1987:
+ln1744:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
-ln1988:
+ln1745:
 add dl,dl
 lahf
 seto ch
 or al,ch
 dec cl
-jnz short ln1988
+jnz short ln1745
 mov [__dreg+ebx*4],dl
 test ah,1
 setnz [__xflag]
@@ -128153,7 +133683,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+16]
 and cl,byte 63
-jnz short ln1989
+jnz short ln1746
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -128163,18 +133693,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1989:
+ln1746:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln1990
+jb short ln1747
 sub cl,31
 shl byte[__dreg+ebx*4], 31
-jmp short ln1991
-ln1990:
+shl byte[__dreg+ebx*4], cl
+jmp short ln1748
+ln1747:
 shl byte[__dreg+ebx*4],cl
-ln1991:
+ln1748:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -128188,7 +133719,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+16]
 and cl,byte 63
-jnz short ln1992
+jnz short ln1749
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -128200,22 +133731,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1992:
+ln1749:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln1993
+jb short ln1750
 sub cl,31
 shr al,1
 rcl dl,31
 rcl dl,cl
-jmp short ln1994
-ln1993:
+jmp short ln1751
+ln1750:
 shr al,1
 rcl dl,cl
-ln1994:
+ln1751:
 adc al,al
 test dl,dl
 lahf
@@ -128234,7 +133765,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+16]
 and cl,byte 63
-jnz short ln1995
+jnz short ln1752
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -128244,20 +133775,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1995:
+ln1752:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln1996
+jb short ln1753
 sub cl,31
 rol dl,31
 rol dl,cl
-jmp short ln1997
-ln1996:
+jmp short ln1754
+ln1753:
 rol dl,cl
-ln1997:
+ln1754:
 adc al,al
 test dl,dl
 lahf
@@ -128349,7 +133880,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+16]
 and cl,byte 63
-jnz short ln1998
+jnz short ln1755
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -128359,18 +133890,18 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln1998:
+ln1755:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
-ln1999:
+ln1756:
 add dx,dx
 lahf
 seto ch
 or al,ch
 dec cl
-jnz short ln1999
+jnz short ln1756
 mov [__dreg+ebx*4],dx
 test ah,1
 setnz [__xflag]
@@ -128385,7 +133916,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+16]
 and cl,byte 63
-jnz short ln2000
+jnz short ln1757
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -128395,18 +133926,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2000:
+ln1757:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln2001
+jb short ln1758
 sub cl,31
 shl word[__dreg+ebx*4], 31
-jmp short ln2002
-ln2001:
+shl word[__dreg+ebx*4], cl
+jmp short ln1759
+ln1758:
 shl word[__dreg+ebx*4],cl
-ln2002:
+ln1759:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -128420,7 +133952,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+16]
 and cl,byte 63
-jnz short ln2003
+jnz short ln1760
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -128432,22 +133964,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2003:
+ln1760:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln2004
+jb short ln1761
 sub cl,31
 shr al,1
 rcl dx,31
 rcl dx,cl
-jmp short ln2005
-ln2004:
+jmp short ln1762
+ln1761:
 shr al,1
 rcl dx,cl
-ln2005:
+ln1762:
 adc al,al
 test dx,dx
 lahf
@@ -128466,7 +133998,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+16]
 and cl,byte 63
-jnz short ln2006
+jnz short ln1763
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -128476,20 +134008,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2006:
+ln1763:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln2007
+jb short ln1764
 sub cl,31
 rol dx,31
 rol dx,cl
-jmp short ln2008
-ln2007:
+jmp short ln1765
+ln1764:
 rol dx,cl
-ln2008:
+ln1765:
 adc al,al
 test dx,dx
 lahf
@@ -128581,7 +134113,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+16]
 and cl,byte 63
-jnz short ln2009
+jnz short ln1766
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -128591,18 +134123,18 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2009:
+ln1766:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
-ln2010:
+ln1767:
 add edx,edx
 lahf
 seto ch
 or al,ch
 dec cl
-jnz short ln2010
+jnz short ln1767
 mov [__dreg+ebx*4],edx
 test ah,1
 setnz [__xflag]
@@ -128617,7 +134149,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+16]
 and cl,byte 63
-jnz short ln2011
+jnz short ln1768
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -128627,18 +134159,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2011:
+ln1768:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln2012
+jb short ln1769
 sub cl,31
 shl dword[__dreg+ebx*4], 31
-jmp short ln2013
-ln2012:
+shl dword[__dreg+ebx*4], cl
+jmp short ln1770
+ln1769:
 shl dword[__dreg+ebx*4],cl
-ln2013:
+ln1770:
 lahf
 setc [__xflag]
 sub edi,byte 8
@@ -128652,7 +134185,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+16]
 and cl,byte 63
-jnz short ln2014
+jnz short ln1771
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -128664,22 +134197,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2014:
+ln1771:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln2015
+jb short ln1772
 sub cl,31
 shr al,1
 rcl edx,31
 rcl edx,cl
-jmp short ln2016
-ln2015:
+jmp short ln1773
+ln1772:
 shr al,1
 rcl edx,cl
-ln2016:
+ln1773:
 adc al,al
 test edx,edx
 lahf
@@ -128698,7 +134231,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+16]
 and cl,byte 63
-jnz short ln2017
+jnz short ln1774
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -128708,20 +134241,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2017:
+ln1774:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln2018
+jb short ln1775
 sub cl,31
 rol edx,31
 rol edx,cl
-jmp short ln2019
-ln2018:
+jmp short ln1776
+ln1775:
 rol edx,cl
-ln2019:
+ln1776:
 adc al,al
 test edx,edx
 lahf
@@ -128799,7 +134332,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+20]
 and cl,byte 63
-jnz short ln2020
+jnz short ln1777
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -128809,18 +134342,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2020:
+ln1777:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln2021
+jb short ln1778
 sub cl,31
 sar byte[__dreg+ebx*4], 31
-jmp short ln2022
-ln2021:
+sar byte[__dreg+ebx*4], cl
+jmp short ln1779
+ln1778:
 sar byte[__dreg+ebx*4],cl
-ln2022:
+ln1779:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -128834,7 +134368,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+20]
 and cl,byte 63
-jnz short ln2023
+jnz short ln1780
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -128844,18 +134378,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2023:
+ln1780:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln2024
+jb short ln1781
 sub cl,31
 shr byte[__dreg+ebx*4], 31
-jmp short ln2025
-ln2024:
+shr byte[__dreg+ebx*4], cl
+jmp short ln1782
+ln1781:
 shr byte[__dreg+ebx*4],cl
-ln2025:
+ln1782:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -128869,7 +134404,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+20]
 and cl,byte 63
-jnz short ln2026
+jnz short ln1783
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -128881,22 +134416,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2026:
+ln1783:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln2027
+jb short ln1784
 sub cl,31
 shr al,1
 rcr dl,31
 rcr dl,cl
-jmp short ln2028
-ln2027:
+jmp short ln1785
+ln1784:
 shr al,1
 rcr dl,cl
-ln2028:
+ln1785:
 adc al,al
 test dl,dl
 lahf
@@ -128915,7 +134450,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+20]
 and cl,byte 63
-jnz short ln2029
+jnz short ln1786
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -128925,20 +134460,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2029:
+ln1786:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln2030
+jb short ln1787
 sub cl,31
 ror dl,31
 ror dl,cl
-jmp short ln2031
-ln2030:
+jmp short ln1788
+ln1787:
 ror dl,cl
-ln2031:
+ln1788:
 adc al,al
 test dl,dl
 lahf
@@ -129016,7 +134551,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+20]
 and cl,byte 63
-jnz short ln2032
+jnz short ln1789
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -129026,18 +134561,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2032:
+ln1789:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln2033
+jb short ln1790
 sub cl,31
 sar word[__dreg+ebx*4], 31
-jmp short ln2034
-ln2033:
+sar word[__dreg+ebx*4], cl
+jmp short ln1791
+ln1790:
 sar word[__dreg+ebx*4],cl
-ln2034:
+ln1791:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -129051,7 +134587,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+20]
 and cl,byte 63
-jnz short ln2035
+jnz short ln1792
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -129061,18 +134597,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2035:
+ln1792:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln2036
+jb short ln1793
 sub cl,31
 shr word[__dreg+ebx*4], 31
-jmp short ln2037
-ln2036:
+shr word[__dreg+ebx*4], cl
+jmp short ln1794
+ln1793:
 shr word[__dreg+ebx*4],cl
-ln2037:
+ln1794:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -129086,7 +134623,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+20]
 and cl,byte 63
-jnz short ln2038
+jnz short ln1795
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -129098,22 +134635,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2038:
+ln1795:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln2039
+jb short ln1796
 sub cl,31
 shr al,1
 rcr dx,31
 rcr dx,cl
-jmp short ln2040
-ln2039:
+jmp short ln1797
+ln1796:
 shr al,1
 rcr dx,cl
-ln2040:
+ln1797:
 adc al,al
 test dx,dx
 lahf
@@ -129132,7 +134669,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+20]
 and cl,byte 63
-jnz short ln2041
+jnz short ln1798
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -129142,20 +134679,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2041:
+ln1798:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln2042
+jb short ln1799
 sub cl,31
 ror dx,31
 ror dx,cl
-jmp short ln2043
-ln2042:
+jmp short ln1800
+ln1799:
 ror dx,cl
-ln2043:
+ln1800:
 adc al,al
 test dx,dx
 lahf
@@ -129233,7 +134770,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+20]
 and cl,byte 63
-jnz short ln2044
+jnz short ln1801
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -129243,18 +134780,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2044:
+ln1801:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln2045
+jb short ln1802
 sub cl,31
 sar dword[__dreg+ebx*4], 31
-jmp short ln2046
-ln2045:
+sar dword[__dreg+ebx*4], cl
+jmp short ln1803
+ln1802:
 sar dword[__dreg+ebx*4],cl
-ln2046:
+ln1803:
 lahf
 setc [__xflag]
 sub edi,byte 8
@@ -129268,7 +134806,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+20]
 and cl,byte 63
-jnz short ln2047
+jnz short ln1804
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -129278,18 +134816,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2047:
+ln1804:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln2048
+jb short ln1805
 sub cl,31
 shr dword[__dreg+ebx*4], 31
-jmp short ln2049
-ln2048:
+shr dword[__dreg+ebx*4], cl
+jmp short ln1806
+ln1805:
 shr dword[__dreg+ebx*4],cl
-ln2049:
+ln1806:
 lahf
 setc [__xflag]
 sub edi,byte 8
@@ -129303,7 +134842,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+20]
 and cl,byte 63
-jnz short ln2050
+jnz short ln1807
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -129315,22 +134854,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2050:
+ln1807:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln2051
+jb short ln1808
 sub cl,31
 shr al,1
 rcr edx,31
 rcr edx,cl
-jmp short ln2052
-ln2051:
+jmp short ln1809
+ln1808:
 shr al,1
 rcr edx,cl
-ln2052:
+ln1809:
 adc al,al
 test edx,edx
 lahf
@@ -129349,7 +134888,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+20]
 and cl,byte 63
-jnz short ln2053
+jnz short ln1810
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -129359,20 +134898,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2053:
+ln1810:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln2054
+jb short ln1811
 sub cl,31
 ror edx,31
 ror edx,cl
-jmp short ln2055
-ln2054:
+jmp short ln1812
+ln1811:
 ror edx,cl
-ln2055:
+ln1812:
 adc al,al
 test edx,edx
 lahf
@@ -129467,7 +135006,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+20]
 and cl,byte 63
-jnz short ln2056
+jnz short ln1813
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -129477,18 +135016,18 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2056:
+ln1813:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
-ln2057:
+ln1814:
 add dl,dl
 lahf
 seto ch
 or al,ch
 dec cl
-jnz short ln2057
+jnz short ln1814
 mov [__dreg+ebx*4],dl
 test ah,1
 setnz [__xflag]
@@ -129503,7 +135042,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+20]
 and cl,byte 63
-jnz short ln2058
+jnz short ln1815
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -129513,18 +135052,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2058:
+ln1815:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln2059
+jb short ln1816
 sub cl,31
 shl byte[__dreg+ebx*4], 31
-jmp short ln2060
-ln2059:
+shl byte[__dreg+ebx*4], cl
+jmp short ln1817
+ln1816:
 shl byte[__dreg+ebx*4],cl
-ln2060:
+ln1817:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -129538,7 +135078,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+20]
 and cl,byte 63
-jnz short ln2061
+jnz short ln1818
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -129550,22 +135090,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2061:
+ln1818:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln2062
+jb short ln1819
 sub cl,31
 shr al,1
 rcl dl,31
 rcl dl,cl
-jmp short ln2063
-ln2062:
+jmp short ln1820
+ln1819:
 shr al,1
 rcl dl,cl
-ln2063:
+ln1820:
 adc al,al
 test dl,dl
 lahf
@@ -129584,7 +135124,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+20]
 and cl,byte 63
-jnz short ln2064
+jnz short ln1821
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -129594,20 +135134,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2064:
+ln1821:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln2065
+jb short ln1822
 sub cl,31
 rol dl,31
 rol dl,cl
-jmp short ln2066
-ln2065:
+jmp short ln1823
+ln1822:
 rol dl,cl
-ln2066:
+ln1823:
 adc al,al
 test dl,dl
 lahf
@@ -129702,7 +135242,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+20]
 and cl,byte 63
-jnz short ln2067
+jnz short ln1824
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -129712,18 +135252,18 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2067:
+ln1824:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
-ln2068:
+ln1825:
 add dx,dx
 lahf
 seto ch
 or al,ch
 dec cl
-jnz short ln2068
+jnz short ln1825
 mov [__dreg+ebx*4],dx
 test ah,1
 setnz [__xflag]
@@ -129738,7 +135278,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+20]
 and cl,byte 63
-jnz short ln2069
+jnz short ln1826
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -129748,18 +135288,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2069:
+ln1826:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln2070
+jb short ln1827
 sub cl,31
 shl word[__dreg+ebx*4], 31
-jmp short ln2071
-ln2070:
+shl word[__dreg+ebx*4], cl
+jmp short ln1828
+ln1827:
 shl word[__dreg+ebx*4],cl
-ln2071:
+ln1828:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -129773,7 +135314,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+20]
 and cl,byte 63
-jnz short ln2072
+jnz short ln1829
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -129785,22 +135326,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2072:
+ln1829:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln2073
+jb short ln1830
 sub cl,31
 shr al,1
 rcl dx,31
 rcl dx,cl
-jmp short ln2074
-ln2073:
+jmp short ln1831
+ln1830:
 shr al,1
 rcl dx,cl
-ln2074:
+ln1831:
 adc al,al
 test dx,dx
 lahf
@@ -129819,7 +135360,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+20]
 and cl,byte 63
-jnz short ln2075
+jnz short ln1832
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -129829,20 +135370,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2075:
+ln1832:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln2076
+jb short ln1833
 sub cl,31
 rol dx,31
 rol dx,cl
-jmp short ln2077
-ln2076:
+jmp short ln1834
+ln1833:
 rol dx,cl
-ln2077:
+ln1834:
 adc al,al
 test dx,dx
 lahf
@@ -129937,7 +135478,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+20]
 and cl,byte 63
-jnz short ln2078
+jnz short ln1835
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -129947,18 +135488,18 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2078:
+ln1835:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
-ln2079:
+ln1836:
 add edx,edx
 lahf
 seto ch
 or al,ch
 dec cl
-jnz short ln2079
+jnz short ln1836
 mov [__dreg+ebx*4],edx
 test ah,1
 setnz [__xflag]
@@ -129973,7 +135514,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+20]
 and cl,byte 63
-jnz short ln2080
+jnz short ln1837
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -129983,18 +135524,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2080:
+ln1837:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln2081
+jb short ln1838
 sub cl,31
 shl dword[__dreg+ebx*4], 31
-jmp short ln2082
-ln2081:
+shl dword[__dreg+ebx*4], cl
+jmp short ln1839
+ln1838:
 shl dword[__dreg+ebx*4],cl
-ln2082:
+ln1839:
 lahf
 setc [__xflag]
 sub edi,byte 8
@@ -130008,7 +135550,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+20]
 and cl,byte 63
-jnz short ln2083
+jnz short ln1840
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -130020,22 +135562,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2083:
+ln1840:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln2084
+jb short ln1841
 sub cl,31
 shr al,1
 rcl edx,31
 rcl edx,cl
-jmp short ln2085
-ln2084:
+jmp short ln1842
+ln1841:
 shr al,1
 rcl edx,cl
-ln2085:
+ln1842:
 adc al,al
 test edx,edx
 lahf
@@ -130054,7 +135596,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+20]
 and cl,byte 63
-jnz short ln2086
+jnz short ln1843
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -130064,20 +135606,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2086:
+ln1843:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln2087
+jb short ln1844
 sub cl,31
 rol edx,31
 rol edx,cl
-jmp short ln2088
-ln2087:
+jmp short ln1845
+ln1844:
 rol edx,cl
-ln2088:
+ln1845:
 adc al,al
 test edx,edx
 lahf
@@ -130155,7 +135697,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+24]
 and cl,byte 63
-jnz short ln2089
+jnz short ln1846
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -130165,18 +135707,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2089:
+ln1846:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln2090
+jb short ln1847
 sub cl,31
 sar byte[__dreg+ebx*4], 31
-jmp short ln2091
-ln2090:
+sar byte[__dreg+ebx*4], cl
+jmp short ln1848
+ln1847:
 sar byte[__dreg+ebx*4],cl
-ln2091:
+ln1848:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -130190,7 +135733,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+24]
 and cl,byte 63
-jnz short ln2092
+jnz short ln1849
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -130200,18 +135743,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2092:
+ln1849:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln2093
+jb short ln1850
 sub cl,31
 shr byte[__dreg+ebx*4], 31
-jmp short ln2094
-ln2093:
+shr byte[__dreg+ebx*4], cl
+jmp short ln1851
+ln1850:
 shr byte[__dreg+ebx*4],cl
-ln2094:
+ln1851:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -130225,7 +135769,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+24]
 and cl,byte 63
-jnz short ln2095
+jnz short ln1852
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -130237,22 +135781,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2095:
+ln1852:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln2096
+jb short ln1853
 sub cl,31
 shr al,1
 rcr dl,31
 rcr dl,cl
-jmp short ln2097
-ln2096:
+jmp short ln1854
+ln1853:
 shr al,1
 rcr dl,cl
-ln2097:
+ln1854:
 adc al,al
 test dl,dl
 lahf
@@ -130271,7 +135815,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+24]
 and cl,byte 63
-jnz short ln2098
+jnz short ln1855
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -130281,20 +135825,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2098:
+ln1855:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln2099
+jb short ln1856
 sub cl,31
 ror dl,31
 ror dl,cl
-jmp short ln2100
-ln2099:
+jmp short ln1857
+ln1856:
 ror dl,cl
-ln2100:
+ln1857:
 adc al,al
 test dl,dl
 lahf
@@ -130372,7 +135916,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+24]
 and cl,byte 63
-jnz short ln2101
+jnz short ln1858
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -130382,18 +135926,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2101:
+ln1858:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln2102
+jb short ln1859
 sub cl,31
 sar word[__dreg+ebx*4], 31
-jmp short ln2103
-ln2102:
+sar word[__dreg+ebx*4], cl
+jmp short ln1860
+ln1859:
 sar word[__dreg+ebx*4],cl
-ln2103:
+ln1860:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -130407,7 +135952,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+24]
 and cl,byte 63
-jnz short ln2104
+jnz short ln1861
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -130417,18 +135962,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2104:
+ln1861:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln2105
+jb short ln1862
 sub cl,31
 shr word[__dreg+ebx*4], 31
-jmp short ln2106
-ln2105:
+shr word[__dreg+ebx*4], cl
+jmp short ln1863
+ln1862:
 shr word[__dreg+ebx*4],cl
-ln2106:
+ln1863:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -130442,7 +135988,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+24]
 and cl,byte 63
-jnz short ln2107
+jnz short ln1864
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -130454,22 +136000,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2107:
+ln1864:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln2108
+jb short ln1865
 sub cl,31
 shr al,1
 rcr dx,31
 rcr dx,cl
-jmp short ln2109
-ln2108:
+jmp short ln1866
+ln1865:
 shr al,1
 rcr dx,cl
-ln2109:
+ln1866:
 adc al,al
 test dx,dx
 lahf
@@ -130488,7 +136034,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+24]
 and cl,byte 63
-jnz short ln2110
+jnz short ln1867
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -130498,20 +136044,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2110:
+ln1867:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln2111
+jb short ln1868
 sub cl,31
 ror dx,31
 ror dx,cl
-jmp short ln2112
-ln2111:
+jmp short ln1869
+ln1868:
 ror dx,cl
-ln2112:
+ln1869:
 adc al,al
 test dx,dx
 lahf
@@ -130589,7 +136135,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+24]
 and cl,byte 63
-jnz short ln2113
+jnz short ln1870
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -130599,18 +136145,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2113:
+ln1870:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln2114
+jb short ln1871
 sub cl,31
 sar dword[__dreg+ebx*4], 31
-jmp short ln2115
-ln2114:
+sar dword[__dreg+ebx*4], cl
+jmp short ln1872
+ln1871:
 sar dword[__dreg+ebx*4],cl
-ln2115:
+ln1872:
 lahf
 setc [__xflag]
 sub edi,byte 8
@@ -130624,7 +136171,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+24]
 and cl,byte 63
-jnz short ln2116
+jnz short ln1873
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -130634,18 +136181,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2116:
+ln1873:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln2117
+jb short ln1874
 sub cl,31
 shr dword[__dreg+ebx*4], 31
-jmp short ln2118
-ln2117:
+shr dword[__dreg+ebx*4], cl
+jmp short ln1875
+ln1874:
 shr dword[__dreg+ebx*4],cl
-ln2118:
+ln1875:
 lahf
 setc [__xflag]
 sub edi,byte 8
@@ -130659,7 +136207,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+24]
 and cl,byte 63
-jnz short ln2119
+jnz short ln1876
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -130671,22 +136219,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2119:
+ln1876:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln2120
+jb short ln1877
 sub cl,31
 shr al,1
 rcr edx,31
 rcr edx,cl
-jmp short ln2121
-ln2120:
+jmp short ln1878
+ln1877:
 shr al,1
 rcr edx,cl
-ln2121:
+ln1878:
 adc al,al
 test edx,edx
 lahf
@@ -130705,7 +136253,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+24]
 and cl,byte 63
-jnz short ln2122
+jnz short ln1879
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -130715,20 +136263,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2122:
+ln1879:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln2123
+jb short ln1880
 sub cl,31
 ror edx,31
 ror edx,cl
-jmp short ln2124
-ln2123:
+jmp short ln1881
+ln1880:
 ror edx,cl
-ln2124:
+ln1881:
 adc al,al
 test edx,edx
 lahf
@@ -130826,7 +136374,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+24]
 and cl,byte 63
-jnz short ln2125
+jnz short ln1882
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -130836,18 +136384,18 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2125:
+ln1882:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
-ln2126:
+ln1883:
 add dl,dl
 lahf
 seto ch
 or al,ch
 dec cl
-jnz short ln2126
+jnz short ln1883
 mov [__dreg+ebx*4],dl
 test ah,1
 setnz [__xflag]
@@ -130862,7 +136410,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+24]
 and cl,byte 63
-jnz short ln2127
+jnz short ln1884
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -130872,18 +136420,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2127:
+ln1884:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln2128
+jb short ln1885
 sub cl,31
 shl byte[__dreg+ebx*4], 31
-jmp short ln2129
-ln2128:
+shl byte[__dreg+ebx*4], cl
+jmp short ln1886
+ln1885:
 shl byte[__dreg+ebx*4],cl
-ln2129:
+ln1886:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -130897,7 +136446,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+24]
 and cl,byte 63
-jnz short ln2130
+jnz short ln1887
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -130909,22 +136458,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2130:
+ln1887:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln2131
+jb short ln1888
 sub cl,31
 shr al,1
 rcl dl,31
 rcl dl,cl
-jmp short ln2132
-ln2131:
+jmp short ln1889
+ln1888:
 shr al,1
 rcl dl,cl
-ln2132:
+ln1889:
 adc al,al
 test dl,dl
 lahf
@@ -130943,7 +136492,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+24]
 and cl,byte 63
-jnz short ln2133
+jnz short ln1890
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -130953,20 +136502,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2133:
+ln1890:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln2134
+jb short ln1891
 sub cl,31
 rol dl,31
 rol dl,cl
-jmp short ln2135
-ln2134:
+jmp short ln1892
+ln1891:
 rol dl,cl
-ln2135:
+ln1892:
 adc al,al
 test dl,dl
 lahf
@@ -131064,7 +136613,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+24]
 and cl,byte 63
-jnz short ln2136
+jnz short ln1893
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -131074,18 +136623,18 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2136:
+ln1893:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
-ln2137:
+ln1894:
 add dx,dx
 lahf
 seto ch
 or al,ch
 dec cl
-jnz short ln2137
+jnz short ln1894
 mov [__dreg+ebx*4],dx
 test ah,1
 setnz [__xflag]
@@ -131100,7 +136649,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+24]
 and cl,byte 63
-jnz short ln2138
+jnz short ln1895
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -131110,18 +136659,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2138:
+ln1895:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln2139
+jb short ln1896
 sub cl,31
 shl word[__dreg+ebx*4], 31
-jmp short ln2140
-ln2139:
+shl word[__dreg+ebx*4], cl
+jmp short ln1897
+ln1896:
 shl word[__dreg+ebx*4],cl
-ln2140:
+ln1897:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -131135,7 +136685,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+24]
 and cl,byte 63
-jnz short ln2141
+jnz short ln1898
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -131147,22 +136697,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2141:
+ln1898:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln2142
+jb short ln1899
 sub cl,31
 shr al,1
 rcl dx,31
 rcl dx,cl
-jmp short ln2143
-ln2142:
+jmp short ln1900
+ln1899:
 shr al,1
 rcl dx,cl
-ln2143:
+ln1900:
 adc al,al
 test dx,dx
 lahf
@@ -131181,7 +136731,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+24]
 and cl,byte 63
-jnz short ln2144
+jnz short ln1901
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -131191,20 +136741,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2144:
+ln1901:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln2145
+jb short ln1902
 sub cl,31
 rol dx,31
 rol dx,cl
-jmp short ln2146
-ln2145:
+jmp short ln1903
+ln1902:
 rol dx,cl
-ln2146:
+ln1903:
 adc al,al
 test dx,dx
 lahf
@@ -131302,7 +136852,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+24]
 and cl,byte 63
-jnz short ln2147
+jnz short ln1904
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -131312,18 +136862,18 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2147:
+ln1904:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
-ln2148:
+ln1905:
 add edx,edx
 lahf
 seto ch
 or al,ch
 dec cl
-jnz short ln2148
+jnz short ln1905
 mov [__dreg+ebx*4],edx
 test ah,1
 setnz [__xflag]
@@ -131338,7 +136888,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+24]
 and cl,byte 63
-jnz short ln2149
+jnz short ln1906
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -131348,18 +136898,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2149:
+ln1906:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln2150
+jb short ln1907
 sub cl,31
 shl dword[__dreg+ebx*4], 31
-jmp short ln2151
-ln2150:
+shl dword[__dreg+ebx*4], cl
+jmp short ln1908
+ln1907:
 shl dword[__dreg+ebx*4],cl
-ln2151:
+ln1908:
 lahf
 setc [__xflag]
 sub edi,byte 8
@@ -131373,7 +136924,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+24]
 and cl,byte 63
-jnz short ln2152
+jnz short ln1909
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -131385,22 +136936,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2152:
+ln1909:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln2153
+jb short ln1910
 sub cl,31
 shr al,1
 rcl edx,31
 rcl edx,cl
-jmp short ln2154
-ln2153:
+jmp short ln1911
+ln1910:
 shr al,1
 rcl edx,cl
-ln2154:
+ln1911:
 adc al,al
 test edx,edx
 lahf
@@ -131419,7 +136970,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+24]
 and cl,byte 63
-jnz short ln2155
+jnz short ln1912
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -131429,20 +136980,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2155:
+ln1912:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln2156
+jb short ln1913
 sub cl,31
 rol edx,31
 rol edx,cl
-jmp short ln2157
-ln2156:
+jmp short ln1914
+ln1913:
 rol edx,cl
-ln2157:
+ln1914:
 adc al,al
 test edx,edx
 lahf
@@ -131520,7 +137071,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+28]
 and cl,byte 63
-jnz short ln2158
+jnz short ln1915
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -131530,18 +137081,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2158:
+ln1915:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln2159
+jb short ln1916
 sub cl,31
 sar byte[__dreg+ebx*4], 31
-jmp short ln2160
-ln2159:
+sar byte[__dreg+ebx*4], cl
+jmp short ln1917
+ln1916:
 sar byte[__dreg+ebx*4],cl
-ln2160:
+ln1917:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -131555,7 +137107,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+28]
 and cl,byte 63
-jnz short ln2161
+jnz short ln1918
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -131565,18 +137117,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2161:
+ln1918:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln2162
+jb short ln1919
 sub cl,31
 shr byte[__dreg+ebx*4], 31
-jmp short ln2163
-ln2162:
+shr byte[__dreg+ebx*4], cl
+jmp short ln1920
+ln1919:
 shr byte[__dreg+ebx*4],cl
-ln2163:
+ln1920:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -131590,7 +137143,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+28]
 and cl,byte 63
-jnz short ln2164
+jnz short ln1921
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -131602,22 +137155,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2164:
+ln1921:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln2165
+jb short ln1922
 sub cl,31
 shr al,1
 rcr dl,31
 rcr dl,cl
-jmp short ln2166
-ln2165:
+jmp short ln1923
+ln1922:
 shr al,1
 rcr dl,cl
-ln2166:
+ln1923:
 adc al,al
 test dl,dl
 lahf
@@ -131636,7 +137189,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+28]
 and cl,byte 63
-jnz short ln2167
+jnz short ln1924
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -131646,20 +137199,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2167:
+ln1924:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln2168
+jb short ln1925
 sub cl,31
 ror dl,31
 ror dl,cl
-jmp short ln2169
-ln2168:
+jmp short ln1926
+ln1925:
 ror dl,cl
-ln2169:
+ln1926:
 adc al,al
 test dl,dl
 lahf
@@ -131737,7 +137290,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+28]
 and cl,byte 63
-jnz short ln2170
+jnz short ln1927
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -131747,18 +137300,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2170:
+ln1927:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln2171
+jb short ln1928
 sub cl,31
 sar word[__dreg+ebx*4], 31
-jmp short ln2172
-ln2171:
+sar word[__dreg+ebx*4], cl
+jmp short ln1929
+ln1928:
 sar word[__dreg+ebx*4],cl
-ln2172:
+ln1929:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -131772,7 +137326,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+28]
 and cl,byte 63
-jnz short ln2173
+jnz short ln1930
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -131782,18 +137336,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2173:
+ln1930:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln2174
+jb short ln1931
 sub cl,31
 shr word[__dreg+ebx*4], 31
-jmp short ln2175
-ln2174:
+shr word[__dreg+ebx*4], cl
+jmp short ln1932
+ln1931:
 shr word[__dreg+ebx*4],cl
-ln2175:
+ln1932:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -131807,7 +137362,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+28]
 and cl,byte 63
-jnz short ln2176
+jnz short ln1933
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -131819,22 +137374,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2176:
+ln1933:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln2177
+jb short ln1934
 sub cl,31
 shr al,1
 rcr dx,31
 rcr dx,cl
-jmp short ln2178
-ln2177:
+jmp short ln1935
+ln1934:
 shr al,1
 rcr dx,cl
-ln2178:
+ln1935:
 adc al,al
 test dx,dx
 lahf
@@ -131853,7 +137408,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+28]
 and cl,byte 63
-jnz short ln2179
+jnz short ln1936
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -131863,20 +137418,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2179:
+ln1936:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln2180
+jb short ln1937
 sub cl,31
 ror dx,31
 ror dx,cl
-jmp short ln2181
-ln2180:
+jmp short ln1938
+ln1937:
 ror dx,cl
-ln2181:
+ln1938:
 adc al,al
 test dx,dx
 lahf
@@ -131954,7 +137509,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+28]
 and cl,byte 63
-jnz short ln2182
+jnz short ln1939
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -131964,18 +137519,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2182:
+ln1939:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln2183
+jb short ln1940
 sub cl,31
 sar dword[__dreg+ebx*4], 31
-jmp short ln2184
-ln2183:
+sar dword[__dreg+ebx*4], cl
+jmp short ln1941
+ln1940:
 sar dword[__dreg+ebx*4],cl
-ln2184:
+ln1941:
 lahf
 setc [__xflag]
 sub edi,byte 8
@@ -131989,7 +137545,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+28]
 and cl,byte 63
-jnz short ln2185
+jnz short ln1942
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -131999,18 +137555,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2185:
+ln1942:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln2186
+jb short ln1943
 sub cl,31
 shr dword[__dreg+ebx*4], 31
-jmp short ln2187
-ln2186:
+shr dword[__dreg+ebx*4], cl
+jmp short ln1944
+ln1943:
 shr dword[__dreg+ebx*4],cl
-ln2187:
+ln1944:
 lahf
 setc [__xflag]
 sub edi,byte 8
@@ -132024,7 +137581,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+28]
 and cl,byte 63
-jnz short ln2188
+jnz short ln1945
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -132036,22 +137593,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2188:
+ln1945:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln2189
+jb short ln1946
 sub cl,31
 shr al,1
 rcr edx,31
 rcr edx,cl
-jmp short ln2190
-ln2189:
+jmp short ln1947
+ln1946:
 shr al,1
 rcr edx,cl
-ln2190:
+ln1947:
 adc al,al
 test edx,edx
 lahf
@@ -132070,7 +137627,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+28]
 and cl,byte 63
-jnz short ln2191
+jnz short ln1948
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -132080,20 +137637,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2191:
+ln1948:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln2192
+jb short ln1949
 sub cl,31
 ror edx,31
 ror edx,cl
-jmp short ln2193
-ln2192:
+jmp short ln1950
+ln1949:
 ror edx,cl
-ln2193:
+ln1950:
 adc al,al
 test edx,edx
 lahf
@@ -132194,7 +137751,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+28]
 and cl,byte 63
-jnz short ln2194
+jnz short ln1951
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -132204,18 +137761,18 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2194:
+ln1951:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
-ln2195:
+ln1952:
 add dl,dl
 lahf
 seto ch
 or al,ch
 dec cl
-jnz short ln2195
+jnz short ln1952
 mov [__dreg+ebx*4],dl
 test ah,1
 setnz [__xflag]
@@ -132230,7 +137787,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+28]
 and cl,byte 63
-jnz short ln2196
+jnz short ln1953
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -132240,18 +137797,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2196:
+ln1953:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln2197
+jb short ln1954
 sub cl,31
 shl byte[__dreg+ebx*4], 31
-jmp short ln2198
-ln2197:
+shl byte[__dreg+ebx*4], cl
+jmp short ln1955
+ln1954:
 shl byte[__dreg+ebx*4],cl
-ln2198:
+ln1955:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -132265,7 +137823,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+28]
 and cl,byte 63
-jnz short ln2199
+jnz short ln1956
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -132277,22 +137835,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2199:
+ln1956:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln2200
+jb short ln1957
 sub cl,31
 shr al,1
 rcl dl,31
 rcl dl,cl
-jmp short ln2201
-ln2200:
+jmp short ln1958
+ln1957:
 shr al,1
 rcl dl,cl
-ln2201:
+ln1958:
 adc al,al
 test dl,dl
 lahf
@@ -132311,7 +137869,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+28]
 and cl,byte 63
-jnz short ln2202
+jnz short ln1959
 mov ecx,[__dreg+ebx*4]
 test cl,cl
 lahf
@@ -132321,20 +137879,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2202:
+ln1959:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln2203
+jb short ln1960
 sub cl,31
 rol dl,31
 rol dl,cl
-jmp short ln2204
-ln2203:
+jmp short ln1961
+ln1960:
 rol dl,cl
-ln2204:
+ln1961:
 adc al,al
 test dl,dl
 lahf
@@ -132435,7 +137993,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+28]
 and cl,byte 63
-jnz short ln2205
+jnz short ln1962
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -132445,18 +138003,18 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2205:
+ln1962:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
-ln2206:
+ln1963:
 add dx,dx
 lahf
 seto ch
 or al,ch
 dec cl
-jnz short ln2206
+jnz short ln1963
 mov [__dreg+ebx*4],dx
 test ah,1
 setnz [__xflag]
@@ -132471,7 +138029,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+28]
 and cl,byte 63
-jnz short ln2207
+jnz short ln1964
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -132481,18 +138039,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2207:
+ln1964:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln2208
+jb short ln1965
 sub cl,31
 shl word[__dreg+ebx*4], 31
-jmp short ln2209
-ln2208:
+shl word[__dreg+ebx*4], cl
+jmp short ln1966
+ln1965:
 shl word[__dreg+ebx*4],cl
-ln2209:
+ln1966:
 lahf
 setc [__xflag]
 sub edi,byte 6
@@ -132506,7 +138065,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+28]
 and cl,byte 63
-jnz short ln2210
+jnz short ln1967
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -132518,22 +138077,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2210:
+ln1967:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln2211
+jb short ln1968
 sub cl,31
 shr al,1
 rcl dx,31
 rcl dx,cl
-jmp short ln2212
-ln2211:
+jmp short ln1969
+ln1968:
 shr al,1
 rcl dx,cl
-ln2212:
+ln1969:
 adc al,al
 test dx,dx
 lahf
@@ -132552,7 +138111,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+28]
 and cl,byte 63
-jnz short ln2213
+jnz short ln1970
 mov ecx,[__dreg+ebx*4]
 test cx,cx
 lahf
@@ -132562,20 +138121,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2213:
+ln1970:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln2214
+jb short ln1971
 sub cl,31
 rol dx,31
 rol dx,cl
-jmp short ln2215
-ln2214:
+jmp short ln1972
+ln1971:
 rol dx,cl
-ln2215:
+ln1972:
 adc al,al
 test dx,dx
 lahf
@@ -132676,7 +138235,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+28]
 and cl,byte 63
-jnz short ln2216
+jnz short ln1973
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -132686,18 +138245,18 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2216:
+ln1973:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
-ln2217:
+ln1974:
 add edx,edx
 lahf
 seto ch
 or al,ch
 dec cl
-jnz short ln2217
+jnz short ln1974
 mov [__dreg+ebx*4],edx
 test ah,1
 setnz [__xflag]
@@ -132712,7 +138271,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+28]
 and cl,byte 63
-jnz short ln2218
+jnz short ln1975
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -132722,18 +138281,19 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2218:
+ln1975:
 sub edi,ecx
 sub edi,ecx
 xor al,al
 cmp cl,32
-jb short ln2219
+jb short ln1976
 sub cl,31
 shl dword[__dreg+ebx*4], 31
-jmp short ln2220
-ln2219:
+shl dword[__dreg+ebx*4], cl
+jmp short ln1977
+ln1976:
 shl dword[__dreg+ebx*4],cl
-ln2220:
+ln1977:
 lahf
 setc [__xflag]
 sub edi,byte 8
@@ -132747,7 +138307,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+28]
 and cl,byte 63
-jnz short ln2221
+jnz short ln1978
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -132759,22 +138319,22 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2221:
+ln1978:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 mov al,[__xflag]
 cmp cl,32
-jb short ln2222
+jb short ln1979
 sub cl,31
 shr al,1
 rcl edx,31
 rcl edx,cl
-jmp short ln2223
-ln2222:
+jmp short ln1980
+ln1979:
 shr al,1
 rcl edx,cl
-ln2223:
+ln1980:
 adc al,al
 test edx,edx
 lahf
@@ -132793,7 +138353,7 @@ and ebx,byte 7
 xor ecx,ecx
 mov cl,[__dreg+28]
 and cl,byte 63
-jnz short ln2224
+jnz short ln1981
 mov ecx,[__dreg+ebx*4]
 test ecx,ecx
 lahf
@@ -132803,20 +138363,20 @@ js near execexit
 mov bx,[esi]
 add esi,byte 2
 jmp dword[__jmptbl+ebx*4]
-ln2224:
+ln1981:
 sub edi,ecx
 sub edi,ecx
 mov edx,[__dreg+ebx*4]
 xor al,al
 cmp cl,32
-jb short ln2225
+jb short ln1982
 sub cl,31
 rol edx,31
 rol edx,cl
-jmp short ln2226
-ln2225:
+jmp short ln1983
+ln1982:
 rol edx,cl
-ln2226:
+ln1983:
 adc al,al
 test edx,edx
 lahf
@@ -132837,9 +138397,9 @@ and esi,16777215
 mov ecx,esi
 shr ecx,12
 cmp cx,word[__fetch_bank]
-je short ln2227
+je short ln1984
 call basefunction
-ln2227:
+ln1984:
 add esi,ebp
 sub edi,byte 34
 js near execexit

@@ -10,6 +10,8 @@
 
 #include "../menu/menu.h"
 
+extern int menu_moving;
+
 #ifdef DREAMCAST
 #include <SDL_dreamcast.h>
 #endif
@@ -77,63 +79,91 @@ Uint32 joyset [NUMJOYSTICKS][NUMAXES][AXISMAX];
 
 unsigned char neo4all_intern_coin=7;
 
+static int input_initted=0;
+
+extern SDLKey menuControl_bt0[];
+extern SDLKey menuControl_bt1[];
+
 #ifdef AES
+static int input_back_aes_system=-1234;
 void input_init_aes_system(int system)
 {
+
 	if (system)
 	{
-    		keyup[SDLK_TAB]=joyup[0][9]=P1SEL;
-		keyup[SDLK_1]=joyup[1][9]=P2SEL;
+    		keyup[menuControl_bt0[5]]=joyup[0][9]=P1SEL|keyup[menuControl_bt0[5]];
+		keyup[menuControl_bt1[5]]=joyup[1][9]=P2SEL|keyup[menuControl_bt1[5]];
 	}
 	else
 	{
-		keyup[SDLK_TAB]=joyup[0][9]=SPECIAL;
-		keyup[SDLK_1]=joyup[1][9]=SPECIAL;
+		keyup[menuControl_bt0[5]]=joyup[0][9]=SPECIAL|keyup[menuControl_bt0[5]];
+		keyup[menuControl_bt1[5]]=joyup[1][9]=SPECIAL|keyup[menuControl_bt1[5]];
 	}
+	joydown[0][9]=~joyup[0][9];
+	joydown[1][9]=~joyup[1][9];
+	input_back_aes_system=system;
 }
+
+static void input_reinit_aes_system(void)
+{
+	if (input_back_aes_system!=1234)
+		input_init_aes_system(input_back_aes_system);
+}
+#else
+#define input_init_aes_system(SYS)
+#define input_reinit_aes_system()
 #endif
-            
+
+
 /*--------------------------------------------------------------------------*/
 void input_init(void) {
     int i;
     
     SDL_EventState(SDL_MOUSEMOTION, SDL_IGNORE);
     
+    for(i=0;i<SDLK_LAST;i++)
+	keyup[i]=0;
+
+    for(i=0; i<NUMJOYBUTTONS; i++) 
+        joyup[0][i] = joyup[1][i] = 0;
+
     /* Player 1 */
-    keyup[SDLK_UP]    =P1UP;    
-    keyup[SDLK_DOWN]  =P1DOWN;
-    keyup[SDLK_LEFT]  =P1LEFT;
-    keyup[SDLK_RIGHT] =P1RIGHT;
-    keyup[SDLK_LCTRL] =P1A;            joyup[0][0]=P1A;
-    keyup[SDLK_LALT]  =P1B;            joyup[0][1]=P1B;
-    keyup[SDLK_LSHIFT]=P1C;            joyup[0][2]=P1C;
-    keyup[SDLK_SPACE] =P1D;            joyup[0][3]=P1D;
-    keyup[SDLK_RETURN]=P1START;        joyup[0][8]=P1START;
-    keyup[SDLK_TAB]   =P1SEL;          joyup[0][9]=P1SEL;
+    keyup[SDLK_UP]    				= P1UP;    
+    keyup[SDLK_DOWN]  				= P1DOWN;
+    keyup[SDLK_LEFT]  				= P1LEFT;
+    keyup[SDLK_RIGHT] 				= P1RIGHT;
+    keyup[menuControl_bt0[0]] = joyup[0][0]	= P1A | keyup[menuControl_bt0[0]];
+    keyup[menuControl_bt0[1]] = joyup[0][1]	= P1B | keyup[menuControl_bt0[1]];
+    keyup[menuControl_bt0[2]] = joyup[0][2]	= P1C | keyup[menuControl_bt0[2]];
+    keyup[menuControl_bt0[3]] = joyup[0][3]	= P1D | keyup[menuControl_bt0[3]];
+    keyup[menuControl_bt0[4]] = joyup[0][8]	= P1START | keyup[menuControl_bt0[4]];
+    keyup[menuControl_bt0[5]] = joyup[0][9]	= P1SEL | keyup[menuControl_bt0[5]];
 
     
     /* Player 2 */
-    keyup[SDLK_w]     =P2UP;
-    keyup[SDLK_s]     =P2DOWN;
-    keyup[SDLK_d]     =P2RIGHT;
-    keyup[SDLK_a]     =P2LEFT;
-    keyup[SDLK_e]     =P2A;            joyup[1][0]=P2A;
-    keyup[SDLK_q]     =P2B;            joyup[1][1]=P2B;
-    keyup[SDLK_c]     =P2C;            joyup[1][2]=P2C;
-    keyup[SDLK_x]     =P2D;            joyup[1][3]=P2D;
-    keyup[SDLK_z]     =P2START;        joyup[1][8]=P2START;
-    keyup[SDLK_1]     =P2SEL;          joyup[1][9]=P2SEL;
+    keyup[SDLK_w]    				= P2UP;
+    keyup[SDLK_s]  	  			= P2DOWN;
+    keyup[SDLK_d]    				= P2RIGHT;
+    keyup[SDLK_a]    				= P2LEFT;
+    keyup[menuControl_bt1[0]] = joyup[1][0]	= P2A | keyup[menuControl_bt1[0]];
+    keyup[menuControl_bt1[1]] = joyup[1][1]	= P2B | keyup[menuControl_bt1[1]];
+    keyup[menuControl_bt1[2]] = joyup[1][2]	= P2C | keyup[menuControl_bt1[2]];
+    keyup[menuControl_bt1[3]] = joyup[1][3]	= P2D | keyup[menuControl_bt1[3]];
+    keyup[menuControl_bt1[4]] = joyup[1][8]	= P2START | keyup[menuControl_bt1[4]];
+    keyup[menuControl_bt1[5]] = joyup[1][9]	= P2SEL | keyup[menuControl_bt1[5]];
     
     /* Special */
-    keyup[SDLK_F1]    =SPECIAL;
-    keyup[SDLK_F2]    =SPECIAL;
-    keyup[SDLK_F3]    =SPECIAL;
-    keyup[SDLK_F4]    =SPECIAL;
-    keyup[SDLK_F12]   =SPECIAL;
+    keyup[SDLK_F1]    = SPECIAL;
+    keyup[SDLK_F2]    = SPECIAL;
+    keyup[SDLK_F3]    = SPECIAL;
+    keyup[SDLK_F4]    = SPECIAL;
+    keyup[SDLK_F12]   = SPECIAL;
 #ifndef DREAMCAST
-    keyup[SDLK_ESCAPE]=SPECIAL;
+    keyup[SDLK_ESCAPE]= SPECIAL;
 #endif
-    keyup[SDLK_BACKSPACE]=SPECIAL;
+    keyup[SDLK_BACKSPACE]= SPECIAL;
+
+    input_reinit_aes_system();
 
     /* set key down mask */
     for(i=0;i<SDLK_LAST;i++) {
@@ -187,6 +217,7 @@ void input_init(void) {
     /* open joysticks */
     for(i=0; i<SDL_NumJoysticks() && i<NUMJOYSTICKS; i++) {
         joystick[i]=SDL_JoystickOpen(i);
+/*
         if(joystick[i]!=NULL) {
 #ifndef DREAMCAST
             printf("\nOpened Joystick %d\n",i);
@@ -195,6 +226,7 @@ void input_init(void) {
             printf("Number of Buttons: %d\n", SDL_JoystickNumButtons(joystick[i]));
 #endif
         }
+*/
     }
 #ifdef DREAMCAST
     SDL_DC_EmulateKeyboard(SDL_TRUE);
@@ -202,8 +234,15 @@ void input_init(void) {
 #endif
 
     input_reset();
+    input_initted=1;
 }
 
+void input_reinit(void)
+{
+	if (input_initted)
+		input_init();
+}
+            
 
 void input_shutdown(void) {
     int i;
@@ -221,6 +260,22 @@ static int pulsando_menu=0;
 
 INPUT_STATIC_INLINE void goMenu(void)
 {
+#ifndef SHOW_MENU
+	SDL_Event ev;
+	sound_disable();
+	cdda_pause();
+	input_reset();
+	SDL_Delay(1111);
+    	while(SDL_PollEvent(&ev)) SDL_Delay(10);
+	do{
+		text_draw_nomenu();
+    	}while(!SDL_PollEvent(&ev));
+    	while(SDL_PollEvent(&ev)) SDL_Delay(10);
+	cdda_resume();
+	sound_enable();
+	init_autoframeskip();
+	pulsando_menu=0;
+#else
 	if (keys==~0)
 	{
     		int nook=1;
@@ -233,6 +288,7 @@ INPUT_STATIC_INLINE void goMenu(void)
 		sound_disable();
 		cdda_pause();
 		input_reset();
+		menu_moving=1;
 		menu_raise();
 		while(nook)
 		{
@@ -272,6 +328,7 @@ INPUT_STATIC_INLINE void goMenu(void)
 		neo4all_prof_init();
 #endif
 	}
+#endif
 }
 
 static void insert_coin(int n)
@@ -294,6 +351,7 @@ static void update_coin(void)
 INPUT_STATIC_INLINE void specialKey (SDLKey key) {
     switch(key) {
 #ifndef DREAMCAST
+	case SDLK_F10:
 	case SDLK_BACKSPACE:
 		pulsando_menu=1;
 		break;
@@ -407,19 +465,27 @@ void processEvents(void) {
 
     if (cuenta==AUTO_EVENTS)
     {
+	    extern int trazando;
+	    trazando=1;
 #ifdef PROFILER_NEO4ALL
 	    neo4all_prof_init();
-#endif
+#else
+#if !defined(DEBUG_Z80) && !defined(DEBUG_FAME)
 	    init_autoframeskip();
+#endif
+#endif
     }
 #ifdef AUTO_MAX_EVENTS
     if (cuenta>=AUTO_MAX_EVENTS)
     {
 #ifdef PROFILER_NEO4ALL
 	    neo4all_prof_show();
-#endif
+#else
+#if !defined(DEBUG_Z80) && !defined(DEBUG_FAME)
 	    print_frameskip();
 	    fflush(stdout);
+#endif
+#endif
 	    exit(0);
     }
 #endif
@@ -440,7 +506,7 @@ unsigned char read_player2(void)
 
 /*--------------------------------------------------------------------------*/
 unsigned char read_pl12_startsel(void) {
-    return (keys>>16)&0xff;
+    return (keys>>16)&0x0f;
 }
 
 

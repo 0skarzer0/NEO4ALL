@@ -16951,7 +16951,7 @@ void mz80init(void)
 
 	if (NULL == pbAddAdcTable)
 	{
-		pbAddAdcTable = malloc(256*256*2);
+		pbAddAdcTable = (unsigned char *)malloc(256*256*2);
 
 		if (NULL == pbAddAdcTable)
 		{
@@ -16960,7 +16960,7 @@ void mz80init(void)
 
 		pbTempPtr = pbAddAdcTable;
 
-		pbSubSbcTable = malloc(256*256*2);
+		pbSubSbcTable = (unsigned char *)malloc(256*256*2);
 
 		if (NULL == pbSubSbcTable)
 		{

@@ -15,24 +15,13 @@
 #define bzero(BUF,SIZE) memset(BUF,0,SIZE)
 #endif
 
-#ifdef AES
-#define REFRESHTIME (1000/60)+2
-#else
 #define REFRESHTIME (1000/60)+1
-#endif
 
 #define NEOGEO_NB_INTERLACE 240
 
-#ifndef AES
-#define NEO4ALL_Z80_UNDER_CYCLES	 33333
-#else
+
 #define NEO4ALL_Z80_UNDER_CYCLES	 46666
-#endif
 #define NEO4ALL_68K_UNDER_CYCLES	166666
-
-
-//#define NEO4ALL_Z80_REAL_CYCLES	 73333
-#define NEO4ALL_Z80_REAL_CYCLES	 	100000
 
 #ifndef AES
 #define NEO4ALL_Z80_NORMAL_CYCLES	 66666
@@ -44,11 +33,7 @@
 #define NEO4ALL_Z80_OVER_CYCLES	 	 99999
 #define NEO4ALL_68K_OVER_CYCLES		266666
 
-#ifdef DREAMCAST
 #define SAMPLE_RATE    22050
-#else
-#define SAMPLE_RATE    44100
-#endif
 
 #define REGION_JAPAN  0
 #define REGION_USA    1
@@ -121,6 +106,7 @@ int	neogeo_hreset(void);
 
 void neogeo_adjust_frameskip(int new_frameskip);
 void neogeo_adjust_cycles(int new_68k, int new_z80);
+void neogeo_adjust_fine_cycles(int new_68k, int new_z80);
 void print_frameskip(void);
 void show_icon(void);
 

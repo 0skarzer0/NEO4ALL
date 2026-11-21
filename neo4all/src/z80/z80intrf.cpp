@@ -2,7 +2,8 @@
 #include<stdlib.h>
 #include<string.h>
 
-// #define ONLY_CHANGES_PATCH
+// #define Z80_ONLY_CHANGES_PATCH
+#define RAZE_NO_MAPPING
 
 
 #include	"../neo4all.h"
@@ -13,9 +14,13 @@
 
 
 Uint16 z80_bank[4];
-static Uint8 *z80map1, *z80map2, *z80map3, *z80map4;
 
+#if defined(AES) && defined(USE_RAZE) && !defined(RAZE_NO_MAPPING)
+#define mame_z80mem aes4all_memory_sm1
+#else
 Uint8 mame_z80mem[0x10000];
+#endif
+
 #ifndef AES
 Uint8 subcpu_memspace[0x10000];
 #define memory_sm1 ((unsigned)subcpu_memspace)
@@ -29,6 +34,8 @@ Uint32 result_code;
 Uint32 pending_command;
 Uint32 z80_cycles;
 
+#ifdef AES
+#if !defined(USE_RAZE) || defined(RAZE_NO_MAPPING)
 static void _fast_memcpy(void *OUT, const void *IN, size_t N)
 {
 	register unsigned *d=(unsigned *)OUT;
@@ -51,6 +58,38 @@ static void _fast_memcpy(void *OUT, const void *IN, size_t N)
 
 #define fast_memcpy(OUT, IN, N) _fast_memcpy(OUT,IN,N>>5)
 
+#define change_z80_map(DST,SRC,LEN) \
+	fast_memcpy( (void *)(((unsigned)mame_z80mem)+(DST)), (void *)(((unsigned)memory_sm1)+(SRC)),(LEN));
+
+#else
+
+extern unsigned _z80_Fetch[];
+extern unsigned _z80_Read[];
+extern unsigned _z80_Write[];
+
+static void change_z80_map(unsigned dst, unsigned src, unsigned len)
+{
+/*
+	unsigned i=dst>>8;
+	src=((unsigned)memory_sm1)+src-(i<<8);
+	len>>8;
+	len+=i;
+	for(;i<len;i++)
+		_z80_Fetch[i]=_z80_Read[1+(i<<1)]=_z80_Write[1+(i<<1)]=src;
+*/
+	z80_map_fetch(dst, dst+len-1, (unsigned char *)(((unsigned)memory_sm1)+(src)));
+	z80_map_read(dst,  dst+len-1, (unsigned char *)(((unsigned)memory_sm1)+(src)));
+	z80_map_write(dst, dst+len-1, (unsigned char *)(((unsigned)memory_sm1)+(src)));
+}
+#endif
+
+#endif
+
+
+
+
+
+#ifndef USE_RAZE
 #ifndef USE_MAMEZ80
 
 #ifdef USE_CZ80
@@ -134,21 +173,31 @@ int cpu_z80_irq_callback(int a)
 	neogeo_sound_irq(a);
 	return 0;
 }
+#endif
 
 
 void _z80_init(void)
 {
-#ifdef AES
-	fast_memcpy(mame_z80mem, aes4all_memory_sm1, 0xf800);
+#if defined(AES) && (!defined(USE_RAZE) || defined(RAZE_NO_MAPPING))
+	memset(mame_z80mem, 0, 0x10000);
+	memcpy(mame_z80mem, aes4all_memory_sm1, 0xf800);
 #endif
-	z80map1 = (Uint8 *)(memory_sm1 + 0x8000);
-	z80map2 = (Uint8 *)(memory_sm1 + 0xc000);
-	z80map3 = (Uint8 *)(memory_sm1 + 0xe000);
-	z80map4 = (Uint8 *)(memory_sm1 + 0xf000);
+#ifdef Z80_ONLY_CHANGES_PATCH
 	z80_bank[0]=0x8000;
 	z80_bank[1]=0xc000;
 	z80_bank[2]=0xe000;
 	z80_bank[3]=0xf000;
+#endif
+#ifdef USE_RAZE
+	z80_init_memmap();
+	z80_map_fetch(0x0000, 0xffff, (unsigned char *)&mame_z80mem);
+	z80_add_read(0x0000, 0xffff, Z80_MAP_DIRECT, (void *)mame_z80mem);
+	z80_add_write(0x0000, 0xffff, Z80_MAP_DIRECT, (void *)mame_z80mem);
+	z80_end_memmap();
+	z80_set_in((unsigned char (*)(short unsigned int))&cz80_z80_readport16);
+	z80_set_out((void (*)(short unsigned int, unsigned char))&cz80_z80_writeport16);
+	z80_reset();
+#else
 
 #ifndef USE_MAMEZ80
 #ifdef USE_CZ80
@@ -193,12 +242,12 @@ void _z80_init(void)
 	z80_execute(100000);
 #endif
 #endif
-//printf("_z80_init PC=0x%X\n",z80_get_reg(Z80_PC));
+#endif
 }
 
 //---------------------------------------------------------------------------
 #ifndef USE_MAMEZ80
-#ifdef USE_CZ80
+#if defined(USE_CZ80) || defined(USE_RAZE)
 void cz80_z80_writeport16(Uint16 PortNo, Uint8 data)
 #else
 void PortWrite(UINT16 PortNo, UINT8	data, struct z80PortWrite *ptr)
@@ -207,7 +256,7 @@ void PortWrite(UINT16 PortNo, UINT8	data, struct z80PortWrite *ptr)
 void mame_z80_writeport16(Uint16 PortNo, Uint8 data)
 #endif
 {
-//printf("mame_z80_writeport16(%i,%i) PC=0x%X\n",PortNo,data,z80_get_reg(Z80_PC));
+//printf("z80_writeport16(%.2X,%.2X)\n",PortNo&0xff,data);
 	switch( PortNo & 0xff)
 	{
 	case	0x4:
@@ -249,7 +298,7 @@ void mame_z80_writeport16(Uint16 PortNo, Uint8 data)
 
 //---------------------------------------------------------------------------
 #ifndef USE_MAMEZ80
-#ifdef USE_CZ80
+#if defined(USE_CZ80) || defined(USE_RAZE)
 Uint8 cz80_z80_readport16(Uint16 PortNo)
 #else
 UINT16 PortRead(UINT16 PortNo, struct z80PortRead *ptr)
@@ -258,7 +307,7 @@ UINT16 PortRead(UINT16 PortNo, struct z80PortRead *ptr)
 Uint8 mame_z80_readport16(Uint16 PortNo)
 #endif
 {
-//printf("mame_z80_readport16(%i) PC=0x%X\n",PortNo,z80_get_reg(Z80_PC));
+//printf("z80_readport16(%.2X)\n",PortNo&0xff);
 	switch( PortNo & 0xff)
 	{
 	case	0x0:
@@ -276,46 +325,50 @@ Uint8 mame_z80_readport16(Uint16 PortNo)
 
 #ifdef AES
 	case 0x08:
-#ifdef ONLY_CHANGES_PATCH
+#ifdef Z80_ONLY_CHANGES_PATCH
 		if (z80_bank[3]!=PortNo)
 #endif
 		{
+#ifdef Z80_ONLY_CHANGES_PATCH
 			z80_bank[3]=PortNo;
-			z80map4 = (Uint8 *)(memory_sm1 + (0x0800 * ((PortNo >> 8) & 0x7f)));
-			fast_memcpy(mame_z80mem + 0xf000, z80map4, 0x0800);
+#endif
+			change_z80_map(0xf000, ((unsigned)((PortNo>>8)&0x7f))<<11, 0x0800);
 		}
 		break;
 		
 	case 0x09:
-#ifdef ONLY_CHANGES_PATCH
+#ifdef Z80_ONLY_CHANGES_PATCH
 		if (z80_bank[2]!=PortNo)
 #endif
 		{
+#ifdef Z80_ONLY_CHANGES_PATCH
 			z80_bank[2]=PortNo;
-			z80map3 = (Uint8 *)(memory_sm1 + (0x1000 * ((PortNo >> 8) & 0x3f)));
-			fast_memcpy(mame_z80mem + 0xe000, z80map3, 0x1000);
+#endif
+			change_z80_map(0xe000, ((unsigned)((PortNo>>8)&0x3f))<<12, 0x1000);
 		}
 		break;
 		
 	case 0x0a:
-#ifdef ONLY_CHANGES_PATCH
+#ifdef Z80_ONLY_CHANGES_PATCH
 		if (z80_bank[1]!=PortNo)
 #endif
 		{
+#ifdef Z80_ONLY_CHANGES_PATCH
 			z80_bank[1]=PortNo;
-			z80map2 = (Uint8 *)(memory_sm1 + (0x2000 * ((PortNo >> 8) & 0x1f)));
-			fast_memcpy(mame_z80mem + 0xc000, z80map2, 0x2000);
+#endif
+			change_z80_map(0xc000, ((unsigned)((PortNo>>8)&0x1f))<<13, 0x2000);
 		}
 		break;
 
 	case 0x0b:
-#ifdef ONLY_CHANGES_PATCH
+#ifdef Z80_ONLY_CHANGES_PATCH
 		if (z80_bank[0]!=PortNo)
 #endif
 		{
+#ifdef Z80_ONLY_CHANGES_PATCH
 			z80_bank[0]=PortNo;
-			z80map1 = (Uint8 *)(memory_sm1 + (0x4000 * ((PortNo >> 8) & 0x0f)));
-			fast_memcpy(mame_z80mem + 0x8000, z80map1, 0x4000);
+#endif
+			change_z80_map(0x8000, ((unsigned)((PortNo>>8)&0x0f))<<14, 0x4000);
 		}
 		break;
 #endif

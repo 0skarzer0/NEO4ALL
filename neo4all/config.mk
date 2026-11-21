@@ -2,11 +2,13 @@
 
 NAME = neo4all
 
-#AES=1
+AES=1
 #MUSASHI_CORE=1
 FAME_CORE=1
+#FAME_C_CORE=1
 Z80_EMULATED=1
-CZ80_CORE=1
+RAZE_CORE=1
+#CZ80_CORE=1
 #MAMEZ80_CORE=1
 SOUND=1
 #CONSOLE=1
@@ -21,21 +23,24 @@ VIDEOGL=1
 #USE_SQ=1
 CACHE_GL_AUTOCLEAN=1
 USE_THREAD_CDDA=1
+#Z80_ONLY_CHANGES_PATCH=1
 #SINGLE_MEMORY=1
 #STDOUTPUT=1
 #CACHE_INLINE=1
 #FM_INLINE=1
 #INPUT_INLINE=1
-REBOOT_DREAMCAST=1
-#DEBUG_FRAMESKIP=1
-#DEBUG_GL=1
-#DEBUG_CDROM=1
-#DEBUG_MEMORY=1
-#DEBUG_NEO4ALL=1
-#PROFILER_NEO4ALL=1
-#AUTO_EVENTS=800
-#AUTO_MAX_EVENTS=1400
-#AES_PREFETCHING=1
+#REBOOT_DREAMCAST=1
+##DEBUG_FAME=1
+#DEBUG_Z80=1
+##DEBUG_FRAMESKIP=1
+##DEBUG_GL=1
+##DEBUG_CDROM=1
+##DEBUG_MEMORY=1
+##DEBUG_NEO4ALL=1
+##PROFILER_NEO4ALL=1
+#AUTO_EVENTS=0
+#AUTO_MAX_EVENTS=25
+##AES_PREFETCHING=1
 
 
 # --------------------------------------
@@ -100,6 +105,14 @@ ifdef DEBUG_GL
 NEO4ALL_CFLAGS+=-DDEBUG_GL
 endif
 
+ifdef DEBUG_FAME
+NEO4ALL_CFLAGS+=-DDEBUG_FAME
+endif
+
+ifdef DEBUG_Z80
+NEO4ALL_CFLAGS+=-DDEBUG_Z80
+endif
+
 ifdef DEBUG_FRAMESKIP
 NEO4ALL_CFLAGS+=-DDEBUG_FRAMESKIP
 endif
@@ -134,6 +147,9 @@ endif
 
 ifdef Z80_EMULATED
 NEO4ALL_CFLAGS+= -DZ80_EMULATED
+ifdef RAZE_CORE
+NEO4ALL_CFLAGS+= -DUSE_RAZE
+else
 ifdef MAMEZ80_CORE
 NEO4ALL_CFLAGS+= -DUSE_MAMEZ80
 else
@@ -142,9 +158,13 @@ NEO4ALL_CFLAGS+= -DUSE_CZ80
 endif
 endif
 endif
+endif
 
 ifdef FAME_CORE
 NEO4ALL_CFLAGS+=-DUSE_FAME_CORE
+ifdef FAME_C_CORE
+NEO4ALL_CFLAGS+=-DUSE_FAME_C_CORE
+endif
 else
 ifdef MUSASHI_CORE
 NEO4ALL_CFLAGS+=-DCPU68K_USE_MUSASHI
@@ -211,7 +231,6 @@ OBJS =	\
 
 ifdef AES
 OBJS+= \
-	src/menu/menu_load.o \
 	src/aes/load.o \
 	src/aes/aes.o
 
@@ -243,7 +262,19 @@ ifdef MENU
 OBJS+= \
 	src/menu/fade.o \
 	src/menu/menu.o \
+	src/menu/background.o \
+	src/menu/sfont.o \
+	src/menu/menu_cpu.o \
+	src/menu/menu_ctl.o \
 	src/menu/menu_main.o 
+ifdef AES
+OBJS+= \
+	src/menu/menu_load.o
+endif
+else
+OBJS+= \
+	src/menu/fade.o \
+	src/menu/nomenu.o
 endif
 
 ifdef CONSOLE
@@ -278,6 +309,13 @@ endif
 
 
 ifdef Z80_EMULATED
+	ifdef RAZE_CORE
+		ifndef DREAMCAST
+			Z80_OBJS = src/z80/raze/raze.o
+		else
+			Z80_OBJS = src/z80/faze/raze.o
+		endif
+	else
 	ifdef MAMEZ80_CORE
 		Z80_OBJS = src/z80/mamez80/z80.o 
 	else
@@ -287,14 +325,19 @@ ifdef Z80_EMULATED
 			Z80_OBJS = src/z80/mz80/z80.o 
 		endif
 	endif
+	endif
 	Z80_OBJS+= src/z80/z80intrf.o
 endif
 
 
 ifdef FAME_CORE
+ifdef FAME_C_CORE
+FAME_OBJ=src/68k/fame/famec.o
+else
 ifdef ASM_TYPE
 $(FAME_OBJ): $(FAME_SRC)
 	nasm -f $(ASM_TYPE) $(FAME_SRC)
+endif
 endif
 OBJS_68K= $(FAME_OBJ)
 MEMORY_OBJ= src/memory/fame/memory.o 

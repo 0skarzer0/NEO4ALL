@@ -63,11 +63,13 @@ void adjust_timer(unsigned z80_cycles)
 {
 	if (!initted)
 	       free_all_timer();
-	register double tm=((double)(NEOGEO_NB_INTERLACE));
-	register int diff=((int)NEO4ALL_Z80_NORMAL_CYCLES-(int)z80_cycles)/(NEO4ALL_Z80_OVER_CYCLES-NEO4ALL_Z80_NORMAL_CYCLES);
-	register double ratio = ((double)diff) / 12.0;
+	double tm=((double)(NEOGEO_NB_INTERLACE));
+	double diff= (((double)NEO4ALL_Z80_NORMAL_CYCLES) - ((double)z80_cycles)) / ((double)(NEO4ALL_Z80_OVER_CYCLES-NEO4ALL_Z80_NORMAL_CYCLES));
+	double ratio = diff / 12.0;
 	tm += tm * ratio;
+//	timer_inc = 0.014 / tm;
 	timer_inc = 0.01666 / tm;
+//	timer_inc = 0.02 / tm;
 }
 
 void my_timer(void)

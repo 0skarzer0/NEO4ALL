@@ -3,6 +3,7 @@
 #include<stdarg.h>
 #include<SDL.h>
 
+#include "menu.h"
 #include "console.h"
 
 int view_console=0;
@@ -364,34 +365,14 @@ void console_printf(const char *fmt, ...)
 
 void console_init(void)
 {
-	SDL_Surface *tmp;
 	int i;
 
 	for(i=0;i<NUM_BACKGROUNDS;i++)
-	{
-		tmp=SDL_LoadBMP(console_filename[i]);
-		if (tmp==NULL)
-			return;
-		background[i]=SDL_DisplayFormat(tmp);
-		SDL_FreeSurface(tmp);
-	}
+		background[i]=menu_IMG_Load(console_filename[i]);
 
-	tmp=SDL_LoadBMP(console_filename[NUM_BACKGROUNDS]);
-	if (tmp!=NULL)
-	{
-		text_image=SDL_DisplayFormat(tmp);
-		SDL_FreeSurface(tmp);
-		SDL_SetColorKey(text_image,(SDL_SRCCOLORKEY | SDL_RLEACCEL),SDL_MapRGB(text_image -> format, 0, 0, 0));
-
-	}
-	else
-		return;
-	tmp=SDL_LoadBMP(console_filename[NUM_BACKGROUNDS+1]);
-	if (tmp!=NULL)
-	{
-		window_background=SDL_DisplayFormat(tmp);
-		SDL_FreeSurface(tmp);
-	}
+	text_image=menu_IMG_Load(console_filename[NUM_BACKGROUNDS]);
+	SDL_SetColorKey(text_image,(SDL_SRCCOLORKEY | SDL_RLEACCEL),SDL_MapRGB(text_image -> format, 0, 0, 0));
+	window_background=menu_IMG_Load(console_filename[NUM_BACKGROUNDS+1]);
 
 	if (view_console)
 	{

@@ -83,14 +83,15 @@ static int real_cdda_play(int track)
 int cdda_play(int track)
 #endif
 {
+#ifndef SHOW_MENU
+	track++;
+#endif
 #ifdef ENABLE_CDDA
-//printf("...... cdda_play %i\n",track);
     if(cdda_disabled) return 1;
     
     if(cdda_playing && cdda_current_track==track) return 1;
 
     if( CD_INDRIVE(SDL_CDStatus(cdrom)) ) {
-//printf("-.-.-.-.- SDL_CDPlayTracks %i\n",track-1);
     	SDL_CDPlayTracks(cdrom, track-1, 0, 1, 0);
     	cdda_current_track = track;
     	cdda_loop_counter=0;

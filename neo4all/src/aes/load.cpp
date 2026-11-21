@@ -16,7 +16,8 @@
 void *aes4all_mmu;
 #endif
 
-char neo4all_image_file[256];
+extern char aes4all_actual_dir[128];
+char neo4all_image_file[64];
 char *aes4all_filename=(char *)&neo4all_image_file[0];
 
 
@@ -206,11 +207,23 @@ static int load_aes(char *filename)
 
 int aes4all_load(void)
 {
+	if (!aes4all_filename)
+		return 0;
+	int nc=strlen(aes4all_actual_dir);
 	console_printf("Preloading '%s'...\n",aes4all_filename);
-	if (!strlen(aes4all_filename))
+	if (!nc)
 		return 0;
+#ifdef DREAMCAST
+	strcat(aes4all_actual_dir,"/");
+	strcat(aes4all_actual_dir,aes4all_filename);
+	aes4all_filename=(char *)&aes4all_actual_dir[0];
+#endif
 	if (load_aes(aes4all_filename))
+	{
+		aes4all_actual_dir[nc]=0;
+		aes4all_filename=(char *)&neo4all_image_file[0];
 		return 0;
+	}
 	neogeo_emulating=0;
 	sound_emulate_stop();
 
@@ -227,5 +240,48 @@ int aes4all_load(void)
 	aes4all_mmu=mmu_file_add(aes4all_filename,AES4ALL_TOTAL_MEMORY,aes4all_memory_cpu_init);
 #endif
 	input_init_aes_system(aes4all_system);
+	aes4all_filename=(char *)&neo4all_image_file[0];
+	aes4all_actual_dir[nc]=0;
 	return 1;
+}
+
+
+static char is_aes_file_buf[1024+10+2];
+
+int is_aes_file(char *dir, char *filename, char *realname)
+{
+	int ret=0;
+	char *name=(char*) &is_aes_file_buf[0];
+	char *schar=(char *) &is_aes_file_buf[1024+1];
+	bzero(name,1024);
+// #ifdef DREAMCAST
+#if 0
+	strcpy(name,aes4all_actual_dir);
+        strcat(name,"/");
+	strcat(name,dir);
+#else
+	strcpy(name,dir);
+#endif
+        strcat(name,"/");
+	strcat(name,filename);
+
+	FILE *f=fopen(name,"rb");
+	if (f)
+	{
+		fread((void *)schar,1,10,f);
+		if (!(strncmp(schar,"NEOAES\0\0\0\0",6)))
+		{
+			fseek(f,0,SEEK_END);
+			long len=ftell(f);
+			if (len>(256*1024))
+			{
+				fseek(f,(256*1024)-32,SEEK_SET);
+				fread((void *)realname,1,29,f);
+				realname[29]=0;
+				ret=-1;
+			}
+		}
+		fclose(f);
+	}
+	return ret;
 }

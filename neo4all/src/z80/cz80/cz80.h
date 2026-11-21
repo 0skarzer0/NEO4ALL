@@ -44,6 +44,9 @@ extern "C" {
 
 //#define CZ80_FASTCALL   __fastcall
 #define CZ80_FASTCALL
+#ifndef FASTCALL
+#define FASTCALL
+#endif
 
 
 /*************************************/

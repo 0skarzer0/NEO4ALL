@@ -1,8 +1,10 @@
 RM	= rm -f
 
 CDROM_OBJ=src/cdrom/dc.o
+ifndef FAME_C_CORE
 FAME_OBJ=src/68k/fame/fame.o
 FAME_SRC=src/68k/fame/fame.s
+endif
 
 DREAMCAST=YES
 
@@ -10,7 +12,9 @@ include config.mk
 
 
 ifndef AES
+ifdef MENU
 OBJS+=romdisk.o
+endif
 endif
 
 TARGET = $(NAME)
@@ -25,12 +29,16 @@ KOS_CFLAGS+= -I$(KOS_BASE)/addons/include/SDL -I$(KOS_BASE)/addons/include
 
 INLINE='static __inline__'
 
-KOS_CFLAGS+= -DDREAMCAST -DSDL -Isrc -Isrc/68k -Isrc/video -DROM_PREFIX="/cd/" -DMEMCARD_PREFIX="/vmu/a1/"
+KOS_CFLAGS+= -DDREAMCAST -DSDL -Isrc -Isrc/68k -Isrc/video -DROM_PREFIX="/cd" -DMEMCARD_PREFIX="/vmu/a1/"
 
+ifndef MENU
+KOS_CFLAGS+=-DDATA_PREFIX="/cd"
+else
 ifdef AES
 KOS_CFLAGS+=-DDATA_PREFIX="/cd/neo4all/"
 else
 KOS_CFLAGS+=-DDATA_PREFIX="/rd/"
+endif
 endif
 
 KOS_CFLAGS+=$(NEO4ALL_CFLAGS)
@@ -40,11 +48,15 @@ all: $(TARGET).elf
 
 include $(KOS_BASE)/Makefile.rules
 
+src/z80/faze/raze.s: src/z80/faze/raze.s.m4
+	m4 -Isrc/z80/faze/ src/z80/faze/raze.s.m4 > src/z80/faze/raze.s
+
+src/z80/faze/raze.o: src/z80/faze/raze.s
 
 ifdef VIDEOGL
-LIB_SDL= -lSDL_mixer -lSDL_gl_129 -lgl 
+LIB_SDL= -lSDL_mixer_126 -lSDL_image_124 -lSDL_gl_129 -lgl -lpng_128 -lz_123
 else
-LIB_SDL= -lSDL_mixer -lSDL_129
+LIB_SDL= -lSDL_mixer_126 -lSDL_image_124 -lSDL_129 -lpng_128 -lz_123
 endif
 
 $(TARGET).elf: $(OBJS) $(Z80_OBJS) $(MEMORY_OBJ) $(OBJS_68K)
@@ -64,17 +76,14 @@ romdisk.img:
 ifdef AES
 run: $(TARGET).bin
 else
-run: $(TARGET).bin example.iso
+#run: $(TARGET).bin example.iso
+run: $(TARGET).bin
 endif
-	$(KOS_LOADER) $(TARGET).bin -n
-#	$(KOS_LOADER) $(TARGET).bin 
+	$(KOS_LOADER) $(TARGET).bin 
+#	$(KOS_LOADER) $(TARGET).bin -n
 #	$(KOS_LOADER) $(TARGET).bin -i example.iso
 
 clean:
-	$(RM) $(OBJS) src/68k/c68k/cpu68k.o src/z80/z80intrf.o $(MEMORY_OBJ) $(TARGET).elf $(TARGET).bin  romdisk.o romdisk.img
-
-
-
-clean-cores:
+	$(RM) $(OBJS) src/68k/c68k/cpu68k.o src/z80/z80intrf.o src/z80/faze/raze.s $(MEMORY_OBJ) $(TARGET).elf $(TARGET).bin  romdisk.o romdisk.img
 	$(RM) $(Z80_OBJS) $(OBJS_68K)
 	

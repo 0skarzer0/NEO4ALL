@@ -2,8 +2,13 @@
 #define AES_H
 
 #ifndef AES_PREFETCHING
-// #define AES4ALL_TOTAL_MEMORY ((11*1024*1024)-(512*1024))
-#define AES4ALL_TOTAL_MEMORY ((11*1024*1024)-(384*1024))
+#ifdef SHOW_MENU
+//#define AES4ALL_TOTAL_MEMORY ((11*1024*1024)-(256*1024))
+#define AES4ALL_TOTAL_MEMORY ((11*1024*1024)+(64*1024))
+#else
+//#define AES4ALL_TOTAL_MEMORY ((12*1024*1024)+(128*1024))
+#define AES4ALL_TOTAL_MEMORY ((12*1024*1024)+(320*1024))
+#endif
 #else
 #define AES4ALL_TOTAL_MEMORY (10*1024*1024)
 #endif
@@ -86,6 +91,8 @@ extern void *aes4all_prealloc;
 
 int aes4all_load(void);
 int aes4all_prefetch_all(void);
+
+int is_aes_file(char *dir, char *filename, char *realname);
 
 void m68k_bankswitch(unsigned int address);
 

@@ -9,6 +9,9 @@
 
 #include "aes.h"
 
+extern char aes4all_actual_dir[128];
+extern char neo4all_image_file[64];
+
 unsigned char aes4all_pen_usage[0x10000];
 unsigned *aes4all_prefetch_bufffer=NULL;
 void *aes4all_prealloc=NULL;
@@ -16,51 +19,49 @@ void *aes4all_prealloc=NULL;
 #ifdef DREAMCAST
 #include "mmu_file/mmu_file.h"
 
-unsigned __aes4all_prefetched__=1;
-
-
-#define MAX_LOADING ((AES4ALL_TOTAL_MEMORY<<1)+1024)
-static unsigned preft_ac=0;
-
-static void prefetchme(unsigned size,unsigned max,void *ptr)
+void prefetchme_without_buffer(FILE *f)
 {
-	unsigned i;
-	if (max>size)
-		max=size;
-	mmu_handle_prefetching=1;
-	if ((max)&&(ptr))
-		for(i=0;i<max;i+=4096)
-		{
-			static unsigned loading_func_time=0;
-			if (!(loading_func_time&15))
-				text_draw_loading((preft_ac+(unsigned)i)>>2,MAX_LOADING>>2);
-			loading_func_time++;
-			__aes4all_prefetched__+=((unsigned char *)ptr)[i];
-			mmu_handle_inc_frame();
-		}
-	mmu_handle_prefetching=0;
-	preft_ac+=max;
+	int msize=-1;
+	int backpos=ftell(f);
+	fseek(f,0,SEEK_END);
+	msize=ftell(f)-(256*1024);
+	if (msize>(256*1024))
+	{
+		int i,max=(AES4ALL_TOTAL_MEMORY-(512*1024))/4096,max_pags=msize/4096;
+		memset(aes4all_prefetch_bufffer,0,4*32768);
+		if (max>max_pags)
+			max=max_pags;
+		for(i=0;i<max;i++)
+			aes4all_prefetch_bufffer[i]=33;
+		if (!mmu_file_direct_fetch((unsigned)aes4all_mmu,(unsigned *)aes4all_prefetch_bufffer,text_draw_loading,aes4all_filename,256*1024))
+			mmu_handle_prefetch_by_array((unsigned)aes4all_mmu,(unsigned *)aes4all_prefetch_bufffer,text_draw_loading);
+	}
+	fseek(f,backpos,SEEK_SET);
 }
 
-static void prefetchme_inv(unsigned size,unsigned max,void *ptr)
+void prefetchme_with_buffer(void)
 {
-	int i;
-	if (max>size)
-		max=size;
-	mmu_handle_prefetching=1;
-	if ((max>=4095)&&(ptr))
-		for(i=max-4095;i>=0;i-=4096)
-		{
-			static unsigned loading_func_time=0;
-			if (!(loading_func_time&15))
-				text_draw_loading((preft_ac+(max-(unsigned)i))>>2,MAX_LOADING>>2);
-			loading_func_time++;
-			__aes4all_prefetched__+=((unsigned char *)ptr)[i];
-			mmu_handle_inc_frame();
-		}
-	mmu_handle_prefetching=0;
-	preft_ac+=max;
+	int n=strlen(aes4all_filename);
+	char back_c3='a', back_c2='e', back_c1='s';
+	if (n>3)
+	{
+		back_c3=aes4all_filename[n-3];
+		back_c2=aes4all_filename[n-1];
+		back_c1=aes4all_filename[n-1];
+		aes4all_filename[n-3]='p';
+		aes4all_filename[n-2]='r';
+		aes4all_filename[n-1]='f';
+	}
+	if ((n<=3)||(!mmu_file_direct_fetch((unsigned)aes4all_mmu,(unsigned *)aes4all_prefetch_bufffer,text_draw_loading,aes4all_filename,0))||(n<=3))
+		mmu_handle_prefetch_by_array((unsigned)aes4all_mmu,(unsigned *)aes4all_prefetch_bufffer,text_draw_loading);
+	if (n>3)
+	{
+		aes4all_filename[n-3]=back_c3;
+		aes4all_filename[n-2]=back_c2;
+		aes4all_filename[n-1]=back_c1;
+	}
 }
+
 
 #endif
 
@@ -104,43 +105,43 @@ unsigned aes4all_bankaddress = 0;
 int aes4all_prefetch_all(void)
 {
 	FILE *f;
+	int nc=strlen(aes4all_actual_dir);
 	if (!aes4all_filename)
 		return 1;
+	if (!nc)
+		return 1;
+#ifdef DREAMCAST
+	strcat(aes4all_actual_dir,"/");
+	strcat(aes4all_actual_dir,aes4all_filename);
+	aes4all_filename=(char *)&aes4all_actual_dir[0];
+#endif
 	f=fopen(aes4all_filename,"rb");
 	if (!f)
+	{
+		aes4all_actual_dir[nc]=0;
+		aes4all_filename=(char *)&neo4all_image_file[0];
 		return 2;
+	}
 
 	console_puts("Prefetching ROM...");
-//puts("Prefetching ROM...");
 	neogeo_emulating=0;
 #ifdef DREAMCAST
 	mmu_handle_reset();
 
 #ifndef AES_PREFETCHING
-	memset(aes4all_prefetch_bufffer,0,4*65537);
+	memset(aes4all_prefetch_bufffer,0,4*32768);
 	fseek(f,aes4all_prefetch_init,SEEK_SET);
-	unsigned lastpos=fread(aes4all_prefetch_bufffer,4,65536,f);
-	if (lastpos<=65536)
-		aes4all_prefetch_bufffer[lastpos]=0xFFFFFFFF;
-	if (aes4all_prefetch_bufffer[0]==0xFFFFFFFF)
-	{
-		if ((unsigned)aes4all_mmu<0x80000000)
-		{
-			preft_ac=0;
-			prefetchme(aes4all_memory_cpu_size,((2*AES4ALL_TOTAL_MEMORY)/10),aes4all_memory_cpu);
-			prefetchme(aes4all_memory_bios_size,((1*AES4ALL_TOTAL_MEMORY)/10),aes4all_memory_bios);
-			prefetchme(aes4all_memory_sound1_size,((2*AES4ALL_TOTAL_MEMORY)/10),aes4all_memory_sound1);
-			prefetchme(aes4all_memory_gfx_size,((5*AES4ALL_TOTAL_MEMORY)/10),aes4all_memory_gfx);
-			prefetchme_inv(aes4all_memory_sound1_size,((2*AES4ALL_TOTAL_MEMORY)/10),aes4all_memory_sound1);
-			prefetchme_inv(aes4all_memory_gfx_size,((5*AES4ALL_TOTAL_MEMORY)/10),aes4all_memory_gfx);
-			prefetchme_inv(aes4all_memory_cpu_size,((2*AES4ALL_TOTAL_MEMORY)/10),aes4all_memory_cpu);
-			prefetchme_inv(aes4all_memory_bios_size,((1*AES4ALL_TOTAL_MEMORY)/10),aes4all_memory_bios);
-		}
-		else
-			mmu_handle_prefetch_all(text_draw_loading);
-	}
+	unsigned lastpos=fread(aes4all_prefetch_bufffer,4,32767,f);
+	aes4all_prefetch_bufffer[lastpos]=0xFFFFFFFF;
+
+	if ((unsigned)aes4all_mmu>0x80000000)
+		mmu_handle_prefetch_all(text_draw_loading);
 	else
-		mmu_handle_prefetch_by_array((unsigned)aes4all_mmu,(unsigned *)aes4all_prefetch_bufffer,text_draw_loading);
+	if (aes4all_prefetch_bufffer[0]==0xFFFFFFFF)
+		prefetchme_without_buffer(f);
+	else
+		prefetchme_with_buffer();
+
 #else
 	mmu_handle_disable_slice(1);
 #endif
@@ -202,9 +203,13 @@ int aes4all_prefetch_all(void)
 	video_fix_usage=(unsigned char*)aes4all_memory_fix_game_usage;
 	neogeo_fix_memory=(char*)aes4all_memory_sfix_game;
 
+#ifndef USE_RAZE
 	memcpy(mame_z80mem, aes4all_memory_sm1, 0xf800);
+#endif
 	sound_emulate_start();
 
+	aes4all_actual_dir[nc]=0;
+	aes4all_filename=(char *)&neo4all_image_file[0];
 	return 0;
 }
 

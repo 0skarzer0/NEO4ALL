@@ -220,6 +220,85 @@ static unsigned mmu_handle_find(unsigned orig_vp)
 	return 0;
 }
 
+void *mmu_handle_get_membuf(unsigned id)
+{
+	int i;
+	for(i=0;i<mmu_handle_nbufs;i++)
+		if (((unsigned)mmu_handle_virtualbuf[i])==id)
+			return mmu_handle_membuf[i];
+	return NULL;
+}
+
+void mmu_handle_direct_fetch(unsigned id, unsigned *the_array, mmu_handle_loading_func_t func)
+{
+	unsigned i,vp,phy,msize;
+
+	for(i=0;i<mmu_handle_nbufs;i++)
+		if (((unsigned)mmu_handle_virtualbuf[i])==id)
+			break;
+	vp=i;
+	if (vp>=mmu_handle_nbufs)
+		return;
+
+	if (func) (*func)(100,100);
+
+	msize=mmu_handle_memsize[vp];
+
+	vp=MMU_HANDLE_BEGINMEM_PAG;
+	{
+		mmusubcontext_t *sc=mmu_handle_ctx->sub[vp>>9];
+		mmupage_t *p=&sc->page[vp&0x1ff];
+		phy=p->physical;
+		msize>>=PAGESIZE_BITS;
+		msize+=phy;
+	}
+	for(i=0;vp<(MMU_HANDLE_BEGINMEM_PAG+mmu_handle_nvirtualpags);vp+=MMU_HANDLE_SLOT)
+	{
+		mmusubcontext_t *sc=mmu_handle_ctx->sub[vp>>9];
+		mmupage_t *p=&sc->page[vp&0x1ff];
+		switch (the_array[i])
+		{
+			case 0:
+				mmu_handle_memaccess[i]=0;
+				p->valid=0;
+				p->physical=0;
+				p->prkey=MMU_KERNEL_RDWR;
+				i++;
+				break;
+			case 0xFFFFFFFF:
+				p->valid=0;
+				if (phy<msize)
+				{
+					p->physical=phy;
+					phy++;
+				}
+				else
+				{
+					p->physical=0;
+					p->prkey=MMU_KERNEL_RDWR;
+				}
+				mmu_handle_memaccess[i]=0;
+				break;
+			default:
+				p->valid=1;
+				p->prkey=MMU_ALL_RDWR;
+				p->physical=phy;
+#ifdef MMU_HANDLE_CACHEABLE
+				p->cache=1;
+				p->wthru=1;
+#endif
+#ifdef MMU_HANDLE_READONLY
+				p->dirty=0;
+#endif
+				mmu_handle_memaccess[i]=the_array[i];
+				phy++;
+				i++;
+		}
+		p->ptel = MMU_HANDLER_PTEL(p->physical << PAGESIZE_BITS, 1, 1, p->prkey, p->cache, p->dirty, p->shared, p->wthru);
+	}
+}
+
+#if MMU_HANDLE_SLICE > 0
 void mmu_handle_find_slice(unsigned orig_vp)
 {
 	unsigned i, nvp=orig_vp+1;
@@ -231,6 +310,7 @@ void mmu_handle_find_slice(unsigned orig_vp)
 		mmu_handle_memaccess[(nvp-MMU_HANDLE_BEGINMEM_PAG)>>MMU_HANDLE_SLOT_SHIFT]=mmu_handle_frame;
 	}
 }
+#endif
 
 
 #ifdef MMU_HANDLE_USE_REAL_HANDLER
@@ -289,8 +369,10 @@ static mmupage_t * mmu_handle_handler(mmucontext_t * c, int _vp) {
 		}
 #endif
 		p->physical=mmu_handle_find(vp);
+#if MMU_HANDLE_SLICE > 0
 		if (!mmu_handle_prefetching)
 			mmu_handle_find_slice(vp);
+#endif
 		if (!p->physical)
 #ifdef MMU_HANDLE_USE_REAL_HANDLER
 			return;
@@ -594,17 +676,17 @@ void mmu_handle_prefetch_all(mmu_handle_loading_func_t func)
 		if (!mmu_handle_virtualbuf[i])
 		{
 			mmu_handle_prefetching=1;
-			unsigned j,s=(mmu_handle_memsize[i]/64), p=(unsigned)mmu_handle_membuf[i];
-			for(j=0;j<64;j++,p+=s)
+			unsigned j,s=(mmu_handle_memsize[i]/32), p=(unsigned)mmu_handle_membuf[i];
+			for(j=0;j<32;j++,p+=s)
 			{
 				if (func)
-					(*func)(j,64);
+					(*func)(j,32);
 				(mmu_handle_func[i])((void *)p, j*s, s);
 			}
-				if (func)
-					(*func)(64,64);
-			if ((s*64)<mmu_handle_memsize[i])
-				(mmu_handle_func[i])((void *)p, j*s, (mmu_handle_memsize[i]-(s*64)));
+			if (func)
+				(*func)(32,32);
+			if ((s*32)<mmu_handle_memsize[i])
+				(mmu_handle_func[i])((void *)p, j*s, (mmu_handle_memsize[i]-(s*32)));
 			mmu_handle_prefetching=0;
 		}
 		else
@@ -883,3 +965,11 @@ unsigned mmu_handle_get_frame(void)
 	return mmu_handle_frame;
 }
 
+unsigned mmu_handle_get_memsize(unsigned id)
+{
+	int i;
+	for(i=0;i<mmu_handle_nbufs;i++)
+		if (((unsigned)mmu_handle_virtualbuf[i])==id)
+			return mmu_handle_memsize[i];
+	return 0;
+}

@@ -29,11 +29,9 @@
 
 /* use FM.C with stream system */
 
-static int stream;
+static int stream=0;
 
-
-
-static timer_struct *Timer[2];
+static timer_struct *Timer[2]={NULL,NULL};
 
 /*------------------------- TM2610 -------------------------------*/
 /* IRQ Handler */
@@ -96,21 +94,14 @@ int YM2610_sh_start(void)
     void *pcmbufa, *pcmbufb;
     int pcmsizea, pcmsizeb;
 
+    stream=0;
+
     if (AY8910_sh_start())
 	return 1;
 
     /* Timer Handler set */
     FMTimerInit();
-    {
-	static int last_value=12345;
-	if (last_value==12345)
-	{
-		stream = stream_init_multi(YM2610_NUMBUF, 0, YM2610UpdateOne);
-		last_value = stream;
-	}
-	else
-		stream = last_value;
-    }
+    stream = stream_init_multi(YM2610_NUMBUF, 0, YM2610UpdateOne);
 #ifndef AES
     pcmbufa = (void *) neogeo_pcm_memory;
     pcmsizea = 0x100000; 

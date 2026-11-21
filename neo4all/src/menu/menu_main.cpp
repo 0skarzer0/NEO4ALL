@@ -25,15 +25,12 @@
 #endif
 
 #ifndef AES
-static char *text_str_title="--- NEO4ALL/CD rc1 ----";
+static char *text_str_title="NEO4ALL RC-3";
 #else
-static char *text_str_title="-- NEO4ALL/AES beta1 --";
+static char *text_str_title="AES4ALL BETA-3";
 #endif
-static char *text_str_68k="68K CLK";
-static char *text_str_z80="Z80 CLK";
-static char *text_str_under="Under";
-static char *text_str_normal="Normal";
-static char *text_str_over="Over";
+
+static char *text_str_cpu="CPU Settings";
 static char *text_str_region="Region ";
 static char *text_str_usa="USA";
 static char *text_str_jap="JAP";
@@ -45,40 +42,44 @@ static char *text_str_2="2";
 static char *text_str_3="3";
 static char *text_str_4="4";
 static char *text_str_5="5";
-static char *text_str_auto="auto";
+static char *text_str_auto="Auto";
 static char *text_str_sound="Sound";
-static char *text_str_on="on";
-static char *text_str_off="off";
+static char *text_str_on="On";
+static char *text_str_off="Off";
 static char *text_str_filter="Filter";
 static char *text_str_filter_none="None";
 static char *text_str_filter_bilinear="Bilinear";
-static char *text_str_accurate="Sync SFX";
+static char *text_str_control="Edit Controls";
 static char *text_str_cdaudio="CDDA";
-static char *text_str_separator="------------------------------";
+static char *text_str_separator="~~~~~~~~~~~~~~~~~~~~~~";
 #ifndef AES
 static char *text_str_reset="Reset";
 #else
-static char *text_str_reset="Select ROM";
+static char *text_str_reset="Select Game";
 #endif
 static char *text_str_run="Run";
-static char *text_str_exit="Exit - Reboot Dreamcast";
+#ifdef DREAMCAST
+static char *text_str_exit= "Reboot";
+#else
+static char *text_str_exit="Exit";
+#endif
 
 int mainMenu_filter=0;
-int mainMenu_68k=1;
-int mainMenu_z80=1;
 int mainMenu_case=-1;
+
 extern int	neogeo_frameskip;
 extern char	neogeo_region;
 extern int	neogeo_sound_enable;
 extern int	menu_moving;
-extern int	neogeo_accurate;
+extern int	menuCPU_68k;
+extern int	menuCPU_z80;
 #ifndef AES
 extern int	cdda_disabled;
 #else
 static int	cdda_disabled=1;
 #endif
 
-enum { MAIN_MENU_CASE_REBOOT, MAIN_MENU_CASE_LOAD, MAIN_MENU_CASE_RUN, MAIN_MENU_CASE_RESET, MAIN_MENU_CASE_CANCEL };
+enum { MAIN_MENU_CASE_REBOOT, MAIN_MENU_CASE_LOAD, MAIN_MENU_CASE_RUN, MAIN_MENU_CASE_RESET, MAIN_MENU_CASE_CANCEL, MAIN_MENU_CASE_CPU, MAIN_MENU_CASE_CONTROL };
 
 
 #if defined(DREAMCAST) && !defined(AES)
@@ -109,145 +110,186 @@ static int try_to_list_files(void)
 
 static inline void draw_mainMenu(int c)
 {
-	static int b=0;
-	int bb=(b%9)/3;
+//	static int b=0;
+//	int bb=(b%9)/3;
 
 	text_draw_background();
 	text_draw_window(40,24,260,200,text_str_title);
-	write_text(6,3,text_str_separator);
-	write_text(6,4,text_str_region);
-	if ((neogeo_region==0)&&((c!=0)||(bb)))
-		write_text_sel(16,4,text_str_jap);
-	else
-		write_text(16,4,text_str_jap);
-	if ((neogeo_region==1)&&((c!=0)||(bb)))
-		write_text_sel(20,4,text_str_usa);
-	else
-		write_text(20,4,text_str_usa);
-	if ((neogeo_region==2)&&((c!=0)||(bb)))
-		write_text_sel(24,4,text_str_eur);
-	else
-		write_text(24,4,text_str_eur);
-	
-	write_text(6,6,text_str_frameskip);
-	if ((neogeo_frameskip==0)&&((c!=1)||(bb)))
-		write_text_sel(16,6,text_str_0);
-	else
-		write_text(16,6,text_str_0);
-	if ((neogeo_frameskip==1)&&((c!=1)||(bb)))
-		write_text_sel(18,6,text_str_1);
-	else
-		write_text(18,6,text_str_1);
-	if ((neogeo_frameskip==2)&&((c!=1)||(bb)))
-		write_text_sel(20,6,text_str_2);
-	else
-		write_text(20,6,text_str_2);
-	if ((neogeo_frameskip==3)&&((c!=1)||(bb)))
-		write_text_sel(22,6,text_str_3);
-	else
-		write_text(22,6,text_str_3);
-	if ((neogeo_frameskip==4)&&((c!=1)||(bb)))
-		write_text_sel(24,6,text_str_4);
-	else
-		write_text(24,6,text_str_4);
-	if ((neogeo_frameskip==5)&&((c!=1)||(bb)))
-		write_text_sel(26,6,text_str_5);
-	else
-		write_text(26,6,text_str_5);
-	if ((neogeo_frameskip==-1)&&((c!=1)||(bb)))
-		write_text_sel(28,6,text_str_auto);
-	else
-		write_text(28,6,text_str_auto);
+//	write_text(6,3,text_str_separator);
 
-	write_text(6,8,text_str_sound);
-	if ((neogeo_sound_enable==0)&&((c!=2)||(bb)))
-		write_text_sel(16,8,text_str_off);
+	if (c==0)
+	{
+		write_text_sel(6,4,252,text_str_region);
+		switch(neogeo_region)
+		{
+			case 0: write_text_inv(19,4,"||||||");break;
+			case 1: write_text_inv(25,4,"||||||");break;
+			default:
+				write_text_inv(31,4,"||||||");break;
+		}
+		write_text_inv(19,4,text_str_jap);
+		write_text_inv(25,4,text_str_usa);
+		write_text_inv(31,4,text_str_eur);
+	}
 	else
-		write_text(16,8,text_str_off);
-	if ((neogeo_sound_enable!=0)&&((c!=2)||(bb)))
-		write_text_sel(22,8,text_str_on);
-	else
-		write_text(22,8,text_str_on);
+	{
+		write_text(6,4,text_str_region);
+		switch(neogeo_region)
+		{
+			case 0: write_text(19,4,"||||||");break;
+			case 1: write_text(25,4,"||||||");break;
+			default:
+				write_text(31,4,"||||||");break;
+		}
+		write_text(19,4,text_str_jap);
+		write_text(25,4,text_str_usa);
+		write_text(31,4,text_str_eur);
+	}
 
-	write_text(6,10,text_str_68k);
-	if ((mainMenu_68k==0)&&((c!=3)||(bb)))
-		write_text_sel(16,10,text_str_under);
-	else
-		write_text(16,10,text_str_under);
-	if ((mainMenu_68k==1)&&((c!=3)||(bb)))
-		write_text_sel(22,10,text_str_normal);
-	else
-		write_text(22,10,text_str_normal);
-	if ((mainMenu_68k==2)&&((c!=3)||(bb)))
-		write_text_sel(29,10,text_str_over);
-	else
-		write_text(29,10,text_str_over);
-	
-	write_text(6,12,text_str_z80);
-	if ((mainMenu_z80==0)&&((c!=4)||(bb)))
-		write_text_sel(16,12,text_str_under);
-	else
-		write_text(16,12,text_str_under);
-	if ((mainMenu_z80==1)&&((c!=4)||(bb)))
-		write_text_sel(22,12,text_str_normal);
-	else
-		write_text(22,12,text_str_normal);
-	if ((mainMenu_z80==2)&&((c!=4)||(bb)))
-		write_text_sel(29,12,text_str_over);
-	else
-		write_text(29,12,text_str_over);
+	if (c==1)
+	{
+		write_text_sel(6,6,252,text_str_frameskip);
+		switch(neogeo_frameskip)
+		{
+			case 0: write_text_inv(19,6,"||"); break;
+			case 1: write_text_inv(21,6,"||"); break;
+			case 2: write_text_inv(23,6,"||"); break;
+			case 3: write_text_inv(25,6,"||"); break;
+			case 4: write_text_inv(27,6,"||"); break;
+			case 5: write_text_inv(29,6,"||"); break;
+			default:
+				write_text_inv(31,6,"||||||||");
+		}
+		write_text_inv(19,6,text_str_0);
+		write_text_inv(21,6,text_str_1);
+		write_text_inv(23,6,text_str_2);
+		write_text_inv(25,6,text_str_3);
+		write_text_inv(27,6,text_str_4);
+		write_text_inv(29,6,text_str_5);
+		write_text_inv(31,6,text_str_auto);
 
-	write_text(6,14,text_str_filter);
-	if ((mainMenu_filter==0)&&((c!=5)||(bb)))
-		write_text_sel(16,14,text_str_filter_none);
+	}
 	else
-		write_text(16,14,text_str_filter_none);
-	if ((mainMenu_filter!=0)&&((c!=5)||(bb)))
-		write_text_sel(22,14,text_str_filter_bilinear);
-	else
-		write_text(22,14,text_str_filter_bilinear);
+	{
+		write_text(6,6,text_str_frameskip);
+		switch(neogeo_frameskip)
+		{
+			case 0: write_text(19,6,"||"); break;
+			case 1: write_text(21,6,"||"); break;
+			case 2: write_text(23,6,"||"); break;
+			case 3: write_text(25,6,"||"); break;
+			case 4: write_text(27,6,"||"); break;
+			case 5: write_text(29,6,"||"); break;
+			default:
+				write_text(31,6,"|||||||");
+		}
+		write_text(19,6,text_str_0);
+		write_text(21,6,text_str_1);
+		write_text(23,6,text_str_2);
+		write_text(25,6,text_str_3);
+		write_text(27,6,text_str_4);
+		write_text(29,6,text_str_5);
+		write_text(31,6,text_str_auto);
+	}
 
-	write_text(6,16,text_str_cdaudio);
-	if ((cdda_disabled!=0)&&((c!=6)||(bb)))
-		write_text_sel(16,16,text_str_off);
+	if (c==2)
+	{
+		write_text_sel(6,8,252,text_str_sound);
+		if (neogeo_sound_enable)
+			write_text_inv(25,8,"||||");
+		else
+			write_text_inv(19,8,"||||||");
+		write_text_inv(19,8,text_str_off);
+		write_text_inv(25,8,text_str_on);
+	}
 	else
-		write_text(16,16,text_str_off);
-	if ((cdda_disabled==0)&&((c!=6)||(bb)))
-		write_text_sel(22,16,text_str_on);
-	else
-		write_text(22,16,text_str_on);
+	{
+		write_text(6,8,text_str_sound);
+		if (neogeo_sound_enable)
+			write_text(25,8,"||||");
+		else
+			write_text(19,8,"||||||");
+		write_text(19,8,text_str_off);
+		write_text(25,8,text_str_on);
+	}
 
-	write_text(6,18,text_str_accurate);
-	if ((neogeo_accurate==0)&&((c!=7)||(bb)))
-		write_text_sel(16,18,text_str_off);
+	if (c==3)
+	{
+		write_text_sel(6,10,252,text_str_cdaudio);
+		if (!cdda_disabled)
+			write_text_inv(25,10,"||||");
+		else
+			write_text_inv(19,10,"||||||");
+		write_text_inv(19,10,text_str_off);
+		write_text_inv(25,10,text_str_on);
+	}
 	else
-		write_text(16,18,text_str_off);
-	if ((neogeo_accurate!=0)&&((c!=7)||(bb)))
-		write_text_sel(22,18,text_str_on);
-	else
-		write_text(22,18,text_str_on);
+	{
+		write_text(6,10,text_str_cdaudio);
+		if (!cdda_disabled)
+			write_text(25,10,"||||");
+		else
+			write_text(19,10,"||||||");
+		write_text(19,10,text_str_off);
+		write_text(25,10,text_str_on);
+	}
 
-	write_text(6,20,text_str_separator);
-	if ((c==8)&&(bb))
-		write_text_sel(6,21,text_str_reset);
+	if (c==4)
+	{
+		write_text_sel(6,12,252,text_str_filter);
+		if (mainMenu_filter)
+			write_text_inv(25,12,"||||||||||||||||");
+		else
+			write_text_inv(19,12,"||||||||");
+		write_text_inv(19,12,text_str_filter_none);
+		write_text_inv(25,12,text_str_filter_bilinear);
+	}
 	else
-		write_text(6,21,text_str_reset);
+	{
+		write_text(6,12,text_str_filter);
+		if (mainMenu_filter)
+			write_text(25,12,"||||||||||||||");
+		else
+			write_text(19,12,"|||||||");
+		write_text(19,12,text_str_filter_none);
+		write_text(25,12,text_str_filter_bilinear);
+	}
 
-	write_text(6,22,text_str_separator);
-	if ((c==9)&&(bb))
-		write_text_sel(6,23,text_str_run);
+	write_text(6,13,text_str_separator);
+
+	write_text(6,14,text_str_separator);
+	if ((c==5)) //&&(bb))
+		write_text_sel(6,15,252,text_str_cpu);
 	else
-		write_text(6,23,text_str_run);
+		write_text(6,15,text_str_cpu);
 
+	if ((c==6)) //&&(bb))
+		write_text_sel(6,17,252,text_str_control);
+	else
+		write_text(6,17,text_str_control);
+	write_text(6,18,text_str_separator);
+
+	write_text(6,19,text_str_separator);
+	if ((c==7)) //&&(bb))
+		write_text_sel(6,20,252,text_str_reset);
+	else
+		write_text(6,20,text_str_reset);
+
+	if ((c==8)) //&&(bb))
+		write_text_sel(6,22,252,text_str_run);
+	else
+		write_text(6,22,text_str_run);
+
+	write_text(6,23,text_str_separator);
 	write_text(6,24,text_str_separator);
-	if ((c==10)&&(bb))
-		write_text_sel(6,25,text_str_exit);
+	if ((c==9)) //&&(bb))
+		write_text_sel(6,25,252,text_str_exit);
 	else
 		write_text(6,25,text_str_exit);
-	write_text(6,26,text_str_separator);
+//	write_text(6,26,text_str_separator);
 
 	text_flip();
-	b++;
+//	b++;
 }
 
 static inline int key_mainMenu(int *cp)
@@ -296,11 +338,11 @@ static inline int key_mainMenu(int *cp)
 			}
 			else if (up)
 			{
-				if (c>0) c=(c-1)%11;
-				else c=10;
+				if (c>0) c=(c-1)%10;
+				else c=9;
 			}
 			else if (down)
-				c=(c+1)%11;
+				c=(c+1)%10;
 			else
 			switch(c)
 			{
@@ -344,31 +386,19 @@ static inline int key_mainMenu(int *cp)
 							neogeo_sound_enable=1;
 					}
 					break;
-				case 3: // 68K
+				case 3:	// CDAUDIO
 					if (left)
 					{
-						if (mainMenu_68k>0)
-							mainMenu_68k--;
+						if (!cdda_disabled)
+							cdda_disabled=1;
 					}
 					else if (right)
 					{
-						if (mainMenu_68k<2)
-							mainMenu_68k++;
+						if (cdda_disabled)
+							cdda_disabled=0;
 					}
 					break;
-				case 4:	// Z80
-					if (left)
-					{
-						if (mainMenu_z80>0)
-							mainMenu_z80--;
-					}
-					else if (right)
-					{
-						if (mainMenu_z80<2)
-							mainMenu_z80++;
-					}
-					break;
-				case 5:	// FILTER
+				case 4:	// FILTER
 #ifdef USE_VIDEO_GL
 					if (left)
 					{
@@ -383,45 +413,35 @@ static inline int key_mainMenu(int *cp)
 					neogeo_adjust_filter(mainMenu_filter);
 #endif
 					break;
-				case 6:	// CDAUDIO
-					if (left)
+				case 5: // CPU MENU
+					if (hit0)
 					{
-						if (!cdda_disabled)
-							cdda_disabled=1;
-					}
-					else if (right)
-					{
-						if (cdda_disabled)
-							cdda_disabled=0;
+						mainMenu_case=MAIN_MENU_CASE_CPU;
+						end=1;
 					}
 					break;
-				case 7:	// ACCURATE
-					if (left)
+				case 6: // CONTROL MENU
+					if (hit0)
 					{
-						if (neogeo_accurate)
-							neogeo_accurate=0;
-					}
-					else if (right)
-					{
-						if (!neogeo_accurate)
-							neogeo_accurate=1;
+						mainMenu_case=MAIN_MENU_CASE_CONTROL;
+						end=1;
 					}
 					break;
-				case 8:	// RESET
+				case 7:	// RESET
 					if (hit0)
 					{
 						mainMenu_case=MAIN_MENU_CASE_RESET;
 						end=1;
 					}
 					break;
-				case 9:	// RUN
+				case 8:	// RUN
 					if (hit0)
 					{
 						mainMenu_case=MAIN_MENU_CASE_RUN;
 						end=1;
 					}
 					break;
-				case 10:// EXIT
+				case 9:// EXIT
 					if (hit0)
 					{
 						mainMenu_case=MAIN_MENU_CASE_REBOOT;
@@ -472,11 +492,11 @@ void drawNoCD(void)
 	for(i=0;i<200;i++)
 	{
 		text_draw_background();
-		text_draw_window(64,60,160,32,"--- ERROR ---");
+		text_draw_window(64,64,160,36,"ERROR");
 #ifndef AES
-		write_text(9,8,"No disk in drive");
+		write_text(9,9,"No disk in drive");
 #else
-		write_text(9,8,"No ROM selected");
+		write_text(9,9,"No game selected");
 #endif
 		text_flip();
 	}
@@ -490,8 +510,8 @@ void drawNoNeoGeoCD(void)
 	for(i=0;i<200;i++)
 	{
 		text_draw_background();
-		text_draw_window(64,60,160,32,"--- ERROR ---");
-		write_text(9,8,"No NeoGeo/CD disk");
+		text_draw_window(64,64,160,36,"ERROR");
+		write_text(9,9,"No NeoGeo/CD disk");
 		text_flip();
 	}
 }
@@ -503,12 +523,13 @@ void drawNoBIOS(void)
 	for(i=0;i<400;i++)
 	{
 		text_draw_background();
-		text_draw_window(48,60,224,32,"--- FATAL ERROR ---");
-		write_text(8,8,"Could not load NEOCD.BIN");
+		text_draw_window(48,64,224,36,"FATAL ERROR");
+		write_text(8,9,"Could not load NEOCD.BIN");
 		text_flip();
 	}
 }
 
+#if 0
 void drawNoRom(void)
 {
 	int i;
@@ -517,7 +538,7 @@ void drawNoRom(void)
 	for(i=0;i<20;i++)
 	{
 		text_draw_background();
-		text_draw_window(54,110,250,64,"--- ERROR ---");
+		text_draw_window(54,110,250,64,"ERROR");
 		write_text(14,14,"ROM not found");
 		write_text(8,16,"Press any button to retry");
 		text_flip();
@@ -539,6 +560,8 @@ void drawNoRom(void)
 }
 #endif
 
+#endif
+
 int run_mainMenu()
 {
 	static int c=8;
@@ -550,15 +573,14 @@ int run_mainMenu()
 	sound_play_menu();
 	while(mainMenu_case<0)
 	{
-		raise_mainMenu();
 		menu_moving=1;
+		raise_mainMenu();
 		end=0;
 		while(!end)
 		{
 			draw_mainMenu(c);
 			end=key_mainMenu(&c);
 		}
-		menu_moving=0;
 		unraise_mainMenu();
 		switch(mainMenu_case)
 		{
@@ -598,8 +620,19 @@ int run_mainMenu()
 				mainMenu_case=1;
 #endif
 				neogeo_adjust_frameskip(neogeo_frameskip);
-				neogeo_adjust_cycles(mainMenu_68k, mainMenu_z80);
+				neogeo_adjust_cycles(menuCPU_68k, menuCPU_z80);
 				break;
+
+			case MAIN_MENU_CASE_CPU:
+				run_menuCPU();
+				mainMenu_case=-1;
+				break;
+
+			case MAIN_MENU_CASE_CONTROL:
+				run_menuControl();
+				mainMenu_case=-1;
+				break;
+
 			case MAIN_MENU_CASE_RESET:
 #ifdef AES
 				if (need_reset>0)
@@ -617,7 +650,7 @@ int run_mainMenu()
 				}
 #endif
 				neogeo_adjust_frameskip(neogeo_frameskip);
-				neogeo_adjust_cycles(mainMenu_68k, mainMenu_z80);
+				neogeo_adjust_cycles(menuCPU_68k, menuCPU_z80);
 				if (neogeo_emulating)
 					mainMenu_case=2;
 				else
@@ -652,5 +685,7 @@ int run_mainMenu()
 #ifdef DREAMCAST
 //	__sdl_dc_wait_vblank=mainMenu_vsync;
 #endif
+	menu_moving=0;
+	text_draw_background();
 	return mainMenu_case;
 }

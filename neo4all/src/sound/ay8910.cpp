@@ -601,7 +601,6 @@ void AY8910_reset(void)
     int i;
     struct AY8910 *PSG = &AYPSG;
 
-
     PSG->register_latch = 0;
     PSG->RNG = 1;
     PSG->OutputA = 0;
@@ -628,17 +627,7 @@ static int AY8910_init(int clock, int sample_rate,
     PSG->PortBread = portBread;
     PSG->PortAwrite = portAwrite;
     PSG->PortBwrite = portBwrite;
-    {
-	static int last_value=12345;
-	if (last_value==12345)
-	{
-    		PSG->Channel = stream_init_multi(3, 0, AY8910Update);
-		last_value=PSG->Channel;
-	}
-	else
-		PSG->Channel = last_value;
-    }
-
+    PSG->Channel = stream_init_multi(3, 0, AY8910Update);
     if (PSG->Channel == -1)
 	return 1;
 
